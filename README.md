@@ -1,9 +1,12 @@
 # 🎯 Job Radar
 
 Dashboard pessoal para monitorar vagas de programação remotas na Europa **e**
-vagas no Brasil (Itaú, Stone, Localiza, Boticário, TIM e centenas de outras
-empresas via Gupy).
+vagas no Brasil — empresas grandes como Itaú, Stone, Localiza, Boticário,
+TIM, Bradesco, Stellantis e Natura, entre centenas de outras, via Gupy e
+Eureca.
 Busca automaticamente todo dia às **08:00 BRT** e guarda tudo no banco.
+
+Repositório: https://github.com/PedroVR20/jobradar
 
 ---
 
@@ -23,7 +26,9 @@ Aguarda uns 2-3 minutos para o Maven baixar as dependências e compilar o backen
 
 ---
 
-## ⚠️ Adicionando um novo campo boolean/NOT NULL no `Job`
+## ⚠️ Pegadinhas já encontradas (leia antes de mexer no backend)
+
+### Novo campo boolean/NOT NULL no `Job`
 
 O projeto usa `spring.jpa.hibernate.ddl-auto: update`, que só sabe fazer
 `ALTER TABLE ... ADD COLUMN`. Isso quebra o backend (loop de crash) se o
@@ -37,6 +42,20 @@ TABLE` manualmente com `DEFAULT` **antes** de subir o backend:
 ALTER TABLE jobs ADD COLUMN nome_da_coluna boolean NOT NULL DEFAULT false;
 ```
 Ou use `Boolean` (wrapper, aceita null) em vez de `boolean` primitivo.
+
+### `@Transactional` + self-invocation
+
+Métodos `@Transactional` chamados por
+**self-invocation** (um método da mesma classe chamando `this.outroMetodo()`
+diretamente, sem passar pelo proxy do Spring) **ignoram o `@Transactional`**.
+Isso quebrou a exclusão automática de vagas recusadas: `fetchNaInicializacao()`
+(rodada por `@PostConstruct`, sem transação própria) chamava
+`limparVagasRecusadasAntigas()` internamente, e a query `@Modifying @Query
+DELETE` falhava com `TransactionRequiredException` por não ter transação
+ativa. Corrigido colocando `@Transactional` direto no método do
+**repositório** (`JobRepository.deleteByRejectedTrueAndRejectedAtBefore`),
+já que repositórios Spring Data são proxies próprios e não sofrem desse
+problema, não importa quem os chama.
 
 ---
 
@@ -74,19 +93,32 @@ npm run dev
 | Arbeitnow  | Vagas europeias (só remote, paginado até 5 páginas)       | ✅       |
 | WWR        | We Work Remotely (RSS de programação)                     | ✅       |
 | **Gupy**   | Vagas de tecnologia e estágio em empresas brasileiras (Itaú, Stone, Localiza, Boticário, TIM, e centenas de outras) — remoto, híbrido e presencial | ✅ |
+| **Eureca** | Programas de estágio/trainee em empresas grandes (Bradesco, Stellantis, Natura, Sephora, Equinor, SLC Agrícola e outras) | ✅ |
 
 **Sobre a fonte Gupy:** usa a API pública do portal de busca de vagas da
 Gupy (`portal.gupy.io/job-search`), o mesmo ATS usado por milhares de
 empresas brasileiras. Não requer autenticação — é a mesma API que o
-próprio site público usa. A busca cobre ~14 termos de tecnologia e estágio
+próprio site público usa. A busca cobre ~22 termos de tecnologia e estágio
 (desenvolvedor, java, python, devops, dados, estágio ti, etc.), com
-deduplicação por ID da vaga.
+deduplicação por ID da vaga. Termos principais também são repetidos com
+`state=Rio de Janeiro` pra garantir cobertura da região mesmo quando o
+corte de 100 resultados por termo da busca nacional deixaria vaga de fora.
+
+**Sobre a fonte Eureca:** usa `candidate-api.eureca.me/v2/opportunities`,
+a API que o site público (`app.eureca.me/oportunidades`) usa pra listar
+vagas. **Não é documentada oficialmente** — foi descoberta observando o
+tráfego de rede do site, então pode quebrar se a Eureca mudar o front-end
+(por isso fica isolada em `EurecaService`, sem afetar as outras fontes se
+parar de funcionar). O catálogo inteiro é pequeno (pouco mais de 100 vagas
+ativas), então a busca simplesmente pagina tudo em vez de usar termos como
+na Gupy.
 
 > LinkedIn e InfoJobs **não foram incluídos**: nenhum dos dois oferece uma
 > API pública de vagas — LinkedIn bloqueia scraping ativamente e o InfoJobs
-> não expõe endpoint público sem parceria comercial. Se quiser adicionar
-> uma empresa específica que usa outro ATS (Gupy tem subdomínio próprio por
-> empresa, tipo `empresa.gupy.io`), me avise.
+> não expõe endpoint público sem parceria comercial. Se quiser acompanhar
+> uma vaga específica achada nesses sites (ou no Glassdoor, indicação etc),
+> use o botão **"➕ Adicionar vaga"** no site pra cadastrar manualmente —
+> veja a seção [Adicionar vaga manualmente](#-adicionar-vaga-manualmente).
 
 ---
 
@@ -152,21 +184,60 @@ vagas simplesmente não mostram o badge.
 ## 👁 Abas de visualização
 
 Em vez de só ficar cinza, vagas já vistas saem da aba "Novas" e vão para
-"Já vistas" — cinco abas no topo da lista:
+"Já vistas" — seis abas no topo da lista:
 
 - 🔴 **Novas** — ainda não vistas (aba padrão ao abrir o app)
 - 👁 **Já vistas** — vistas mas não aplicadas
 - ✅ **Aplicadas** — aplicou, mas ainda sem retorno/processo ativo
 - 🔄 **Em Andamento** — aplicou e está em processo seletivo ativo (entrevistas etc), separado de "Aplicadas" pra não confundir/esquecer
+- ❌ **Recusadas** — processo encerrado sem sucesso, ou vaga congelada/cancelada pela empresa (some sozinha depois de 7 dias, veja abaixo)
 - 📋 **Todas**
 
-Pra mover uma vaga entre "Aplicadas" e "Em Andamento": **arraste o card**
-(ele fica arrastável assim que marcado como aplicado) e solte em cima da
-aba desejada, ou use os botões "🔄 Entrei em processo" / "↩ Voltar pra
-Aplicadas" no próprio card.
+Pra mover uma vaga entre abas, três formas (todas fazem a mesma coisa):
+1. **Arraste o card** (fica arrastável assim que marcado como aplicado) e
+   solte em cima da aba "Aplicadas", "Em Andamento" ou "Recusadas".
+2. **Menu "⋮"** no canto do card — lista as outras abas disponíveis pro
+   status atual da vaga. É a forma mais confiável: o drag-and-drop pode
+   falhar se você começar a arrastar clicando em cima do título (que é um
+   link, e o navegador tenta arrastar o link em vez do card).
+3. Botões dedicados no card: "🔄 Entrei em processo", "↩ Voltar pra
+   Aplicadas", "❌ Recusada/congelada", "↩ Reativar vaga".
 
 A lista pagina 30 vagas por vez com "Carregar mais vagas" (o volume subiu
-bastante com a fonte Gupy).
+bastante com Gupy e Eureca).
+
+---
+
+## ❌ Vagas recusadas — exclusão automática em 7 dias
+
+Marcar uma vaga como recusada/congelada tira ela do fluxo ativo
+(Aplicadas/Em Andamento) sem apagar na hora — ela fica visível na aba
+"Recusadas" por **7 dias** a partir do momento em que foi marcada (não da
+data de publicação da vaga), e depois é **apagada permanentemente do
+banco** pra não acumular vaga morta.
+
+O card mostra uma contagem regressiva (🗑 "Some em Xd") avisando quantos
+dias faltam. Se você mudar de ideia, o botão "↩ Reativar vaga" volta ela
+pra "Aplicadas" e cancela a exclusão.
+
+A limpeza roda automaticamente no fetch diário (08:00) e também ao subir o
+backend (`JobAggregatorService.limparVagasRecusadasAntigas`). Pra mudar o
+prazo, edite `DIAS_PARA_EXCLUIR_RECUSADAS` nesse arquivo **e** em
+`frontend/src/types/Job.ts` (`DIAS_PARA_EXCLUIR_RECUSADAS`) — os dois
+precisam ficar iguais.
+
+---
+
+## ➕ Adicionar vaga manualmente
+
+Pra vagas achadas fora das fontes automáticas — Glassdoor, LinkedIn,
+indicação de alguém, etc. Clique em "➕ Adicionar vaga" no topo do site e
+preencha título, empresa e link (obrigatórios) mais os campos opcionais
+(fonte, salário, modalidade, cidade, estado, status inicial).
+
+A senioridade é classificada automaticamente pelo título, igual às vagas
+buscadas automaticamente. Se colar uma URL que já existe no banco, atualiza
+a vaga existente em vez de duplicar.
 
 ---
 
@@ -174,19 +245,25 @@ bastante com a fonte Gupy).
 
 ```
 GET  /api/jobs                    → Lista vagas (com filtros)
-GET  /api/jobs?source=GUPY         → Filtra por fonte (REMOTIVE|ARBEITNOW|WWR|GUPY)
+GET  /api/jobs?source=GUPY         → Filtra por fonte (REMOTIVE|ARBEITNOW|WWR|GUPY|EURECA|GLASSDOOR|MANUAL)
 GET  /api/jobs?search=itau         → Busca multi-termo, ignora acentos ("itau" acha "Itaú")
 GET  /api/jobs?seniority=JUNIOR    → Filtra por nível (ESTAGIO|JUNIOR|PLENO|SENIOR|NAO_INFORMADO)
+GET  /api/jobs?workplaceType=REMOTO → Filtra por modalidade (REMOTO|HIBRIDO|PRESENCIAL)
+GET  /api/jobs?state=São+Paulo     → Filtra por estado (nome por extenso, ignora acentos)
 GET  /api/jobs?days=7              → Só publicadas nos últimos N dias
 GET  /api/jobs?sort=posted_desc    → Ordenação: posted_desc | posted_asc | fetched_desc
 GET  /api/jobs?onlyNew=true        → Só não vistas
 GET  /api/jobs?onlySeen=true       → Só vistas e não aplicadas
 GET  /api/jobs?onlyApplied=true    → Só aplicadas (fora de processo)
 GET  /api/jobs?onlyInProgress=true → Só aplicadas e em processo seletivo ativo
-GET  /api/jobs/stats               → Estatísticas gerais (inclui porSenioridade e porFonte)
+GET  /api/jobs?onlyRejected=true   → Só recusadas/congeladas
+GET  /api/jobs/states              → Lista de estados presentes no banco (popula o filtro)
+GET  /api/jobs/stats               → Estatísticas gerais (inclui porSenioridade, porFonte, emAndamento, recusadas)
 PATCH /api/jobs/{id}/seen          → Marca como vista
-PATCH /api/jobs/{id}/applied       → Marca como aplicada (e tira de "em andamento")
+PATCH /api/jobs/{id}/applied       → Marca como aplicada (e tira de "em andamento"/"recusada")
 PATCH /api/jobs/{id}/in-progress   → Marca como em processo seletivo ativo
+PATCH /api/jobs/{id}/status?value=X → Move pra um status específico: NOVA|VISTA|APLICADA|ANDAMENTO|RECUSADA
+POST /api/jobs/manual              → Adiciona/atualiza vaga manual (title, company, url obrigatórios)
 POST /api/jobs/fetch               → Dispara fetch manual
 ```
 
@@ -203,13 +280,13 @@ job-radar/
 │   └── src/main/java/br/com/jobradar/
 │       ├── model/        ← Entidade Job
 │       ├── repository/   ← JPA Repository
-│       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, SeniorityClassifier, Aggregator
+│       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, SeniorityClassifier, SalaryExtractor, Aggregator
 │       └── controller/   ← REST API
 └── frontend/             ← React 18 + TypeScript + Vite
     ├── Dockerfile
     ├── nginx.conf
     └── src/
-        ├── components/   ← JobCard, FilterBar, StatsBar, ViewTabs
+        ├── components/   ← JobCard, FilterBar, StatsBar, ViewTabs, AddJobModal
         ├── hooks/        ← useJobs
         └── types/        ← Job, Stats, Filters
 ```
