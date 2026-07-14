@@ -1,5 +1,5 @@
 import { DragEvent, useEffect, useRef, useState } from 'react';
-import { Job, JobStatus, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
+import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
 
 interface Props {
   job: Job;
@@ -15,13 +15,24 @@ const techTags = [
   'fullstack', 'backend', 'frontend', 'devops', 'remote', 'remoto',
 ];
 
-const ALL_STATUSES: JobStatus[] = ['NOVA', 'VISTA', 'APLICADA', 'ANDAMENTO'];
+const ALL_STATUSES: JobStatus[] = ['NOVA', 'VISTA', 'APLICADA', 'ANDAMENTO', 'RECUSADA'];
 
 function currentStatus(job: Job): JobStatus {
+  if (job.rejected) return 'RECUSADA';
   if (job.inProgress) return 'ANDAMENTO';
   if (job.applied) return 'APLICADA';
   if (job.seen) return 'VISTA';
   return 'NOVA';
+}
+
+// dias restantes até a exclusão automática de uma vaga recusada
+function daysUntilDeletion(rejectedAt: string): number {
+  const rejectedDate = new Date(rejectedAt);
+  const deleteDate = new Date(rejectedDate.getTime() + DIAS_PARA_EXCLUIR_RECUSADAS * 86400000);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  deleteDate.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((deleteDate.getTime() - today.getTime()) / 86400000));
 }
 
 function formatDate(iso: string | null): string {
@@ -60,9 +71,10 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus }: P
   const showSeniority = job.seniority && job.seniority !== 'NAO_INFORMADO';
   const deadline = deadlineInfo(job.expiresAt);
 
-  const isSeenOnly = job.seen && !job.applied;
-  const isPlainApplied = job.applied && !job.inProgress;
+  const isSeenOnly = job.seen && !job.applied && !job.rejected;
+  const isPlainApplied = job.applied && !job.inProgress && !job.rejected;
   const status = currentStatus(job);
+  const daysLeft = job.rejected && job.rejectedAt ? daysUntilDeletion(job.rejectedAt) : null;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -90,16 +102,17 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus }: P
 
   return (
     <div
-      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress ? 'job-card--in-progress' : ''} ${isSeenOnly ? 'job-card--seen' : ''}`}
+      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''}`}
       draggable={job.applied}
       onDragStart={job.applied ? handleDragStart : undefined}
-      title={job.applied ? 'Arraste pra "Aplicadas" ou "Em Andamento", ou use o menu ⋮' : undefined}
+      title={job.applied ? 'Arraste pra outra aba, ou use o menu ⋮' : undefined}
     >
       {/* Header */}
       <div className="card-header">
         <div className="card-header-left">
           {isNew && <span className="badge-new">NOVA</span>}
-          {job.inProgress && <span className="badge-in-progress">EM ANDAMENTO 🔄</span>}
+          {job.rejected && <span className="badge-rejected">❌ RECUSADA</span>}
+          {job.inProgress && !job.rejected && <span className="badge-in-progress">EM ANDAMENTO 🔄</span>}
           {isPlainApplied && <span className="badge-applied">APLICADA ✅</span>}
           <span className="badge-source" style={{ background: src.color + '22', color: src.color }}>
             {src.label}
@@ -161,10 +174,15 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus }: P
         </p>
       )}
 
-      {(job.salary || deadline) && (
+      {(job.salary || deadline || daysLeft !== null) && (
         <div className="card-badges">
           {job.salary && <span className="badge-salary">💰 {job.salary}</span>}
           {deadline && <span className={`badge-deadline ${deadline.className}`}>{deadline.label}</span>}
+          {daysLeft !== null && (
+            <span className="badge-deletion">
+              🗑 {daysLeft === 0 ? 'Some hoje' : `Some em ${daysLeft}d`}
+            </span>
+          )}
         </div>
       )}
 
@@ -218,7 +236,23 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus }: P
             🔄 Entrei em processo
           </button>
         )}
-        {job.inProgress && (
+        {job.applied && !job.rejected && (
+          <button
+            className="btn btn-danger"
+            onClick={() => onSetStatus(job.id, 'RECUSADA')}
+          >
+            ❌ Recusada/congelada
+          </button>
+        )}
+        {job.rejected && (
+          <button
+            className="btn btn-ghost"
+            onClick={() => onSetStatus(job.id, 'APLICADA')}
+          >
+            ↩ Reativar vaga
+          </button>
+        )}
+        {job.inProgress && !job.rejected && (
           <button
             className="btn btn-ghost"
             onClick={() => onApplied(job.id)}

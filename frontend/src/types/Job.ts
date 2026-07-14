@@ -1,4 +1,4 @@
-export type JobSource = 'REMOTIVE' | 'ARBEITNOW' | 'WWR' | 'GUPY' | 'GLASSDOOR' | 'MANUAL';
+export type JobSource = 'REMOTIVE' | 'ARBEITNOW' | 'WWR' | 'GUPY' | 'EURECA' | 'GLASSDOOR' | 'MANUAL';
 
 export type Seniority = 'ESTAGIO' | 'JUNIOR' | 'PLENO' | 'SENIOR' | 'NAO_INFORMADO';
 
@@ -22,6 +22,8 @@ export interface Job {
   seen: boolean;
   applied: boolean;
   inProgress: boolean;
+  rejected: boolean;
+  rejectedAt: string | null;
 }
 
 export interface Stats {
@@ -29,29 +31,35 @@ export interface Stats {
   novas: number;
   aplicadas: number;
   emAndamento: number;
+  recusadas: number;
   hojeCount: number;
   porFonte: {
     REMOTIVE: number;
     ARBEITNOW: number;
     WWR: number;
     GUPY: number;
+    EURECA: number;
   };
   porSenioridade: Record<Seniority, number>;
 }
 
 export type SortOption = 'posted_desc' | 'posted_asc' | 'fetched_desc';
 
-export type ViewMode = 'novas' | 'vistas' | 'aplicadas' | 'andamento' | 'todas';
+export type ViewMode = 'novas' | 'vistas' | 'aplicadas' | 'andamento' | 'recusadas' | 'todas';
 
 // Status "reais" de uma vaga (todas exceto o pseudo-filtro "todas")
-export type JobStatus = 'NOVA' | 'VISTA' | 'APLICADA' | 'ANDAMENTO';
+export type JobStatus = 'NOVA' | 'VISTA' | 'APLICADA' | 'ANDAMENTO' | 'RECUSADA';
 
 export const statusMeta: Record<JobStatus, string> = {
   NOVA: '🔴 Nova (não vista)',
   VISTA: '👁 Já vista',
   APLICADA: '✅ Aplicada',
   ANDAMENTO: '🔄 Em Andamento',
+  RECUSADA: '❌ Recusada/congelada',
 };
+
+// Vagas recusadas somem sozinhas depois de tantos dias (espelha o backend)
+export const DIAS_PARA_EXCLUIR_RECUSADAS = 7;
 
 export interface Filters {
   source: string;
@@ -77,6 +85,7 @@ export const sourceMeta: Record<string, { label: string; color: string }> = {
   ARBEITNOW: { label: 'Arbeitnow (EU)',   color: '#10b981' },
   WWR:       { label: 'We Work Remotely', color: '#f59e0b' },
   GUPY:      { label: 'Gupy (BR)',        color: '#ec4899' },
+  EURECA:    { label: 'Eureca (BR)',      color: '#14b8a6' },
   GLASSDOOR: { label: 'Glassdoor',        color: '#0caa41' },
   MANUAL:    { label: 'Adicionada manualmente', color: '#94a3b8' },
 };

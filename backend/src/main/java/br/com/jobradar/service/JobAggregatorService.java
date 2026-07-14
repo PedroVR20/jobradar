@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -24,6 +25,7 @@ public class JobAggregatorService {
     private final ArbeitnowService arbeitnowService;
     private final WorkRemotelyService workRemotelyService;
     private final GupyService gupyService;
+    private final EurecaService eurecaService;
     private final SeniorityClassifier seniorityClassifier;
 
     /**
@@ -34,6 +36,25 @@ public class JobAggregatorService {
     public void fetchDiario() {
         log.info("=== Fetch diário iniciado ===");
         fetchAllJobs();
+        limparVagasRecusadasAntigas();
+    }
+
+    // Quantos dias uma vaga fica na aba "Recusadas" antes de ser apagada de vez.
+    private static final int DIAS_PARA_EXCLUIR_RECUSADAS = 7;
+
+    /**
+     * Apaga permanentemente vagas marcadas como recusadas/congeladas há mais
+     * de {@link #DIAS_PARA_EXCLUIR_RECUSADAS} dias, pra aba não acumular
+     * vaga morta pra sempre. Roda no fetch diário e ao subir o backend.
+     */
+    @Transactional
+    public void limparVagasRecusadasAntigas() {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(DIAS_PARA_EXCLUIR_RECUSADAS);
+        int apagadas = jobRepository.deleteByRejectedTrueAndRejectedAtBefore(cutoff);
+        if (apagadas > 0) {
+            log.info("=== {} vagas recusadas há mais de {} dias foram apagadas ===",
+                    apagadas, DIAS_PARA_EXCLUIR_RECUSADAS);
+        }
     }
 
     /**
@@ -48,6 +69,7 @@ public class JobAggregatorService {
         marcarModalidadeRemotaAntigas();
         fetchAllJobs();
         enriquecerSalariosGupyAntigas();
+        limparVagasRecusadasAntigas();
     }
 
     // Limita quantas vagas antigas sem salário são checadas por ciclo —
@@ -118,6 +140,7 @@ public class JobAggregatorService {
         allJobs.addAll(arbeitnowService.fetchJobs());
         allJobs.addAll(workRemotelyService.fetchJobs());
         allJobs.addAll(gupyService.fetchJobs());
+        allJobs.addAll(eurecaService.fetchJobs());
 
         int novos = 0;
         int enriquecidas = 0;

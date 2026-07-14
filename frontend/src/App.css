@@ -325,6 +325,7 @@ a:hover { text-decoration: underline; }
 .job-card--seen   { border-left: 3px solid var(--border); opacity: 0.7; }
 .job-card--applied { border-left: 3px solid var(--green); opacity: 0.85; }
 .job-card--in-progress { border-left: 3px solid var(--yellow); }
+.job-card--rejected { border-left: 3px solid var(--text-muted); opacity: 0.6; }
 .job-card[draggable="true"] { cursor: grab; }
 .job-card[draggable="true"]:active { cursor: grabbing; opacity: 0.6; }
 
@@ -369,6 +370,27 @@ a:hover { text-decoration: underline; }
   background: var(--yellow);
   color: #1a1305;
   letter-spacing: 0.3px;
+}
+
+.badge-rejected {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--text-muted);
+  color: #0d1117;
+  letter-spacing: 0.3px;
+}
+
+.badge-deletion {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 5px;
+  background: #ffffff0a;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
 }
 
 .badge-source {
@@ -581,6 +603,11 @@ a:hover { text-decoration: underline; }
   background: #f59e0b22;
   color: var(--yellow);
   border: 1px solid #f59e0b44;
+}
+.btn-danger {
+  background: #ef444422;
+  color: var(--red);
+  border: 1px solid #ef444444;
 }
 
 .fetch-btn {

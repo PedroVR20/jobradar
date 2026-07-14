@@ -60,4 +60,12 @@ public class Job {
     // e ainda não tiveram retorno.
     @Builder.Default
     private boolean inProgress = false;
+
+    // true = vaga recusada (processo encerrado sem sucesso) ou vaga congelada
+    // pela empresa. rejectedAt marca quando isso aconteceu, usado pra excluir
+    // a vaga automaticamente depois de alguns dias (ver JobAggregatorService).
+    @Builder.Default
+    private boolean rejected = false;
+
+    private LocalDateTime rejectedAt;
 }

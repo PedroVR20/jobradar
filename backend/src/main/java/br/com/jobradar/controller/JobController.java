@@ -41,6 +41,7 @@ public class JobController {
      * onlySeen  → só vistas e não aplicadas
      * onlyApplied → só aplicadas e fora de processo (não confundir com em andamento)
      * onlyInProgress → só aplicadas e em processo seletivo ativo
+     * onlyRejected → só recusadas/congeladas (somem sozinhas depois de 7 dias)
      */
     @GetMapping
     public List<Map<String, Object>> getAll(
@@ -54,7 +55,8 @@ public class JobController {
             @RequestParam(required = false, defaultValue = "false") boolean onlyNew,
             @RequestParam(required = false, defaultValue = "false") boolean onlySeen,
             @RequestParam(required = false, defaultValue = "false") boolean onlyApplied,
-            @RequestParam(required = false, defaultValue = "false") boolean onlyInProgress
+            @RequestParam(required = false, defaultValue = "false") boolean onlyInProgress,
+            @RequestParam(required = false, defaultValue = "false") boolean onlyRejected
     ) {
         List<Job> jobs = jobRepository.findAll();
         LocalDateTime postedAfter = days != null && days > 0
@@ -69,10 +71,11 @@ public class JobController {
                         || workplaceType.equalsIgnoreCase(j.getWorkplaceType()))
                 .filter(j -> state == null || state.isBlank()
                         || (j.getState() != null && normalize(state).equals(normalize(j.getState()))))
-                .filter(j -> !onlyNew || !j.isSeen())
-                .filter(j -> !onlySeen || (j.isSeen() && !j.isApplied()))
-                .filter(j -> !onlyApplied || (j.isApplied() && !j.isInProgress()))
-                .filter(j -> !onlyInProgress || (j.isApplied() && j.isInProgress()))
+                .filter(j -> !onlyNew || (!j.isSeen() && !j.isRejected()))
+                .filter(j -> !onlySeen || (j.isSeen() && !j.isApplied() && !j.isRejected()))
+                .filter(j -> !onlyApplied || (j.isApplied() && !j.isInProgress() && !j.isRejected()))
+                .filter(j -> !onlyInProgress || (j.isApplied() && j.isInProgress() && !j.isRejected()))
+                .filter(j -> !onlyRejected || j.isRejected())
                 .filter(j -> postedAfter == null || (j.getPostedAt() != null
                         && j.getPostedAt().isAfter(postedAfter)))
                 .filter(j -> matchesSearch(j, search))
@@ -128,13 +131,15 @@ public class JobController {
         stats.put("novas", jobRepository.countBySeenFalse());
         stats.put("aplicadas", jobRepository.countByAppliedTrue());
         stats.put("emAndamento", jobRepository.countByAppliedTrueAndInProgressTrue());
+        stats.put("recusadas", jobRepository.countByRejectedTrue());
         stats.put("hojeCount", jobRepository
                 .findByFetchedAtAfter(LocalDateTime.now().minusHours(24)).size());
         stats.put("porFonte", Map.of(
                 "REMOTIVE", jobRepository.countBySource("REMOTIVE"),
                 "ARBEITNOW", jobRepository.countBySource("ARBEITNOW"),
                 "WWR", jobRepository.countBySource("WWR"),
-                "GUPY", jobRepository.countBySource("GUPY")
+                "GUPY", jobRepository.countBySource("GUPY"),
+                "EURECA", jobRepository.countBySource("EURECA")
         ));
         stats.put("porSenioridade", Map.of(
                 SeniorityClassifier.ESTAGIO, jobRepository.countBySeniority(SeniorityClassifier.ESTAGIO),
@@ -167,9 +172,7 @@ public class JobController {
     @PatchMapping("/{id}/applied")
     public ResponseEntity<Map<String, Object>> markApplied(@PathVariable Long id) {
         return jobRepository.findById(id).map(job -> {
-            job.setApplied(true);
-            job.setSeen(true);
-            job.setInProgress(false);
+            aplicarStatus(job, "APLICADA");
             return ResponseEntity.ok(toDto(jobRepository.save(job)));
         }).orElse(ResponseEntity.notFound().build());
     }
@@ -183,21 +186,20 @@ public class JobController {
     @PatchMapping("/{id}/in-progress")
     public ResponseEntity<Map<String, Object>> markInProgress(@PathVariable Long id) {
         return jobRepository.findById(id).map(job -> {
-            job.setApplied(true);
-            job.setSeen(true);
-            job.setInProgress(true);
+            aplicarStatus(job, "ANDAMENTO");
             return ResponseEntity.ok(toDto(jobRepository.save(job)));
         }).orElse(ResponseEntity.notFound().build());
     }
 
-    private static final List<String> VALID_STATUSES = List.of("NOVA", "VISTA", "APLICADA", "ANDAMENTO");
+    private static final List<String> VALID_STATUSES =
+            List.of("NOVA", "VISTA", "APLICADA", "ANDAMENTO", "RECUSADA");
 
     /**
      * Move a vaga diretamente pra um status específico — usado pelo menu "⋮"
      * do card, que permite pular pra qualquer aba independente da atual
      * (alternativa ao drag-and-drop, que nem sempre funciona ao iniciar o
      * arrasto a partir de um link dentro do card).
-     * PATCH /api/jobs/{id}/status?value=NOVA|VISTA|APLICADA|ANDAMENTO
+     * PATCH /api/jobs/{id}/status?value=NOVA|VISTA|APLICADA|ANDAMENTO|RECUSADA
      */
     @PatchMapping("/{id}/status")
     public ResponseEntity<Map<String, Object>> setStatus(
@@ -208,11 +210,20 @@ public class JobController {
         }
 
         return jobRepository.findById(id).map(job -> {
-            job.setSeen(!status.equals("NOVA"));
-            job.setApplied(status.equals("APLICADA") || status.equals("ANDAMENTO"));
-            job.setInProgress(status.equals("ANDAMENTO"));
+            aplicarStatus(job, status);
             return ResponseEntity.ok(toDto(jobRepository.save(job)));
         }).orElse(ResponseEntity.notFound().build());
+    }
+
+    // Ponto único que traduz um status "lógico" (NOVA/VISTA/APLICADA/ANDAMENTO/
+    // RECUSADA) para os campos booleanos da entidade. RECUSADA marca rejectedAt
+    // com o instante atual, usado depois pra excluir a vaga após alguns dias.
+    private void aplicarStatus(Job job, String status) {
+        job.setSeen(!status.equals("NOVA"));
+        job.setApplied(status.equals("APLICADA") || status.equals("ANDAMENTO") || status.equals("RECUSADA"));
+        job.setInProgress(status.equals("ANDAMENTO"));
+        job.setRejected(status.equals("RECUSADA"));
+        job.setRejectedAt(status.equals("RECUSADA") ? LocalDateTime.now() : null);
     }
 
     /**
@@ -265,9 +276,7 @@ public class JobController {
         job.setExpiresAt(req.expiresAt());
         job.setPostedAt(req.postedAt() != null ? req.postedAt() : LocalDateTime.now());
         job.setFetchedAt(LocalDateTime.now());
-        job.setSeen(!status.equals("NOVA"));
-        job.setApplied(status.equals("APLICADA") || status.equals("ANDAMENTO"));
-        job.setInProgress(status.equals("ANDAMENTO"));
+        aplicarStatus(job, status);
 
         return ResponseEntity.ok(toDto(jobRepository.save(job)));
     }
@@ -308,6 +317,8 @@ public class JobController {
         dto.put("seen", job.isSeen());
         dto.put("applied", job.isApplied());
         dto.put("inProgress", job.isInProgress());
+        dto.put("rejected", job.isRejected());
+        dto.put("rejectedAt", job.getRejectedAt() != null ? job.getRejectedAt().toString() : null);
         dto.put("tags", job.getTags() != null
                 ? Arrays.asList(job.getTags().split(","))
                 : List.of());

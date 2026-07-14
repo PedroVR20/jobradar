@@ -13,6 +13,7 @@ const sourceColors: Record<string, string> = {
   ARBEITNOW: '#10b981',
   WWR: '#f59e0b',
   GUPY: '#ec4899',
+  EURECA: '#14b8a6',
 };
 
 const seniorityOrder: Seniority[] = ['ESTAGIO', 'JUNIOR', 'PLENO', 'SENIOR', 'NAO_INFORMADO'];
