@@ -1,0 +1,174 @@
+package br.com.jobradar.service;
+
+import br.com.jobradar.model.Job;
+import br.com.jobradar.repository.JobRepository;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class JobAggregatorService {
+
+    private final JobRepository jobRepository;
+    private final RemotiveService remotiveService;
+    private final ArbeitnowService arbeitnowService;
+    private final WorkRemotelyService workRemotelyService;
+    private final GupyService gupyService;
+    private final SeniorityClassifier seniorityClassifier;
+
+    /**
+     * Roda automaticamente todo dia às 08:00 BRT
+     */
+    @Scheduled(cron = "0 0 8 * * *", zone = "America/Sao_Paulo")
+    @Transactional
+    public void fetchDiario() {
+        log.info("=== Fetch diário iniciado ===");
+        fetchAllJobs();
+    }
+
+    /**
+     * Roda também ao subir a aplicação para já ter dados no dashboard
+     */
+    private static final List<String> FONTES_100_REMOTO = List.of("REMOTIVE", "ARBEITNOW", "WWR");
+
+    @PostConstruct
+    public void fetchNaInicializacao() {
+        log.info("=== Fetch inicial ao subir a aplicação ===");
+        classificarVagasAntigas();
+        marcarModalidadeRemotaAntigas();
+        fetchAllJobs();
+        enriquecerSalariosGupyAntigas();
+    }
+
+    // Limita quantas vagas antigas sem salário são checadas por ciclo —
+    // cada checagem é uma requisição HTTP extra à Gupy, então isso evita
+    // disparar centenas de requisições de uma vez.
+    private static final int MAX_BACKFILL_SALARIO = 150;
+
+    /**
+     * Backfill: vagas Gupy já salvas sem salário (a busca por termo não traz
+     * esse dado) são checadas uma a uma via endpoint de detalhe, em lotes
+     * pequenos por ciclo, até o catálogo inteiro ficar coberto.
+     */
+    @Transactional
+    public void enriquecerSalariosGupyAntigas() {
+        List<Job> semSalario = jobRepository.findBySourceAndSalaryIsNullOrderByPostedAtDesc(
+                "GUPY", PageRequest.of(0, MAX_BACKFILL_SALARIO));
+        if (semSalario.isEmpty()) return;
+
+        int achados = 0;
+        for (Job job : semSalario) {
+            String salario = gupyService.fetchSalaryHint(job.getUrl());
+            if (salario != null) {
+                job.setSalary(salario);
+                jobRepository.save(job);
+                achados++;
+            }
+        }
+        log.info("=== Backfill de salário Gupy: {} vagas checadas, {} com salário encontrado ===",
+                semSalario.size(), achados);
+    }
+
+    /**
+     * Backfill: Remotive/Arbeitnow/WWR só trazem vagas 100% remotas, então
+     * vagas antigas dessas fontes sem workplaceType são marcadas como REMOTO.
+     */
+    @Transactional
+    public void marcarModalidadeRemotaAntigas() {
+        List<Job> semModalidade = jobRepository.findByWorkplaceTypeIsNullAndSourceIn(FONTES_100_REMOTO);
+        if (semModalidade.isEmpty()) return;
+
+        for (Job job : semModalidade) {
+            job.setWorkplaceType("REMOTO");
+        }
+        jobRepository.saveAll(semModalidade);
+        log.info("=== {} vagas antigas marcadas como REMOTO ===", semModalidade.size());
+    }
+
+    /**
+     * Backfill: vagas salvas antes da coluna seniority existir são
+     * classificadas retroativamente pelo título/tags.
+     */
+    @Transactional
+    public void classificarVagasAntigas() {
+        List<Job> semSenioridade = jobRepository.findBySeniorityIsNull();
+        if (semSenioridade.isEmpty()) return;
+
+        for (Job job : semSenioridade) {
+            job.setSeniority(seniorityClassifier.classify(job.getTitle(), job.getTags()));
+        }
+        jobRepository.saveAll(semSenioridade);
+        log.info("=== {} vagas antigas classificadas por senioridade ===", semSenioridade.size());
+    }
+
+    @Transactional
+    public int fetchAllJobs() {
+        List<Job> allJobs = new ArrayList<>();
+        allJobs.addAll(remotiveService.fetchJobs());
+        allJobs.addAll(arbeitnowService.fetchJobs());
+        allJobs.addAll(workRemotelyService.fetchJobs());
+        allJobs.addAll(gupyService.fetchJobs());
+
+        int novos = 0;
+        int enriquecidas = 0;
+        for (Job job : allJobs) {
+            Optional<Job> existente = jobRepository.findByUrl(job.getUrl());
+            if (existente.isEmpty()) {
+                job.setSeniority(seniorityClassifier.classify(job.getTitle(), job.getTags()));
+                if ("GUPY".equals(job.getSource()) && job.getSalary() == null) {
+                    job.setSalary(gupyService.fetchSalaryHint(job.getUrl()));
+                }
+                jobRepository.save(job);
+                novos++;
+            } else if (enriquecer(existente.get(), job)) {
+                jobRepository.save(existente.get());
+                enriquecidas++;
+            }
+        }
+
+        log.info("=== Fetch concluído: {} vagas totais, {} novas salvas, {} enriquecidas ===",
+                allJobs.size(), novos, enriquecidas);
+        return novos;
+    }
+
+    /**
+     * Preenche campos que a vaga já salva não tinha (workplaceType, state, city,
+     * expiresAt, salary) com dados do fetch mais recente, sem tocar em seen/applied.
+     * Útil quando um campo novo é introduzido depois que a vaga já foi salva, ou
+     * quando a extração (ex: salário via regex na descrição) melhora com o tempo.
+     */
+    private boolean enriquecer(Job existente, Job recemBuscada) {
+        boolean mudou = false;
+        if (existente.getSalary() == null && recemBuscada.getSalary() != null) {
+            existente.setSalary(recemBuscada.getSalary());
+            mudou = true;
+        }
+        if (existente.getWorkplaceType() == null && recemBuscada.getWorkplaceType() != null) {
+            existente.setWorkplaceType(recemBuscada.getWorkplaceType());
+            mudou = true;
+        }
+        if (existente.getState() == null && recemBuscada.getState() != null) {
+            existente.setState(recemBuscada.getState());
+            mudou = true;
+        }
+        if (existente.getCity() == null && recemBuscada.getCity() != null) {
+            existente.setCity(recemBuscada.getCity());
+            mudou = true;
+        }
+        if (existente.getExpiresAt() == null && recemBuscada.getExpiresAt() != null) {
+            existente.setExpiresAt(recemBuscada.getExpiresAt());
+            mudou = true;
+        }
+        return mudou;
+    }
+}
