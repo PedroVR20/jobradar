@@ -28,6 +28,7 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
 
   const [pills, setPills] = useState<string[]>(loadPills);
   const [inputValue, setInputValue] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // sincroniza se outro tab mudar o localStorage
@@ -54,6 +55,7 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
     setPills(updated);
     savePills(updated);
     if (filters.techStack === name) set({ techStack: '' });
+    setConfirmDelete(null);
   };
 
   const togglePill = (name: string) =>
@@ -96,8 +98,8 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
               </button>
               <button
                 className="tech-pill-remove"
-                onClick={() => removePill(name)}
-                title={`Remover pill "${name}"`}
+                onClick={() => setConfirmDelete(name)}
+                title={`Remover filtro "${name}"`}
                 aria-label={`Remover ${name}`}
               >
                 ×
@@ -215,6 +217,32 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
 
         <span className="result-count">{total} vagas</span>
       </div>
+
+      {/* Modal de confirmação de deleção de pill */}
+      {confirmDelete && (
+        <div className="pill-confirm-overlay" onClick={() => setConfirmDelete(null)}>
+          <div className="pill-confirm-box" onClick={e => e.stopPropagation()}>
+            <p className="pill-confirm-text">
+              Remover o filtro&nbsp;
+              <code className="pill-confirm-name">{confirmDelete}</code>?
+            </p>
+            <div className="pill-confirm-actions">
+              <button
+                className="btn btn-ghost"
+                onClick={() => setConfirmDelete(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={() => removePill(confirmDelete)}
+              >
+                Remover
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
