@@ -66,7 +66,8 @@ public class JobController {
         return jobs.stream()
                 .filter(j -> source == null || j.getSource().equalsIgnoreCase(source))
                 .filter(j -> seniority == null || seniority.isBlank()
-                        || seniority.equalsIgnoreCase(j.getSeniority()))
+                        || Arrays.stream(seniority.split(","))
+                            .anyMatch(s -> s.trim().equalsIgnoreCase(j.getSeniority())))
                 .filter(j -> workplaceType == null || workplaceType.isBlank()
                         || workplaceType.equalsIgnoreCase(j.getWorkplaceType()))
                 .filter(j -> state == null || state.isBlank()
@@ -322,6 +323,36 @@ public class JobController {
         dto.put("tags", job.getTags() != null
                 ? Arrays.asList(job.getTags().split(","))
                 : List.of());
+        dto.put("companyLogoUrl", job.getCompanyLogoUrl());
+        dto.put("pcd", job.getPcd() != null && job.getPcd());
+        dto.put("favorited", job.getFavorited() != null && job.getFavorited());
+        dto.put("notes", job.getNotes());
         return dto;
+    }
+
+    /**
+     * Alterna favorito de uma vaga (toggle: marcado ↔ não marcado)
+     * PATCH /api/jobs/{id}/favorite
+     */
+    @PatchMapping("/{id}/favorite")
+    public ResponseEntity<Map<String, Object>> toggleFavorite(@PathVariable Long id) {
+        return jobRepository.findById(id).map(job -> {
+            job.setFavorited(job.getFavorited() == null || !job.getFavorited());
+            return ResponseEntity.ok(toDto(jobRepository.save(job)));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Salva anotação pessoal do usuário sobre a vaga
+     * PATCH /api/jobs/{id}/notes  Body: { "notes": "..." }
+     */
+    @PatchMapping("/{id}/notes")
+    public ResponseEntity<Map<String, Object>> updateNotes(
+            @PathVariable Long id, @RequestBody Map<String, String> body) {
+        return jobRepository.findById(id).map(job -> {
+            String text = body.getOrDefault("notes", "");
+            job.setNotes(text.isBlank() ? null : text.trim());
+            return ResponseEntity.ok(toDto(jobRepository.save(job)));
+        }).orElse(ResponseEntity.notFound().build());
     }
 }

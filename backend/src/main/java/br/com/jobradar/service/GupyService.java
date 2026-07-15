@@ -124,6 +124,10 @@ public class GupyService {
                 if (!city.isBlank()) tagsJoiner.add(city.toLowerCase());
                 if (!state.isBlank()) tagsJoiner.add(state.toLowerCase());
 
+                String logoUrl = node.has("careerPageLogo") && !node.get("careerPageLogo").isNull()
+                        ? node.get("careerPageLogo").asText().trim() : null;
+                boolean pcd = node.has("isAffirmativeAction") && node.get("isAffirmativeAction").asBoolean();
+
                 Job job = Job.builder()
                         .title(node.get("name").asText())
                         .company(node.has("careerPageName") ? node.get("careerPageName").asText() : "Empresa não informada")
@@ -136,6 +140,8 @@ public class GupyService {
                         .postedAt(parsePublishedDate(node.get("publishedDate")))
                         .expiresAt(parseDeadline(node.get("applicationDeadline")))
                         .fetchedAt(LocalDateTime.now())
+                        .companyLogoUrl(logoUrl)
+                        .pcd(pcd ? Boolean.TRUE : null)
                         .build();
 
                 byId.put(jobId, job);

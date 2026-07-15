@@ -19,8 +19,18 @@ export function useJobs(filters: Filters) {
   const buildQuery = useCallback(() => {
     const params = new URLSearchParams();
     if (filters.source) params.set('source', filters.source);
-    if (filters.search) params.set('search', filters.search);
-    if (filters.seniority) params.set('seniority', filters.seniority);
+
+    // combina busca textual + filtro de stack rápido
+    const searchTerms = [filters.search, filters.techStack].filter(Boolean).join(' ');
+    if (searchTerms) params.set('search', searchTerms);
+
+    // beginnerMode sobrescreve seniority manual: mostra só ESTAGIO e JUNIOR
+    if (filters.beginnerMode) {
+      params.set('seniority', 'ESTAGIO,JUNIOR');
+    } else if (filters.seniority) {
+      params.set('seniority', filters.seniority);
+    }
+
     if (filters.workplaceType) params.set('workplaceType', filters.workplaceType);
     if (filters.state) params.set('state', filters.state);
     if (filters.days) params.set('days', filters.days);
@@ -120,5 +130,20 @@ export function useJobs(filters: Filters) {
     }
   };
 
-  return { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, reload: loadJobs };
+  const toggleFavorite = async (id: number) => {
+    const res = await fetch(`${API}/${id}/favorite`, { method: 'PATCH' });
+    const updated = await res.json() as Job;
+    setJobs(prev => prev.map(j => j.id === id ? { ...j, favorited: updated.favorited } : j));
+  };
+
+  const updateNotes = async (id: number, notes: string) => {
+    await fetch(`${API}/${id}/notes`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes }),
+    });
+    setJobs(prev => prev.map(j => j.id === id ? { ...j, notes: notes.trim() || null } : j));
+  };
+
+  return { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, toggleFavorite, updateNotes, reload: loadJobs };
 }

@@ -192,6 +192,14 @@ public class JobAggregatorService {
             existente.setExpiresAt(recemBuscada.getExpiresAt());
             mudou = true;
         }
+        if (existente.getCompanyLogoUrl() == null && recemBuscada.getCompanyLogoUrl() != null) {
+            existente.setCompanyLogoUrl(recemBuscada.getCompanyLogoUrl());
+            mudou = true;
+        }
+        if (existente.getPcd() == null && recemBuscada.getPcd() != null) {
+            existente.setPcd(recemBuscada.getPcd());
+            mudou = true;
+        }
         return mudou;
     }
 }

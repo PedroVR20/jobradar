@@ -8,6 +8,17 @@ interface Props {
   states: string[];
 }
 
+const TECH_STACKS = [
+  { label: 'Java', value: 'java' },
+  { label: 'Python', value: 'python' },
+  { label: 'JavaScript', value: 'javascript' },
+  { label: 'React', value: 'react' },
+  { label: 'Node', value: 'node' },
+  { label: 'SQL', value: 'sql' },
+  { label: 'DevOps', value: 'devops' },
+  { label: 'Dados', value: 'dados' },
+];
+
 export function FilterBar({ filters, onChange, onClear, total, states }: Props) {
   const set = (partial: Partial<Filters>) =>
     onChange({ ...filters, ...partial });
@@ -18,10 +29,36 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
     filters.seniority !== '' ||
     filters.workplaceType !== '' ||
     filters.state !== '' ||
-    filters.days !== '';
+    filters.days !== '' ||
+    filters.beginnerMode ||
+    filters.techStack !== '';
 
   return (
     <div className="filter-bar">
+      {/* Modo Iniciante */}
+      <div className="filter-row filter-row--top">
+        <button
+          className={`beginner-mode-btn ${filters.beginnerMode ? 'beginner-mode-btn--active' : ''}`}
+          onClick={() => set({ beginnerMode: !filters.beginnerMode, seniority: '' })}
+          title="Mostra apenas vagas de Estágio e Júnior"
+        >
+          🎓 Modo Iniciante {filters.beginnerMode ? '(ativo)' : ''}
+        </button>
+
+        <div className="tech-stacks">
+          {TECH_STACKS.map(t => (
+            <button
+              key={t.value}
+              className={`tech-pill ${filters.techStack === t.value ? 'tech-pill--active' : ''}`}
+              onClick={() => set({ techStack: filters.techStack === t.value ? '' : t.value })}
+              title={`Filtrar por ${t.label}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="filter-row">
         <input
           className="search-input"
@@ -47,7 +84,9 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
         <select
           className="filter-select"
           value={filters.seniority}
-          onChange={e => set({ seniority: e.target.value })}
+          onChange={e => set({ seniority: e.target.value, beginnerMode: false })}
+          disabled={filters.beginnerMode}
+          title={filters.beginnerMode ? 'Desative o Modo Iniciante para filtrar por nível manualmente' : ''}
         >
           <option value="">Todos os níveis</option>
           <option value="ESTAGIO">{seniorityMeta.ESTAGIO.label}</option>
