@@ -26,38 +26,6 @@ Aguarda uns 2-3 minutos para o Maven baixar as dependências e compilar o backen
 
 ---
 
-## ⚠️ Pegadinhas já encontradas (leia antes de mexer no backend)
-
-### Novo campo boolean/NOT NULL no `Job`
-
-O projeto usa `spring.jpa.hibernate.ddl-auto: update`, que só sabe fazer
-`ALTER TABLE ... ADD COLUMN`. Isso quebra o backend (loop de crash) se o
-campo novo for um `boolean`/`int` primitivo **sem valor padrão** e a tabela
-`jobs` já tiver linhas — o Postgres recusa `NOT NULL` sem `DEFAULT` numa
-tabela populada. Foi exatamente isso que aconteceu ao adicionar `inProgress`.
-
-Pra evitar isso: depois de adicionar o campo no `Job.java`, rode o `ALTER
-TABLE` manualmente com `DEFAULT` **antes** de subir o backend:
-```sql
-ALTER TABLE jobs ADD COLUMN nome_da_coluna boolean NOT NULL DEFAULT false;
-```
-Ou use `Boolean` (wrapper, aceita null) em vez de `boolean` primitivo.
-
-### `@Transactional` + self-invocation
-
-Métodos `@Transactional` chamados por
-**self-invocation** (um método da mesma classe chamando `this.outroMetodo()`
-diretamente, sem passar pelo proxy do Spring) **ignoram o `@Transactional`**.
-Isso quebrou a exclusão automática de vagas recusadas: `fetchNaInicializacao()`
-(rodada por `@PostConstruct`, sem transação própria) chamava
-`limparVagasRecusadasAntigas()` internamente, e a query `@Modifying @Query
-DELETE` falhava com `TransactionRequiredException` por não ter transação
-ativa. Corrigido colocando `@Transactional` direto no método do
-**repositório** (`JobRepository.deleteByRejectedTrueAndRejectedAtBefore`),
-já que repositórios Spring Data são proxies próprios e não sofrem desse
-problema, não importa quem os chama.
-
----
 
 ## 🔧 Como rodar em desenvolvimento (sem Docker)
 
