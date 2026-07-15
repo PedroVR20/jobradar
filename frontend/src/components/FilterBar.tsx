@@ -60,12 +60,20 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
     const updated = pills.filter(p => p !== name);
     setPills(updated);
     savePills(updated);
-    if (filters.techStack === name) set({ techStack: '' });
+    // remove da seleção ativa se estiver selecionado
+    if (filters.techStack.includes(name)) {
+      set({ techStack: filters.techStack.filter(p => p !== name) });
+    }
     setConfirmDelete(null);
   };
 
+  // clique: adiciona ao array se não está, remove se já está (toggle multi-select OR)
   const togglePill = (name: string) =>
-    set({ techStack: filters.techStack === name ? '' : name });
+    set({
+      techStack: filters.techStack.includes(name)
+        ? filters.techStack.filter(p => p !== name)
+        : [...filters.techStack, name],
+    });
 
   // inicia o drag quando o usuário pressiona o cabeçalho do modal
   const handleDragStart = (e: React.MouseEvent) => {
@@ -103,7 +111,7 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
     filters.state !== '' ||
     filters.days !== '' ||
     filters.beginnerMode ||
-    filters.techStack !== '';
+    filters.techStack.length > 0;
 
   return (
     <div className="filter-bar">
@@ -121,7 +129,7 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
           {pills.map(name => (
             <span
               key={name}
-              className={`tech-pill ${filters.techStack === name ? 'tech-pill--active' : ''}`}
+              className={`tech-pill ${filters.techStack.includes(name) ? 'tech-pill--active' : ''}`}
             >
               <button
                 className="tech-pill-label"

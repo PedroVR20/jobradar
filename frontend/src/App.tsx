@@ -18,7 +18,7 @@ const defaultFilters: Filters = {
   sort: 'posted_desc',
   viewMode: 'novas',
   beginnerMode: false,
-  techStack: '',
+  techStack: [],
 };
 
 const PAGE_SIZE = 30;
