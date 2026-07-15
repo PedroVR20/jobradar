@@ -24,6 +24,10 @@ export interface Job {
   inProgress: boolean;
   rejected: boolean;
   rejectedAt: string | null;
+  companyLogoUrl: string | null;
+  pcd: boolean;
+  favorited: boolean;
+  notes: string | null;
 }
 
 export interface Stats {
@@ -70,6 +74,8 @@ export interface Filters {
   days: string; // '' = qualquer data | '1' | '3' | '7' | '14' | '30'
   sort: SortOption;
   viewMode: ViewMode;
+  beginnerMode: boolean; // true = mostra só ESTAGIO + JUNIOR
+  techStack: string;     // tech rápida ex: 'java', 'react'
 }
 
 export const seniorityMeta: Record<Seniority, { label: string; short: string; color: string }> = {

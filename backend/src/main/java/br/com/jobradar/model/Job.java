@@ -68,4 +68,18 @@ public class Job {
     private boolean rejected = false;
 
     private LocalDateTime rejectedAt;
+
+    // URL do logo da empresa (vem da Gupy via careerPageLogo e da Eureca via companyLogoUrl)
+    @Column(length = 500)
+    private String companyLogoUrl;
+
+    // true = vaga com ação afirmativa para PcD (vem da Gupy/Eureca quando informado)
+    private Boolean pcd;
+
+    // Favorito pessoal — marcado manualmente pelo usuário
+    private Boolean favorited;
+
+    // Anotações pessoais do usuário sobre essa vaga
+    @Column(columnDefinition = "TEXT")
+    private String notes;
 }

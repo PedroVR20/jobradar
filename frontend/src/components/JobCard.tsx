@@ -7,6 +7,8 @@ interface Props {
   onApplied: (id: number) => void;
   onInProgress: (id: number) => void;
   onSetStatus: (id: number, status: JobStatus) => void;
+  onToggleFavorite: (id: number) => void;
+  onUpdateNotes: (id: number, notes: string) => void;
 }
 
 const techTags = [
@@ -25,7 +27,6 @@ function currentStatus(job: Job): JobStatus {
   return 'NOVA';
 }
 
-// dias restantes até a exclusão automática de uma vaga recusada
 function daysUntilDeletion(rejectedAt: string): number {
   const rejectedDate = new Date(rejectedAt);
   const deleteDate = new Date(rejectedDate.getTime() + DIAS_PARA_EXCLUIR_RECUSADAS * 86400000);
@@ -46,7 +47,6 @@ function highlightTechTag(tag: string): boolean {
   return techTags.some(t => tag.toLowerCase().includes(t));
 }
 
-// dias entre hoje (00:00) e a data de expiração (YYYY-MM-DD, sem horário)
 function daysUntil(dateStr: string): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -64,7 +64,16 @@ function deadlineInfo(expiresAt: string | null): { label: string; className: str
   return { label: `📆 Fecha em ${days}d`, className: 'badge-deadline--ok' };
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus }: Props) {
+// Gera iniciais da empresa para o avatar fallback
+function companyInitials(name: string): string {
+  return name
+    .split(/[\s-]+/)
+    .slice(0, 2)
+    .map(w => w[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onToggleFavorite, onUpdateNotes }: Props) {
   const src = sourceMeta[job.source] ?? { label: job.source, color: '#64748b' };
   const isNew = !job.seen && !job.applied;
   const seniority = seniorityMeta[job.seniority] ?? seniorityMeta.NAO_INFORMADO;
@@ -77,7 +86,15 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus }: P
   const daysLeft = job.rejected && job.rejectedAt ? daysUntilDeletion(job.rejectedAt) : null;
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesText, setNotesText] = useState(job.notes ?? '');
+  const [logoError, setLogoError] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const notesTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setNotesText(job.notes ?? '');
+  }, [job.notes]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -100,9 +117,17 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus }: P
     onSetStatus(job.id, newStatus);
   };
 
+  const handleNotesChange = (value: string) => {
+    setNotesText(value);
+    if (notesTimeout.current) clearTimeout(notesTimeout.current);
+    notesTimeout.current = setTimeout(() => {
+      onUpdateNotes(job.id, value);
+    }, 800);
+  };
+
   return (
     <div
-      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''}`}
+      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${job.favorited ? 'job-card--favorited' : ''}`}
       draggable={job.applied}
       onDragStart={job.applied ? handleDragStart : undefined}
       title={job.applied ? 'Arraste pra outra aba, ou use o menu ⋮' : undefined}
@@ -110,24 +135,58 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus }: P
       {/* Header */}
       <div className="card-header">
         <div className="card-header-left">
-          {isNew && <span className="badge-new">NOVA</span>}
-          {job.rejected && <span className="badge-rejected">❌ RECUSADA</span>}
-          {job.inProgress && !job.rejected && <span className="badge-in-progress">EM ANDAMENTO 🔄</span>}
-          {isPlainApplied && <span className="badge-applied">APLICADA ✅</span>}
-          <span className="badge-source" style={{ background: src.color + '22', color: src.color }}>
-            {src.label}
-          </span>
-          {showSeniority && (
-            <span
-              className="badge-seniority"
-              style={{ background: seniority.color + '22', color: seniority.color, borderColor: seniority.color + '55' }}
-            >
-              {seniority.label}
+          {/* Logo da empresa */}
+          <div className="company-avatar" style={{ borderColor: src.color + '44' }}>
+            {job.companyLogoUrl && !logoError ? (
+              <img
+                src={job.companyLogoUrl}
+                alt={job.company}
+                className="company-logo"
+                onError={() => setLogoError(true)}
+              />
+            ) : (
+              <span className="company-initials" style={{ color: src.color }}>
+                {companyInitials(job.company)}
+              </span>
+            )}
+          </div>
+
+          <div className="card-badges-left">
+            {isNew && <span className="badge-new">NOVA</span>}
+            {job.rejected && <span className="badge-rejected">❌ RECUSADA</span>}
+            {job.inProgress && !job.rejected && <span className="badge-in-progress">EM ANDAMENTO 🔄</span>}
+            {isPlainApplied && <span className="badge-applied">APLICADA ✅</span>}
+            <span className="badge-source" style={{ background: src.color + '22', color: src.color }}>
+              {src.label}
             </span>
-          )}
+            {showSeniority && (
+              <span
+                className="badge-seniority"
+                style={{ background: seniority.color + '22', color: seniority.color, borderColor: seniority.color + '55' }}
+              >
+                {seniority.label}
+              </span>
+            )}
+            {job.pcd && (
+              <span className="badge-pcd" title="Vaga com ação afirmativa para Pessoas com Deficiência">
+                ♿ PcD
+              </span>
+            )}
+          </div>
         </div>
         <div className="card-header-right">
           <span className="card-date">📅 {formatDate(job.postedAt)}</span>
+
+          {/* Botão favorito */}
+          <button
+            className={`btn-favorite ${job.favorited ? 'btn-favorite--active' : ''}`}
+            onClick={() => onToggleFavorite(job.id)}
+            title={job.favorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+            aria-label={job.favorited ? 'Remover favorito' : 'Favoritar vaga'}
+          >
+            {job.favorited ? '★' : '☆'}
+          </button>
+
           <div className="card-menu" ref={menuRef}>
             <button
               className="card-menu-btn"
@@ -199,6 +258,26 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus }: P
           ))}
         </div>
       )}
+
+      {/* Notas pessoais */}
+      <div className="card-notes-section">
+        <button
+          className="notes-toggle"
+          onClick={() => setNotesOpen(o => !o)}
+        >
+          📝 {notesOpen ? 'Fechar notas' : job.notes ? 'Ver notas' : 'Adicionar nota'}
+          {job.notes && !notesOpen && <span className="notes-dot" />}
+        </button>
+        {notesOpen && (
+          <textarea
+            className="notes-textarea"
+            placeholder="Escreva notas sobre essa vaga (salário negociado, contato do recrutador, impressões da entrevista...)"
+            value={notesText}
+            onChange={e => handleNotesChange(e.target.value)}
+            rows={3}
+          />
+        )}
+      </div>
 
       {/* Actions */}
       <div className="card-actions">

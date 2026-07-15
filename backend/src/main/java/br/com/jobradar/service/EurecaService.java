@@ -100,6 +100,10 @@ public class EurecaService {
         if (city != null) tagsJoiner.add(city.toLowerCase());
         if (state != null) tagsJoiner.add(state.toLowerCase());
 
+        String logoUrl = node.has("companyLogoUrl") && !node.get("companyLogoUrl").isNull()
+                ? node.get("companyLogoUrl").asText().trim() : null;
+        boolean pcd = node.has("isPcd") && node.get("isPcd").asBoolean();
+
         return Job.builder()
                 .title(node.get("name").asText())
                 .company(node.has("companyName") && !node.get("companyName").isNull()
@@ -113,6 +117,8 @@ public class EurecaService {
                 .postedAt(parseDateTime(node.get("publishedAt")))
                 .expiresAt(parseDate(node.get("endApplying")))
                 .fetchedAt(LocalDateTime.now())
+                .companyLogoUrl(logoUrl)
+                .pcd(pcd ? Boolean.TRUE : null)
                 .build();
     }
 

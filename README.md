@@ -181,6 +181,43 @@ vagas simplesmente não mostram o badge.
 
 ---
 
+## 🏷 Novas funcionalidades
+
+### Logo das empresas
+Cards com vagas da Gupy e Eureca exibem automaticamente o logo da empresa no canto do card.
+Para fontes sem logo (Remotive, WWR, Arbeitnow, vagas manuais), aparecem as iniciais da empresa
+na cor da fonte.
+
+### Badge PcD ♿
+Vagas marcadas como ação afirmativa para Pessoas com Deficiência ganham um badge roxo "♿ PcD"
+na linha de badges do card — dado extraído da Gupy (campo `isAffirmativeAction`) e da Eureca
+(`isPcd`).
+
+### Favoritar ★
+Botão de estrela no canto de cada card. Vagas favoritadas ficam com uma borda dourada discreta
+e podem ser reconhecidas visualmente sem precisar de uma aba separada. O favorito persiste no
+banco e não afeta o fluxo normal de abas (Nova → Aplicada etc.).
+
+### Notas pessoais 📝
+Clique em "📝 Adicionar nota" embaixo das tags para expandir uma caixa de texto. Escreva
+qualquer coisa sobre a vaga (salário negociado, contato do recrutador, impressões da
+entrevista...) — salva automaticamente 800ms depois que parar de digitar. Uma bolinha azul
+aparece no botão quando a vaga já tem nota.
+
+### 🎓 Modo Iniciante
+Botão no topo dos filtros que restringe os resultados para vagas de **Estágio** e **Júnior**
+apenas, com um clique. Ideal pra quem está em busca da primeira oportunidade. Desativa o
+filtro manual de senioridade enquanto ativo. O backend suporta `seniority=ESTAGIO,JUNIOR`
+(múltiplos valores separados por vírgula).
+
+### Filtro rápido por stack
+Linha de pills de tecnologia (Java, Python, JavaScript, React, Node, SQL, DevOps, Dados) no
+topo dos filtros. Clicar numa pill adiciona aquele termo à busca; clicar de novo remove.
+Funciona em combinação com a busca de texto livre — os dois termos são enviados juntos como
+busca multi-termo (AND).
+
+---
+
 ## 👁 Abas de visualização
 
 Em vez de só ficar cinza, vagas já vistas saem da aba "Novas" e vão para
