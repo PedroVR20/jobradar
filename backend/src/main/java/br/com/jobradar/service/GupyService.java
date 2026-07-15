@@ -144,7 +144,9 @@ public class GupyService {
                         .pcd(pcd ? Boolean.TRUE : null)
                         .build();
 
-                byId.put(jobId, job);
+                if (TechJobFilter.isTechJob(job.getTitle())) {
+                    byId.put(jobId, job);
+                }
             } catch (Exception e) {
                 log.warn("Erro ao parsear job da Gupy: {}", e.getMessage());
             }

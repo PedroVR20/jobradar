@@ -51,6 +51,7 @@ public class EurecaService {
         try {
             int page = 1;
             int total = Integer.MAX_VALUE;
+            int totalBuscadas = 0;
             while ((page - 1) * PAGE_SIZE < total) {
                 String url = UriComponentsBuilder.fromHttpUrl(API_URL)
                         .queryParam("pageSize", PAGE_SIZE)
@@ -66,7 +67,11 @@ public class EurecaService {
 
                 for (JsonNode node : items) {
                     try {
-                        jobs.add(parseJob(node));
+                        totalBuscadas++;
+                        Job job = parseJob(node);
+                        if (TechJobFilter.isTechJob(job.getTitle())) {
+                            jobs.add(job);
+                        }
                     } catch (Exception e) {
                         log.warn("Erro ao parsear vaga da Eureca: {}", e.getMessage());
                     }
@@ -75,7 +80,8 @@ public class EurecaService {
                 if (items.isEmpty()) break;
                 page++;
             }
-            log.info("Eureca: {} vagas buscadas", jobs.size());
+            log.info("Eureca: {}/{} vagas de TI aceitas ({} descartadas por não serem tech)",
+                    jobs.size(), totalBuscadas, totalBuscadas - jobs.size());
         } catch (Exception e) {
             log.error("Erro ao buscar da Eureca: {}", e.getMessage());
         }

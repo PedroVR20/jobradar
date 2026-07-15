@@ -67,9 +67,38 @@ public class JobAggregatorService {
         log.info("=== Fetch inicial ao subir a aplicação ===");
         classificarVagasAntigas();
         marcarModalidadeRemotaAntigas();
+        purgarVagasNaoTech();
         fetchAllJobs();
         enriquecerSalariosGupyAntigas();
         limparVagasRecusadasAntigas();
+    }
+
+    /**
+     * Remove do banco vagas que não são de tecnologia — principalmente vagas
+     * da Eureca que foram importadas antes do filtro TechJobFilter existir
+     * (ex: "Estágio em Operações de Trens", "Superior Administrativo").
+     * Também cobre vagas Gupy importadas por termos ambíguos.
+     * Vagas favoritadas ou com notas do usuário são preservadas por segurança.
+     */
+    @Transactional
+    public void purgarVagasNaoTech() {
+        List<Job> candidatas = new ArrayList<>(jobRepository.findBySource("EURECA"));
+        candidatas.addAll(jobRepository.findBySource("GUPY"));
+
+        List<Long> paraDeletar = candidatas.stream()
+                .filter(j -> !TechJobFilter.isTechJob(j.getTitle()))
+                .filter(j -> !Boolean.TRUE.equals(j.getFavorited()))
+                .filter(j -> j.getNotes() == null || j.getNotes().isBlank())
+                .map(Job::getId)
+                .toList();
+
+        if (!paraDeletar.isEmpty()) {
+            jobRepository.deleteAllById(paraDeletar);
+            log.info("=== Purga non-tech: {} vagas removidas do banco (Eureca/Gupy sem keyword de TI) ===",
+                    paraDeletar.size());
+        } else {
+            log.info("=== Purga non-tech: nenhuma vaga para remover ===");
+        }
     }
 
     // Limita quantas vagas antigas sem salário são checadas por ciclo —
