@@ -139,10 +139,12 @@ export function useJobs(filters: Filters) {
     }
   };
 
-  const toggleFavorite = async (id: number) => {
-    const res = await fetch(`${API}/${id}/favorite`, { method: 'PATCH' });
+  const togglePin = async (id: number) => {
+    const res = await fetch(`${API}/${id}/pin`, { method: 'PATCH' });
     const updated = await res.json() as Job;
-    setJobs(prev => prev.map(j => j.id === id ? { ...j, favorited: updated.favorited } : j));
+    // recarrega a lista para respeitar a nova ordenação (pinned-first vem do backend)
+    setJobs(prev => prev.map(j => j.id === id ? { ...j, pinned: updated.pinned } : j));
+    loadJobs(true);
   };
 
   const updateNotes = async (id: number, notes: string) => {
@@ -154,5 +156,5 @@ export function useJobs(filters: Filters) {
     setJobs(prev => prev.map(j => j.id === id ? { ...j, notes: notes.trim() || null } : j));
   };
 
-  return { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, toggleFavorite, updateNotes, reload: loadJobs };
+  return { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reload: loadJobs };
 }

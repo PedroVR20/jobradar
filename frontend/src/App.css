@@ -839,25 +839,35 @@ a:hover { text-decoration: underline; }
 }
 
 /* ============================
-   BOTÃO FAVORITO
+   BOTÃO FIXAR (PIN)
    ============================ */
-.btn-favorite {
+.btn-pin {
   background: transparent;
   border: none;
-  font-size: 1.1rem;
+  font-size: 1rem;
   line-height: 1;
   cursor: pointer;
-  color: var(--text-muted);
+  opacity: 0.25;
   padding: 2px 4px;
   border-radius: 4px;
-  transition: color 0.15s, transform 0.1s;
+  transition: opacity 0.15s, transform 0.15s;
+  filter: grayscale(1);
 }
-.btn-favorite:hover { color: var(--yellow); transform: scale(1.2); }
-.btn-favorite--active { color: var(--yellow); }
+.btn-pin:hover {
+  opacity: 0.8;
+  transform: scale(1.15) rotate(-20deg);
+  filter: grayscale(0);
+}
+.btn-pin--active {
+  opacity: 1;
+  filter: grayscale(0);
+  transform: rotate(-20deg);
+}
 
-/* Card com favorito tem borda dourada */
-.job-card--favorited {
-  border-top: 2px solid #f59e0b66;
+/* Card fixado tem borda superior accent + leve brilho */
+.job-card--pinned {
+  border-top: 2px solid var(--accent);
+  box-shadow: 0 0 0 1px #6366f122, var(--shadow);
 }
 
 /* ============================

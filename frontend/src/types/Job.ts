@@ -26,7 +26,7 @@ export interface Job {
   rejectedAt: string | null;
   companyLogoUrl: string | null;
   pcd: boolean;
-  favorited: boolean;
+  pinned: boolean;
   notes: string | null;
 }
 

@@ -63,6 +63,10 @@ public class JobController {
                 ? LocalDateTime.now().minusDays(days)
                 : null;
 
+        // vagas pinadas sempre sobem ao topo, independente da aba ou filtro
+        Comparator<Job> pinnedFirst = Comparator.comparing(
+                (Job j) -> !Boolean.TRUE.equals(j.getFavorited()));
+
         return jobs.stream()
                 .filter(j -> source == null || j.getSource().equalsIgnoreCase(source))
                 .filter(j -> seniority == null || seniority.isBlank()
@@ -80,7 +84,7 @@ public class JobController {
                 .filter(j -> postedAfter == null || (j.getPostedAt() != null
                         && j.getPostedAt().isAfter(postedAfter)))
                 .filter(j -> matchesSearch(j, search))
-                .sorted(comparatorFor(sort))
+                .sorted(pinnedFirst.thenComparing(comparatorFor(sort)))
                 .map(this::toDto)
                 .toList();
     }
@@ -325,17 +329,18 @@ public class JobController {
                 : List.of());
         dto.put("companyLogoUrl", job.getCompanyLogoUrl());
         dto.put("pcd", job.getPcd() != null && job.getPcd());
-        dto.put("favorited", job.getFavorited() != null && job.getFavorited());
+        dto.put("pinned", job.getFavorited() != null && job.getFavorited());
         dto.put("notes", job.getNotes());
         return dto;
     }
 
     /**
-     * Alterna favorito de uma vaga (toggle: marcado ↔ não marcado)
-     * PATCH /api/jobs/{id}/favorite
+     * Fixa ou desfixa uma vaga no topo da lista (toggle: fixada ↔ não fixada)
+     * Vagas fixadas aparecem primeiro em qualquer aba/filtro.
+     * PATCH /api/jobs/{id}/pin
      */
-    @PatchMapping("/{id}/favorite")
-    public ResponseEntity<Map<String, Object>> toggleFavorite(@PathVariable Long id) {
+    @PatchMapping("/{id}/pin")
+    public ResponseEntity<Map<String, Object>> togglePin(@PathVariable Long id) {
         return jobRepository.findById(id).map(job -> {
             job.setFavorited(job.getFavorited() == null || !job.getFavorited());
             return ResponseEntity.ok(toDto(jobRepository.save(job)));

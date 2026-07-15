@@ -7,7 +7,7 @@ interface Props {
   onApplied: (id: number) => void;
   onInProgress: (id: number) => void;
   onSetStatus: (id: number, status: JobStatus) => void;
-  onToggleFavorite: (id: number) => void;
+  onTogglePin: (id: number) => void;
   onUpdateNotes: (id: number, notes: string) => void;
 }
 
@@ -73,7 +73,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onToggleFavorite, onUpdateNotes }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes }: Props) {
   const src = sourceMeta[job.source] ?? { label: job.source, color: '#64748b' };
   const isNew = !job.seen && !job.applied;
   const seniority = seniorityMeta[job.seniority] ?? seniorityMeta.NAO_INFORMADO;
@@ -127,7 +127,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
   return (
     <div
-      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${job.favorited ? 'job-card--favorited' : ''}`}
+      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${job.pinned ? 'job-card--pinned' : ''}`}
       draggable={job.applied}
       onDragStart={job.applied ? handleDragStart : undefined}
       title={job.applied ? 'Arraste pra outra aba, ou use o menu ⋮' : undefined}
@@ -177,15 +177,17 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         <div className="card-header-right">
           <span className="card-date">📅 {formatDate(job.postedAt)}</span>
 
-          {/* Botão favorito */}
-          <button
-            className={`btn-favorite ${job.favorited ? 'btn-favorite--active' : ''}`}
-            onClick={() => onToggleFavorite(job.id)}
-            title={job.favorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
-            aria-label={job.favorited ? 'Remover favorito' : 'Favoritar vaga'}
-          >
-            {job.favorited ? '★' : '☆'}
-          </button>
+          {/* Botão fixar — oculto em vagas recusadas */}
+          {!job.rejected && (
+            <button
+              className={`btn-pin ${job.pinned ? 'btn-pin--active' : ''}`}
+              onClick={() => onTogglePin(job.id)}
+              title={job.pinned ? 'Desafixar vaga' : 'Fixar no topo da lista'}
+              aria-label={job.pinned ? 'Desafixar' : 'Fixar vaga'}
+            >
+              📌
+            </button>
+          )}
 
           <div className="card-menu" ref={menuRef}>
             <button
