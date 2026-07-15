@@ -181,7 +181,7 @@ vagas simplesmente não mostram o badge.
 
 ---
 
-## 🏷 Novas funcionalidades
+## 🏷 Funcionalidades
 
 ### Logo das empresas
 Cards com vagas da Gupy e Eureca exibem automaticamente o logo da empresa no canto do card.
@@ -210,11 +210,18 @@ apenas, com um clique. Ideal pra quem está em busca da primeira oportunidade. D
 filtro manual de senioridade enquanto ativo. O backend suporta `seniority=ESTAGIO,JUNIOR`
 (múltiplos valores separados por vírgula).
 
-### Filtro rápido por stack
-Linha de pills de tecnologia (Java, Python, JavaScript, React, Node, SQL, DevOps, Dados) no
-topo dos filtros. Clicar numa pill adiciona aquele termo à busca; clicar de novo remove.
-Funciona em combinação com a busca de texto livre — os dois termos são enviados juntos como
-busca multi-termo (AND).
+### Pills de tecnologia personalizadas (multi-select OR)
+No topo dos filtros há uma linha de pills criadas pelo próprio usuário. Digite qualquer
+tecnologia (ex: `kubernetes`, `rust`, `dbt`) no campo "+ tecnologia" e pressione Enter —
+a pill é criada e salva automaticamente no `localStorage`, persistindo entre sessões.
+
+- **Clicar** numa pill a ativa (destacada em roxo); clicar de novo desativa.
+- **Múltiplas pills** podem estar ativas ao mesmo tempo — a lógica é **OR**:
+  a vaga aparece se o título, empresa ou tags contiver **qualquer** uma das pills selecionadas.
+  Vagas que atendem mais de uma pill aparecem uma vez (união de conjuntos, sem duplicatas).
+- **Remover** uma pill exibe um modal de confirmação arrastável para evitar exclusão acidental.
+- A busca textual na caixa de pesquisa continua independente, com lógica **AND** (todos os
+  termos devem aparecer) — os dois filtros funcionam em conjunto.
 
 ---
 
@@ -300,8 +307,10 @@ PATCH /api/jobs/{id}/seen          → Marca como vista
 PATCH /api/jobs/{id}/applied       → Marca como aplicada (e tira de "em andamento"/"recusada")
 PATCH /api/jobs/{id}/in-progress   → Marca como em processo seletivo ativo
 PATCH /api/jobs/{id}/status?value=X → Move pra um status específico: NOVA|VISTA|APLICADA|ANDAMENTO|RECUSADA
-POST /api/jobs/manual              → Adiciona/atualiza vaga manual (title, company, url obrigatórios)
-POST /api/jobs/fetch               → Dispara fetch manual
+POST  /api/jobs/manual              → Adiciona/atualiza vaga manual (title, company, url obrigatórios)
+POST  /api/jobs/fetch               → Dispara fetch manual
+PATCH /api/jobs/{id}/favorite       → Toggle favorito (marcado ↔ desmarcado)
+PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes": "..." }
 ```
 
 ---
