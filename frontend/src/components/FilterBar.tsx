@@ -31,6 +31,10 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // posição do modal arrastável (offset relativo ao centro inicial)
+  const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
+  const dragOrigin = useRef<{ mouseX: number; mouseY: number; posX: number; posY: number } | null>(null);
+
   // sincroniza se outro tab mudar o localStorage
   useEffect(() => {
     const handler = () => setPills(loadPills());
@@ -38,12 +42,14 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
     return () => window.removeEventListener('storage', handler);
   }, []);
 
+  const openConfirm = (name: string) => {
+    setConfirmDelete(name);
+    setDragPos({ x: 0, y: 0 }); // reseta posição ao abrir
+  };
+
   const addPill = () => {
     const name = inputValue.trim().toLowerCase();
-    if (!name || pills.includes(name)) {
-      setInputValue('');
-      return;
-    }
+    if (!name || pills.includes(name)) { setInputValue(''); return; }
     const updated = [...pills, name];
     setPills(updated);
     savePills(updated);
@@ -60,6 +66,34 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
 
   const togglePill = (name: string) =>
     set({ techStack: filters.techStack === name ? '' : name });
+
+  // inicia o drag quando o usuário pressiona o cabeçalho do modal
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragOrigin.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      posX: dragPos.x,
+      posY: dragPos.y,
+    };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragOrigin.current) return;
+      setDragPos({
+        x: dragOrigin.current.posX + (ev.clientX - dragOrigin.current.mouseX),
+        y: dragOrigin.current.posY + (ev.clientY - dragOrigin.current.mouseY),
+      });
+    };
+
+    const onUp = () => {
+      dragOrigin.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
 
   const hasActiveFilters =
     filters.search !== '' ||
@@ -98,7 +132,7 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
               </button>
               <button
                 className="tech-pill-remove"
-                onClick={() => setConfirmDelete(name)}
+                onClick={() => openConfirm(name)}
                 title={`Remover filtro "${name}"`}
                 aria-label={`Remover ${name}`}
               >
@@ -107,11 +141,7 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
             </span>
           ))}
 
-          {/* Input para criar nova pill */}
-          <form
-            className="tech-pill-form"
-            onSubmit={e => { e.preventDefault(); addPill(); }}
-          >
+          <form className="tech-pill-form" onSubmit={e => { e.preventDefault(); addPill(); }}>
             <input
               ref={inputRef}
               className="tech-pill-input"
@@ -120,7 +150,7 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
               value={inputValue}
               onChange={e => setInputValue(e.target.value)}
               maxLength={30}
-              title="Digite uma tecnologia e pressione Enter para criar um filtro rápido"
+              title="Digite uma tecnologia e pressione Enter"
             />
           </form>
         </div>
@@ -135,11 +165,7 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
           onChange={e => set({ search: e.target.value })}
         />
 
-        <select
-          className="filter-select"
-          value={filters.source}
-          onChange={e => set({ source: e.target.value })}
-        >
+        <select className="filter-select" value={filters.source} onChange={e => set({ source: e.target.value })}>
           <option value="">Todas as fontes</option>
           <option value="REMOTIVE">Remotive</option>
           <option value="ARBEITNOW">Arbeitnow (EU)</option>
@@ -163,34 +189,19 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
           <option value="NAO_INFORMADO">Nível não informado</option>
         </select>
 
-        <select
-          className="filter-select"
-          value={filters.workplaceType}
-          onChange={e => set({ workplaceType: e.target.value })}
-        >
+        <select className="filter-select" value={filters.workplaceType} onChange={e => set({ workplaceType: e.target.value })}>
           <option value="">Qualquer modalidade</option>
           <option value="REMOTO">{workplaceMeta.REMOTO.icon} 100% Remoto</option>
           <option value="HIBRIDO">{workplaceMeta.HIBRIDO.icon} Híbrido</option>
           <option value="PRESENCIAL">{workplaceMeta.PRESENCIAL.icon} Presencial</option>
         </select>
 
-        <select
-          className="filter-select"
-          value={filters.state}
-          onChange={e => set({ state: e.target.value })}
-          disabled={states.length === 0}
-        >
+        <select className="filter-select" value={filters.state} onChange={e => set({ state: e.target.value })} disabled={states.length === 0}>
           <option value="">Todos os estados (BR)</option>
-          {states.map(state => (
-            <option key={state} value={state}>{state}</option>
-          ))}
+          {states.map(state => <option key={state} value={state}>{state}</option>)}
         </select>
 
-        <select
-          className="filter-select"
-          value={filters.days}
-          onChange={e => set({ days: e.target.value })}
-        >
+        <select className="filter-select" value={filters.days} onChange={e => set({ days: e.target.value })}>
           <option value="">Qualquer data</option>
           <option value="1">Últimas 24h</option>
           <option value="3">Últimos 3 dias</option>
@@ -199,44 +210,46 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
           <option value="30">Últimos 30 dias</option>
         </select>
 
-        <select
-          className="filter-select"
-          value={filters.sort}
-          onChange={e => set({ sort: e.target.value as Filters['sort'] })}
-        >
+        <select className="filter-select" value={filters.sort} onChange={e => set({ sort: e.target.value as Filters['sort'] })}>
           <option value="posted_desc">📅 Publicação ↓ (recentes)</option>
           <option value="posted_asc">📅 Publicação ↑ (antigas)</option>
           <option value="fetched_desc">🔄 Adicionadas recentemente</option>
         </select>
 
         {hasActiveFilters && (
-          <button className="clear-filters-btn" onClick={onClear}>
-            ✕ Limpar filtros
-          </button>
+          <button className="clear-filters-btn" onClick={onClear}>✕ Limpar filtros</button>
         )}
 
         <span className="result-count">{total} vagas</span>
       </div>
 
-      {/* Modal de confirmação de deleção de pill */}
+      {/* Modal de confirmação — arrastável */}
       {confirmDelete && (
         <div className="pill-confirm-overlay" onClick={() => setConfirmDelete(null)}>
-          <div className="pill-confirm-box" onClick={e => e.stopPropagation()}>
-            <p className="pill-confirm-text">
-              Remover o filtro&nbsp;
-              <code className="pill-confirm-name">{confirmDelete}</code>?
-            </p>
+          <div
+            className="pill-confirm-box"
+            style={{ transform: `translate(calc(-50% + ${dragPos.x}px), calc(-50% + ${dragPos.y}px))` }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Cabeçalho que serve como alça de drag */}
+            <div className="pill-confirm-header" onMouseDown={handleDragStart}>
+              <span className="pill-confirm-grip">⠿⠿⠿</span>
+              <span className="pill-confirm-title">Remover filtro</span>
+            </div>
+
+            <div className="pill-confirm-body">
+              <p className="pill-confirm-text">
+                Tem certeza que quer remover&nbsp;
+                <code className="pill-confirm-name">{confirmDelete}</code>?
+              </p>
+              <p className="pill-confirm-hint">Você pode recriar esse filtro a qualquer momento.</p>
+            </div>
+
             <div className="pill-confirm-actions">
-              <button
-                className="btn btn-ghost"
-                onClick={() => setConfirmDelete(null)}
-              >
+              <button className="btn btn-ghost" onClick={() => setConfirmDelete(null)}>
                 Cancelar
               </button>
-              <button
-                className="btn btn-danger"
-                onClick={() => removePill(confirmDelete)}
-              >
+              <button className="btn btn-danger" onClick={() => removePill(confirmDelete)}>
                 Remover
               </button>
             </div>
