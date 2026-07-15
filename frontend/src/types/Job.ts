@@ -26,7 +26,7 @@ export interface Job {
   rejectedAt: string | null;
   companyLogoUrl: string | null;
   pcd: boolean;
-  favorited: boolean;
+  pinned: boolean;
   notes: string | null;
 }
 
@@ -49,9 +49,8 @@ export interface Stats {
 
 export type SortOption = 'posted_desc' | 'posted_asc' | 'fetched_desc';
 
-export type ViewMode = 'novas' | 'vistas' | 'aplicadas' | 'andamento' | 'recusadas' | 'todas';
+export type ViewMode = 'novas' | 'vistas' | 'aplicadas' | 'andamento' | 'recusadas';
 
-// Status "reais" de uma vaga (todas exceto o pseudo-filtro "todas")
 export type JobStatus = 'NOVA' | 'VISTA' | 'APLICADA' | 'ANDAMENTO' | 'RECUSADA';
 
 export const statusMeta: Record<JobStatus, string> = {
@@ -74,8 +73,8 @@ export interface Filters {
   days: string; // '' = qualquer data | '1' | '3' | '7' | '14' | '30'
   sort: SortOption;
   viewMode: ViewMode;
-  beginnerMode: boolean; // true = mostra só ESTAGIO + JUNIOR
-  techStack: string;     // tech rápida ex: 'java', 'react'
+  beginnerMode: boolean;   // true = mostra só ESTAGIO + JUNIOR
+  techStack: string[];     // pills ativos — vaga aparece se tiver QUALQUER um (OR)
 }
 
 export const seniorityMeta: Record<Seniority, { label: string; short: string; color: string }> = {

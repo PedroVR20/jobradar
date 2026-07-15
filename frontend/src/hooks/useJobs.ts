@@ -20,9 +20,9 @@ export function useJobs(filters: Filters) {
     const params = new URLSearchParams();
     if (filters.source) params.set('source', filters.source);
 
-    // combina busca textual + filtro de stack rápido
-    const searchTerms = [filters.search, filters.techStack].filter(Boolean).join(' ');
-    if (searchTerms) params.set('search', searchTerms);
+    // só a busca textual vai pro backend (lógica AND por palavra)
+    // os pills de tech stack são filtrados no cliente com lógica OR
+    if (filters.search) params.set('search', filters.search);
 
     // beginnerMode sobrescreve seniority manual: mostra só ESTAGIO e JUNIOR
     if (filters.beginnerMode) {
@@ -52,7 +52,16 @@ export function useJobs(filters: Filters) {
         fetch(`${API}?${query}`),
         fetch(`${API}/stats`)
       ]);
-      setJobs(await jobsRes.json());
+      const allJobs = await jobsRes.json() as Job[];
+      // pills: OR logic no cliente — vaga aparece se o título/empresa/tags
+      // contiver QUALQUER um dos pills selecionados
+      const filtered = filters.techStack.length === 0
+        ? allJobs
+        : allJobs.filter(j => {
+            const hay = (j.title + ' ' + j.company + ' ' + j.tags.join(' ')).toLowerCase();
+            return filters.techStack.some(p => hay.includes(p.toLowerCase()));
+          });
+      setJobs(filtered);
       setStats(await statsRes.json());
     } catch {
       setError('Erro ao carregar vagas. Verifique se o backend está rodando.');
@@ -130,10 +139,12 @@ export function useJobs(filters: Filters) {
     }
   };
 
-  const toggleFavorite = async (id: number) => {
-    const res = await fetch(`${API}/${id}/favorite`, { method: 'PATCH' });
+  const togglePin = async (id: number) => {
+    const res = await fetch(`${API}/${id}/pin`, { method: 'PATCH' });
     const updated = await res.json() as Job;
-    setJobs(prev => prev.map(j => j.id === id ? { ...j, favorited: updated.favorited } : j));
+    // recarrega a lista para respeitar a nova ordenação (pinned-first vem do backend)
+    setJobs(prev => prev.map(j => j.id === id ? { ...j, pinned: updated.pinned } : j));
+    loadJobs(true);
   };
 
   const updateNotes = async (id: number, notes: string) => {
@@ -145,5 +156,5 @@ export function useJobs(filters: Filters) {
     setJobs(prev => prev.map(j => j.id === id ? { ...j, notes: notes.trim() || null } : j));
   };
 
-  return { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, toggleFavorite, updateNotes, reload: loadJobs };
+  return { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reload: loadJobs };
 }

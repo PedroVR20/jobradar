@@ -72,7 +72,7 @@ public class JobAggregatorService {
         limparVagasRecusadasAntigas();
     }
 
-    // Limita quantas vagas antigas sem salário são checadas por ciclo —
+// Limita quantas vagas antigas sem salário são checadas por ciclo —
     // cada checagem é uma requisição HTTP extra à Gupy, então isso evita
     // disparar centenas de requisições de uma vez.
     private static final int MAX_BACKFILL_SALARIO = 150;

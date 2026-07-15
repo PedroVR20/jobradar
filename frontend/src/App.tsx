@@ -18,7 +18,7 @@ const defaultFilters: Filters = {
   sort: 'posted_desc',
   viewMode: 'novas',
   beginnerMode: false,
-  techStack: '',
+  techStack: [],
 };
 
 const PAGE_SIZE = 30;
@@ -29,7 +29,7 @@ export default function App() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  const { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, toggleFavorite, updateNotes } =
+  const { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
 
   // volta pra primeira "página" sempre que os filtros mudam a lista
@@ -156,7 +156,7 @@ export default function App() {
                   onApplied={handleApplied}
                   onInProgress={handleInProgress}
                   onSetStatus={handleSetStatus}
-                  onToggleFavorite={toggleFavorite}
+                  onTogglePin={togglePin}
                   onUpdateNotes={updateNotes}
                 />
               ))}
