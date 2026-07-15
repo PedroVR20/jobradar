@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Filters, seniorityMeta, workplaceMeta } from '../types/Job';
 
 interface Props {
@@ -8,20 +9,55 @@ interface Props {
   states: string[];
 }
 
-const TECH_STACKS = [
-  { label: 'Java', value: 'java' },
-  { label: 'Python', value: 'python' },
-  { label: 'JavaScript', value: 'javascript' },
-  { label: 'React', value: 'react' },
-  { label: 'Node', value: 'node' },
-  { label: 'SQL', value: 'sql' },
-  { label: 'DevOps', value: 'devops' },
-  { label: 'Dados', value: 'dados' },
-];
+const LS_KEY = 'jobradar:tech-pills';
+
+function loadPills(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function savePills(pills: string[]) {
+  localStorage.setItem(LS_KEY, JSON.stringify(pills));
+}
 
 export function FilterBar({ filters, onChange, onClear, total, states }: Props) {
-  const set = (partial: Partial<Filters>) =>
-    onChange({ ...filters, ...partial });
+  const set = (partial: Partial<Filters>) => onChange({ ...filters, ...partial });
+
+  const [pills, setPills] = useState<string[]>(loadPills);
+  const [inputValue, setInputValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // sincroniza se outro tab mudar o localStorage
+  useEffect(() => {
+    const handler = () => setPills(loadPills());
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, []);
+
+  const addPill = () => {
+    const name = inputValue.trim().toLowerCase();
+    if (!name || pills.includes(name)) {
+      setInputValue('');
+      return;
+    }
+    const updated = [...pills, name];
+    setPills(updated);
+    savePills(updated);
+    setInputValue('');
+  };
+
+  const removePill = (name: string) => {
+    const updated = pills.filter(p => p !== name);
+    setPills(updated);
+    savePills(updated);
+    if (filters.techStack === name) set({ techStack: '' });
+  };
+
+  const togglePill = (name: string) =>
+    set({ techStack: filters.techStack === name ? '' : name });
 
   const hasActiveFilters =
     filters.search !== '' ||
@@ -35,7 +71,7 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
 
   return (
     <div className="filter-bar">
-      {/* Modo Iniciante */}
+      {/* Modo Iniciante + Tech Pills personalizadas */}
       <div className="filter-row filter-row--top">
         <button
           className={`beginner-mode-btn ${filters.beginnerMode ? 'beginner-mode-btn--active' : ''}`}
@@ -46,16 +82,45 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
         </button>
 
         <div className="tech-stacks">
-          {TECH_STACKS.map(t => (
-            <button
-              key={t.value}
-              className={`tech-pill ${filters.techStack === t.value ? 'tech-pill--active' : ''}`}
-              onClick={() => set({ techStack: filters.techStack === t.value ? '' : t.value })}
-              title={`Filtrar por ${t.label}`}
+          {pills.map(name => (
+            <span
+              key={name}
+              className={`tech-pill ${filters.techStack === name ? 'tech-pill--active' : ''}`}
             >
-              {t.label}
-            </button>
+              <button
+                className="tech-pill-label"
+                onClick={() => togglePill(name)}
+                title={`Filtrar por ${name}`}
+              >
+                {name}
+              </button>
+              <button
+                className="tech-pill-remove"
+                onClick={() => removePill(name)}
+                title={`Remover pill "${name}"`}
+                aria-label={`Remover ${name}`}
+              >
+                ×
+              </button>
+            </span>
           ))}
+
+          {/* Input para criar nova pill */}
+          <form
+            className="tech-pill-form"
+            onSubmit={e => { e.preventDefault(); addPill(); }}
+          >
+            <input
+              ref={inputRef}
+              className="tech-pill-input"
+              type="text"
+              placeholder="+ tecnologia"
+              value={inputValue}
+              onChange={e => setInputValue(e.target.value)}
+              maxLength={30}
+              title="Digite uma tecnologia e pressione Enter para criar um filtro rápido"
+            />
+          </form>
         </div>
       </div>
 

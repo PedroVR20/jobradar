@@ -951,28 +951,68 @@ a:hover { text-decoration: underline; }
   flex-wrap: wrap;
 }
 
+/* pill = container span com label + botão de remover */
 .tech-pill {
-  background: transparent;
+  display: inline-flex;
+  align-items: center;
   border: 1px solid var(--border);
-  color: var(--text-muted);
   border-radius: 4px;
-  padding: 4px 10px;
+  overflow: hidden;
   font-size: 0.75rem;
   font-family: 'JetBrains Mono', monospace;
+  transition: border-color 0.15s;
+}
+.tech-pill:hover { border-color: var(--accent); }
+.tech-pill--active { border-color: var(--accent); background: #6366f122; }
+
+.tech-pill-label {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 3px 8px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', monospace;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1.4;
 }
-.tech-pill:hover {
+.tech-pill-label:hover { color: var(--accent); }
+.tech-pill--active .tech-pill-label { color: #818cf8; font-weight: 700; }
+
+.tech-pill-remove {
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 2px 5px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  transition: color 0.15s, background 0.15s;
+}
+.tech-pill-remove:hover { color: var(--red); background: #ef444411; }
+
+/* input inline para criar nova pill */
+.tech-pill-form { display: contents; }
+
+.tech-pill-input {
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', monospace;
+  width: 110px;
+  outline: none;
+  transition: border-color 0.2s, width 0.2s;
+}
+.tech-pill-input:focus {
   border-color: var(--accent);
-  color: var(--accent);
-  background: #6366f111;
+  border-style: solid;
+  width: 140px;
 }
-.tech-pill--active {
-  background: #6366f122;
-  border-color: var(--accent);
-  color: #818cf8;
-  font-weight: 700;
-}
+.tech-pill-input::placeholder { color: var(--text-muted); }
 
 /* ============================
    RESPONSIVO
