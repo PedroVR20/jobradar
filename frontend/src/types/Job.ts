@@ -49,9 +49,8 @@ export interface Stats {
 
 export type SortOption = 'posted_desc' | 'posted_asc' | 'fetched_desc';
 
-export type ViewMode = 'novas' | 'vistas' | 'aplicadas' | 'andamento' | 'recusadas' | 'todas';
+export type ViewMode = 'novas' | 'vistas' | 'aplicadas' | 'andamento' | 'recusadas';
 
-// Status "reais" de uma vaga (todas exceto o pseudo-filtro "todas")
 export type JobStatus = 'NOVA' | 'VISTA' | 'APLICADA' | 'ANDAMENTO' | 'RECUSADA';
 
 export const statusMeta: Record<JobStatus, string> = {

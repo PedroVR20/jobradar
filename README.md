@@ -193,10 +193,12 @@ Vagas marcadas como ação afirmativa para Pessoas com Deficiência ganham um ba
 na linha de badges do card — dado extraído da Gupy (campo `isAffirmativeAction`) e da Eureca
 (`isPcd`).
 
-### Favoritar ★
-Botão de estrela no canto de cada card. Vagas favoritadas ficam com uma borda dourada discreta
-e podem ser reconhecidas visualmente sem precisar de uma aba separada. O favorito persiste no
-banco e não afeta o fluxo normal de abas (Nova → Aplicada etc.).
+### Fixar vaga 📌
+Botão de pin no canto de cada card (oculto em vagas recusadas). Vagas fixadas sobem
+**imediatamente ao topo da lista**, em qualquer aba e independente dos filtros ativos —
+a ordenação é feita no backend, então funciona mesmo com filtros de seniority, fonte, data
+e pills de tech stack combinados. Útil para não perder de vista uma vaga importante no meio
+de centenas de outras. Clique de novo para desafixar. O estado persiste no banco.
 
 ### Notas pessoais 📝
 Clique em "📝 Adicionar nota" embaixo das tags para expandir uma caixa de texto. Escreva
@@ -235,7 +237,6 @@ Em vez de só ficar cinza, vagas já vistas saem da aba "Novas" e vão para
 - ✅ **Aplicadas** — aplicou, mas ainda sem retorno/processo ativo
 - 🔄 **Em Andamento** — aplicou e está em processo seletivo ativo (entrevistas etc), separado de "Aplicadas" pra não confundir/esquecer
 - ❌ **Recusadas** — processo encerrado sem sucesso, ou vaga congelada/cancelada pela empresa (some sozinha depois de 7 dias, veja abaixo)
-- 📋 **Todas**
 
 Pra mover uma vaga entre abas, três formas (todas fazem a mesma coisa):
 1. **Arraste o card** (fica arrastável assim que marcado como aplicado) e
@@ -309,7 +310,7 @@ PATCH /api/jobs/{id}/in-progress   → Marca como em processo seletivo ativo
 PATCH /api/jobs/{id}/status?value=X → Move pra um status específico: NOVA|VISTA|APLICADA|ANDAMENTO|RECUSADA
 POST  /api/jobs/manual              → Adiciona/atualiza vaga manual (title, company, url obrigatórios)
 POST  /api/jobs/fetch               → Dispara fetch manual
-PATCH /api/jobs/{id}/favorite       → Toggle favorito (marcado ↔ desmarcado)
+PATCH /api/jobs/{id}/pin            → Fixa/desfixa vaga no topo da lista (pinned ↔ unpinned)
 PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes": "..." }
 ```
 
