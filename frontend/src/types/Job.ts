@@ -1,4 +1,4 @@
-export type JobSource = 'REMOTIVE' | 'ARBEITNOW' | 'WWR' | 'GUPY' | 'EURECA' | 'GLASSDOOR' | 'MANUAL';
+export type JobSource = 'REMOTIVE' | 'ARBEITNOW' | 'WWR' | 'GUPY' | 'EURECA' | 'GLASSDOOR' | 'MANUAL' | 'QUEROVAGASTECH';
 
 export type Seniority = 'ESTAGIO' | 'JUNIOR' | 'PLENO' | 'SENIOR' | 'NAO_INFORMADO';
 
@@ -91,8 +91,9 @@ export const sourceMeta: Record<string, { label: string; color: string }> = {
   WWR:       { label: 'We Work Remotely', color: '#f59e0b' },
   GUPY:      { label: 'Gupy (BR)',        color: '#ec4899' },
   EURECA:    { label: 'Eureca (BR)',      color: '#14b8a6' },
-  GLASSDOOR: { label: 'Glassdoor',        color: '#0caa41' },
-  MANUAL:    { label: 'Adicionada manualmente', color: '#94a3b8' },
+  GLASSDOOR:        { label: 'Glassdoor',              color: '#0caa41' },
+  MANUAL:           { label: 'Adicionada manualmente', color: '#94a3b8' },
+  QUEROVAGASTECH:   { label: 'QueroVagasTech (BR)',    color: '#f97316' },
 };
 
 export const workplaceMeta: Record<WorkplaceType, { label: string; icon: string }> = {

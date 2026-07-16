@@ -55,13 +55,14 @@ npm run dev
 
 ## 🌐 Fontes de vagas
 
-| Fonte      | O que traz                                             | Gratuito |
-|------------|---------------------------------------------------------|----------|
-| Remotive   | Vagas remote-first globais (dev)                         | ✅       |
-| Arbeitnow  | Vagas europeias (só remote, paginado até 5 páginas)       | ✅       |
-| WWR        | We Work Remotely (RSS de programação)                     | ✅       |
-| **Gupy**   | Vagas de tecnologia e estágio em empresas brasileiras (Itaú, Stone, Localiza, Boticário, TIM, e centenas de outras) — remoto, híbrido e presencial | ✅ |
-| **Eureca** | Programas de estágio/trainee em empresas grandes (Bradesco, Stellantis, Natura, Sephora, Equinor, SLC Agrícola e outras) | ✅ |
+| Fonte                  | O que traz                                             | Gratuito |
+|------------------------|--------------------------------------------------------|----------|
+| Remotive               | Vagas remote-first globais (dev)                        | ✅       |
+| Arbeitnow              | Vagas europeias (só remote, paginado até 5 páginas)     | ✅       |
+| WWR                    | We Work Remotely (RSS de programação)                   | ✅       |
+| **Gupy**               | Vagas de tecnologia em empresas brasileiras (Itaú, Stone, Localiza, Boticário, TIM e centenas de outras) — remoto, híbrido e presencial | ✅ |
+| **Eureca**             | Programas de estágio/trainee em grandes empresas (Bradesco, Stellantis, Natura, Sephora, Equinor, SLC Agrícola e outras) | ✅ |
+| **QueroVagasTech**     | Agregador BR com InfoJobs, Stone (Vagas.com), Solides, Thoughtworks, Totvs, RedHat, Accenture e outras fontes corporativas — fontes Gupy já cobertas são ignoradas para não duplicar | ✅ |
 
 **Sobre a fonte Gupy:** usa a API pública do portal de busca de vagas da
 Gupy (`portal.gupy.io/job-search`), o mesmo ATS usado por milhares de
@@ -81,11 +82,17 @@ parar de funcionar). O catálogo inteiro é pequeno (pouco mais de 100 vagas
 ativas), então a busca simplesmente pagina tudo em vez de usar termos como
 na Gupy.
 
-> LinkedIn e InfoJobs **não foram incluídos**: nenhum dos dois oferece uma
-> API pública de vagas — LinkedIn bloqueia scraping ativamente e o InfoJobs
-> não expõe endpoint público sem parceria comercial. Se quiser acompanhar
-> uma vaga específica achada nesses sites (ou no Glassdoor, indicação etc),
-> use o botão **"➕ Adicionar vaga"** no site pra cadastrar manualmente —
+**Sobre a fonte QueroVagasTech:** usa `querovagastech.com.br/api/jobs`,
+a API interna do agregador — descoberta por engenharia reversa do tráfego
+do site, sem autenticação. Pagina tudo (100 vagas/página) e filtra no
+backend as fontes `GupyPortalTecnologia` e `GupyExample` (já cobertas
+pelo `GupyService`). Salary vem estruturado (`min`/`max`/`currency`/`period`)
+e é formatado automaticamente como "R$ X – Y/mês". Adicionou ~611 vagas
+novas no primeiro fetch, principalmente do InfoJobs.
+
+> LinkedIn **não foi incluído**: bloqueia scraping ativamente e não oferece
+> API pública de vagas. Se quiser acompanhar uma vaga específica achada no
+> LinkedIn, Glassdoor ou indicação, use o botão **"➕ Adicionar vaga"** —
 > veja a seção [Adicionar vaga manualmente](#-adicionar-vaga-manualmente).
 
 ---
@@ -127,6 +134,7 @@ salário publicamente):
   vagas antigas sem salário são revisitadas em lotes de até 150 por ciclo
   de fetch (`JobAggregatorService.enriquecerSalariosGupyAntigas`), já que
   cada checagem exige uma requisição extra por vaga.
+- QueroVagasTech: campo estruturado na API (`min`/`max`/`currency`/`period`) — cobertura depende de cada fonte agregada (InfoJobs divulga com mais frequência que Gupy).
 - WWR: não tem, o RSS não traz descrição.
 
 O card exibe o salário como um badge (💰) ao lado do prazo de inscrição
