@@ -180,6 +180,7 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
           <option value="WWR">We Work Remotely</option>
           <option value="GUPY">Gupy (BR)</option>
           <option value="EURECA">Eureca (BR)</option>
+          <option value="QUEROVAGASTECH">QueroVagasTech (BR)</option>
         </select>
 
         <select
