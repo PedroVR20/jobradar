@@ -8,6 +8,9 @@ import { JobCard } from './components/JobCard';
 import { AddJobModal } from './components/AddJobModal';
 import { AgendaStatusBar } from './components/AgendaStatusBar';
 import { MetricsModal } from './components/MetricsModal';
+import { ExportMenu } from './components/ExportMenu';
+import { DigestModal } from './components/DigestModal';
+import { DuplicatesModal } from './components/DuplicatesModal';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
 import './App.css';
 
@@ -57,6 +60,8 @@ export default function App() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
+  const [showDigest, setShowDigest] = useState(false);
+  const [showDuplicates, setShowDuplicates] = useState(false);
 
   const { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
@@ -189,9 +194,16 @@ export default function App() {
           </div>
           <div className="header-actions">
             <AgendaStatusBar syncing={syncingAgenda} onSync={handleAgendaSync} />
+            <button className="btn btn-ghost" onClick={() => setShowDigest(true)}>
+              📰 Resumo
+            </button>
             <button className="btn btn-ghost" onClick={() => setShowMetrics(true)}>
               📊 Métricas
             </button>
+            <button className="btn btn-ghost" onClick={() => setShowDuplicates(true)}>
+              🧩 Duplicatas
+            </button>
+            <ExportMenu onExported={format => showToast(`⬇️ Histórico exportado em ${format.toUpperCase()}`)} />
             <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>
               ➕ Adicionar vaga
             </button>
@@ -205,6 +217,17 @@ export default function App() {
 
       {showMetrics && (
         <MetricsModal onClose={() => setShowMetrics(false)} />
+      )}
+
+      {showDigest && (
+        <DigestModal onClose={() => setShowDigest(false)} />
+      )}
+
+      {showDuplicates && (
+        <DuplicatesModal
+          onClose={() => setShowDuplicates(false)}
+          onReject={id => handleSetStatus(id, 'RECUSADA')}
+        />
       )}
 
       <main className="app-main">

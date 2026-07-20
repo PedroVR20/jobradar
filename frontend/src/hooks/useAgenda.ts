@@ -2,6 +2,7 @@ const AGENDA_API = 'http://localhost:8081';
 const TOKEN_KEY = 'agenda_token';
 const EMAIL_KEY = 'agenda_email';
 const TASK_KEY = (jobId: number) => `agenda_task_${jobId}`;
+const INTERVIEW_KEY = (jobId: number) => `agenda_interview_${jobId}`;
 
 export type AgendaTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'NOT_DONE';
 
@@ -64,6 +65,22 @@ export function useAgenda() {
   };
 
   const getLinkedTaskId = (jobId: number): string | null => getLinkedTask(jobId)?.id ?? null;
+
+  // Tarefa de entrevista — vinculada separadamente da candidatura/follow-up,
+  // pra não perder a referência de uma quando a outra é criada/atualizada.
+  const linkInterviewTask = (jobId: number, taskId: string, dueAt: string) => {
+    localStorage.setItem(INTERVIEW_KEY(jobId), JSON.stringify({ id: taskId, dueAt }));
+  };
+
+  const getInterviewTask = (jobId: number): LinkedTask | null => {
+    const raw = localStorage.getItem(INTERVIEW_KEY(jobId));
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as LinkedTask;
+    } catch {
+      return null;
+    }
+  };
 
   const createTask = async (payload: AgendaTaskPayload): Promise<CreateTaskResult> => {
     const token = getToken();
@@ -128,5 +145,5 @@ export function useAgenda() {
     }
   };
 
-  return { isConnected, savedEmail, login, disconnect, createTask, linkTask, getLinkedTask, getLinkedTaskId, syncTaskStatus, getTaskStatus };
+  return { isConnected, savedEmail, login, disconnect, createTask, linkTask, getLinkedTask, getLinkedTaskId, syncTaskStatus, getTaskStatus, linkInterviewTask, getInterviewTask };
 }

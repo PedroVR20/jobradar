@@ -1,6 +1,7 @@
 import { DragEvent, useEffect, useRef, useState } from 'react';
 import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
 import { AgendaModal } from './AgendaModal';
+import { InterviewModal } from './InterviewModal';
 import { useAgenda } from '../hooks/useAgenda';
 
 interface Props {
@@ -84,6 +85,14 @@ function agendaDeadlineInfo(dueAt: string | null): { label: string; className: s
   return { label: `🔔 Agenda: ${days}d`, className: 'badge-deadline--soon' };
 }
 
+function interviewInfo(dueAt: string | null): { label: string; className: string } | null {
+  if (!dueAt) return null;
+  const days = daysUntilIso(dueAt);
+  if (days < 0) return { label: '🎤 Entrevista encerrada', className: 'badge-deadline--closed' };
+  if (days === 0) return { label: '🎤 Entrevista hoje!', className: 'badge-deadline--urgent' };
+  return { label: `🎤 Entrevista em ${days}d`, className: 'badge-deadline--urgent' };
+}
+
 // Gera iniciais da empresa para o avatar fallback
 function companyInitials(name: string): string {
   return name
@@ -99,9 +108,11 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const seniority = seniorityMeta[job.seniority] ?? seniorityMeta.NAO_INFORMADO;
   const showSeniority = job.seniority && job.seniority !== 'NAO_INFORMADO';
   const deadline = deadlineInfo(job.expiresAt);
-  const { getLinkedTask } = useAgenda();
+  const { getLinkedTask, getInterviewTask } = useAgenda();
   const agendaTask = job.rejected ? null : getLinkedTask(job.id);
   const agendaDeadline = agendaDeadlineInfo(agendaTask?.dueAt ?? null);
+  const interviewTask = job.rejected ? null : getInterviewTask(job.id);
+  const interview = interviewInfo(interviewTask?.dueAt ?? null);
 
   const isSeenOnly = job.seen && !job.applied && !job.rejected;
   const isPlainApplied = job.applied && !job.inProgress && !job.rejected;
@@ -111,6 +122,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const [menuOpen, setMenuOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [agendaOpen, setAgendaOpen] = useState(false);
+  const [interviewOpen, setInterviewOpen] = useState(false);
   const [notesText, setNotesText] = useState(job.notes ?? '');
   const [logoError, setLogoError] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -259,11 +271,12 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         </p>
       )}
 
-      {(job.salary || deadline || agendaDeadline || daysLeft !== null) && (
+      {(job.salary || deadline || agendaDeadline || interview || daysLeft !== null) && (
         <div className="card-badges">
           {job.salary && <span className="badge-salary">💰 {job.salary}</span>}
           {deadline && <span className={`badge-deadline ${deadline.className}`}>{deadline.label}</span>}
           {agendaDeadline && <span className={`badge-deadline ${agendaDeadline.className}`}>{agendaDeadline.label}</span>}
+          {interview && <span className={`badge-deadline ${interview.className}`}>{interview.label}</span>}
           {daysLeft !== null && (
             <span className="badge-deletion">
               🗑 {daysLeft === 0 ? 'Some hoje' : `Some em ${daysLeft}d`}
@@ -317,6 +330,17 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         />
       )}
 
+      {interviewOpen && (
+        <InterviewModal
+          job={job}
+          onClose={() => setInterviewOpen(false)}
+          onSuccess={() => {
+            setInterviewOpen(false);
+            onToast('🎤 Entrevista marcada na Agenda!');
+          }}
+        />
+      )}
+
       {/* Actions */}
       <div className="card-actions">
         <a
@@ -336,6 +360,15 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             title="Salvar esta vaga como tarefa na Agenda Pessoal"
           >
             📅 Salvar na Agenda
+          </button>
+        )}
+        {job.inProgress && !job.rejected && (
+          <button
+            className="btn btn-agenda"
+            onClick={() => setInterviewOpen(true)}
+            title="Agendar entrevista na Agenda Pessoal (prioridade crítica)"
+          >
+            🎤 Marcar entrevista
           </button>
         )}
         {!job.applied && (

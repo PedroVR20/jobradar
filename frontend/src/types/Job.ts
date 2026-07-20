@@ -60,6 +60,19 @@ export interface Metrics {
   tempoMedioAteRecusaDias: number | null;
 }
 
+export interface DuplicateJobRef {
+  id: number;
+  title: string;
+  source: JobSource;
+  url: string;
+  postedAt: string | null;
+}
+
+export interface DuplicateGroup {
+  company: string;
+  jobs: DuplicateJobRef[];
+}
+
 export type SortOption = 'posted_desc' | 'posted_asc' | 'fetched_desc';
 
 export type ViewMode = 'novas' | 'vistas' | 'aplicadas' | 'andamento' | 'recusadas';
