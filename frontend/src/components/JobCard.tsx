@@ -1,5 +1,6 @@
 import { DragEvent, useEffect, useRef, useState } from 'react';
 import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
+import { AgendaModal } from './AgendaModal';
 
 interface Props {
   job: Job;
@@ -9,6 +10,7 @@ interface Props {
   onSetStatus: (id: number, status: JobStatus) => void;
   onTogglePin: (id: number) => void;
   onUpdateNotes: (id: number, notes: string) => void;
+  onToast: (msg: string) => void;
 }
 
 const techTags = [
@@ -73,7 +75,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast }: Props) {
   const src = sourceMeta[job.source] ?? { label: job.source, color: '#64748b' };
   const isNew = !job.seen && !job.applied;
   const seniority = seniorityMeta[job.seniority] ?? seniorityMeta.NAO_INFORMADO;
@@ -87,6 +89,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [agendaOpen, setAgendaOpen] = useState(false);
   const [notesText, setNotesText] = useState(job.notes ?? '');
   const [logoError, setLogoError] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -281,6 +284,17 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         )}
       </div>
 
+      {agendaOpen && (
+        <AgendaModal
+          job={job}
+          onClose={() => setAgendaOpen(false)}
+          onSuccess={() => {
+            setAgendaOpen(false);
+            onToast('📅 Tarefa criada na Agenda!');
+          }}
+        />
+      )}
+
       {/* Actions */}
       <div className="card-actions">
         <a
@@ -293,6 +307,15 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         >
           Ver vaga →
         </a>
+        {!job.rejected && (
+          <button
+            className="btn btn-agenda"
+            onClick={() => setAgendaOpen(true)}
+            title="Salvar esta vaga como tarefa na Agenda Pessoal"
+          >
+            📅 Salvar na Agenda
+          </button>
+        )}
         {!job.applied && (
           <button
             className="btn btn-success"

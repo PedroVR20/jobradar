@@ -158,6 +158,7 @@ export default function App() {
                   onSetStatus={handleSetStatus}
                   onTogglePin={togglePin}
                   onUpdateNotes={updateNotes}
+                  onToast={showToast}
                 />
               ))}
             </div>

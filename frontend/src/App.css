@@ -609,6 +609,12 @@ a:hover { text-decoration: underline; }
   color: var(--red);
   border: 1px solid #ef444444;
 }
+.btn-agenda {
+  background: #0ea5e922;
+  color: #38bdf8;
+  border: 1px solid #0ea5e944;
+}
+.btn-agenda:hover:not(:disabled) { background: #0ea5e933; }
 
 .fetch-btn {
   margin-left: auto;
@@ -730,6 +736,36 @@ a:hover { text-decoration: underline; }
   font-size: 0.9rem;
 }
 .modal-close:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* Agenda modal */
+.agenda-modal { max-width: 460px; }
+.agenda-form, .agenda-confirm { display: flex; flex-direction: column; gap: 0.9rem; margin-top: 1rem; }
+.agenda-hint { color: var(--text-muted); font-size: 0.85rem; margin: 0; }
+.agenda-label { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); }
+.agenda-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.agenda-input:focus { outline: none; border-color: var(--accent); }
+.agenda-checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-muted); cursor: pointer; }
+.agenda-error { color: var(--red); font-size: 0.82rem; margin: 0; }
+.agenda-preview {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+.agenda-preview-row { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agenda-preview-row a { color: var(--accent); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
 
 .modal-subtitle {
   color: var(--text-muted);
