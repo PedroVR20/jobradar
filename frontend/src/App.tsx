@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useJobs } from './hooks/useJobs';
+import { useAgenda } from './hooks/useAgenda';
 import { StatsBar } from './components/StatsBar';
 import { FilterBar } from './components/FilterBar';
 import { ViewTabs } from './components/ViewTabs';
@@ -7,6 +8,15 @@ import { JobCard } from './components/JobCard';
 import { AddJobModal } from './components/AddJobModal';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
 import './App.css';
+
+const FOLLOWUP_DAYS = 7;
+
+function followUpDueAt(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + FOLLOWUP_DAYS);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T23:59:00-03:00`;
+}
 
 const defaultFilters: Filters = {
   source: '',
@@ -31,6 +41,7 @@ export default function App() {
 
   const { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
+  const { isConnected, createTask } = useAgenda();
 
   // volta pra primeira "página" sempre que os filtros mudam a lista
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filters]);
@@ -55,6 +66,22 @@ export default function App() {
 
   const handleInProgress = async (id: number) => {
     await markInProgress(id);
+    if (isConnected()) {
+      const job = jobs.find(j => j.id === id);
+      if (job) {
+        const result = await createTask({
+          title: `Follow up: ${job.company} — ${job.title}`,
+          description: `🔗 ${job.url}`,
+          dueAt: followUpDueAt(),
+          priority: 'HIGH',
+          icon: 'notifications',
+        });
+        if (result === 'ok') {
+          showToast('🔄 Em Andamento — 📅 follow up criado na Agenda!');
+          return;
+        }
+      }
+    }
     showToast('🔄 Vaga movida pra "Em Andamento"!');
   };
 
