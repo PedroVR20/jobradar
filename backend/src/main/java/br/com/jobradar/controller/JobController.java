@@ -15,13 +15,17 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalDouble;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/jobs")
@@ -217,6 +221,117 @@ public class JobController {
         metrics.put("tempoMedioAteAndamentoDias", avgAndamento.isPresent() ? Math.round(avgAndamento.getAsDouble() * 10) / 10.0 : null);
         metrics.put("tempoMedioAteRecusaDias", avgRecusa.isPresent() ? Math.round(avgRecusa.getAsDouble() * 10) / 10.0 : null);
         return metrics;
+    }
+
+    /**
+     * Detecta possíveis vagas duplicadas publicadas em fontes diferentes —
+     * mesma empresa (normalizada) + título com alta similaridade de palavras.
+     * Só sinaliza pra revisão manual: não deleta nem mescla nada sozinho.
+     * GET /api/jobs/duplicates
+     */
+    @GetMapping("/duplicates")
+    public List<Map<String, Object>> getDuplicates() {
+        List<Job> ativos = jobRepository.findAll().stream()
+                .filter(j -> !j.isRejected())
+                .toList();
+
+        Map<String, List<Job>> porEmpresa = new HashMap<>();
+        for (Job j : ativos) {
+            String key = normalizeCompany(j.getCompany());
+            if (key.isBlank()) continue;
+            porEmpresa.computeIfAbsent(key, k -> new ArrayList<>()).add(j);
+        }
+
+        List<Map<String, Object>> grupos = new ArrayList<>();
+        for (List<Job> candidatos : porEmpresa.values()) {
+            if (candidatos.size() < 2) continue;
+
+            // agrupa por similaridade de título via BFS (componentes conectados)
+            boolean[] visitado = new boolean[candidatos.size()];
+            for (int i = 0; i < candidatos.size(); i++) {
+                if (visitado[i]) continue;
+                List<Job> componente = new ArrayList<>();
+                Deque<Integer> fila = new ArrayDeque<>();
+                fila.add(i);
+                visitado[i] = true;
+                while (!fila.isEmpty()) {
+                    int atual = fila.poll();
+                    Job jobAtual = candidatos.get(atual);
+                    componente.add(jobAtual);
+                    Set<String> palavrasAtual = titleWords(jobAtual.getTitle());
+                    for (int j = 0; j < candidatos.size(); j++) {
+                        if (visitado[j] || j == atual) continue;
+                        Job jobCandidato = candidatos.get(j);
+                        // senioridade precisa bater — "Dev Pleno" e "Dev Sênior" da mesma empresa
+                        // são vagas diferentes, não duplicata, mesmo com título quase idêntico
+                        boolean mesmaSenioridade = java.util.Objects.equals(jobAtual.getSeniority(), jobCandidato.getSeniority());
+                        if (mesmaSenioridade && jaccard(palavrasAtual, titleWords(jobCandidato.getTitle())) >= 0.6) {
+                            visitado[j] = true;
+                            fila.add(j);
+                        }
+                    }
+                }
+                if (componente.size() < 2) continue;
+
+                List<Map<String, Object>> vagas = componente.stream()
+                        .map(j -> {
+                            Map<String, Object> m = new HashMap<>();
+                            m.put("id", j.getId());
+                            m.put("title", j.getTitle());
+                            m.put("source", j.getSource());
+                            m.put("url", j.getUrl());
+                            m.put("postedAt", j.getPostedAt() != null ? j.getPostedAt().toString() : null);
+                            return m;
+                        })
+                        .toList();
+                Map<String, Object> grupo = new HashMap<>();
+                grupo.put("company", componente.get(0).getCompany());
+                grupo.put("jobs", vagas);
+                grupos.add(grupo);
+            }
+        }
+
+        return grupos;
+    }
+
+    private static final Set<String> COMPANY_SUFFIXES = Set.of(
+            "sa", "s a", "ltda", "me", "eireli", "inc", "llc", "corp", "corporation", "co"
+    );
+
+    private String normalizeCompany(String company) {
+        if (company == null) return "";
+        String norm = normalize(company).replaceAll("[^a-z0-9 ]", " ").trim();
+        StringBuilder sb = new StringBuilder();
+        for (String w : norm.split("\\s+")) {
+            if (COMPANY_SUFFIXES.contains(w)) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(w);
+        }
+        return sb.toString().trim();
+    }
+
+    private static final Set<String> TITLE_STOPWORDS = Set.of(
+            "de", "da", "do", "das", "dos", "e", "para", "com", "em", "a", "o", "i", "ii", "iii"
+    );
+
+    private Set<String> titleWords(String title) {
+        if (title == null) return Set.of();
+        String norm = normalize(title).replaceAll("[^a-z0-9 ]", " ").trim();
+        Set<String> words = new HashSet<>();
+        for (String w : norm.split("\\s+")) {
+            if (w.length() < 2 || TITLE_STOPWORDS.contains(w)) continue;
+            words.add(w);
+        }
+        return words;
+    }
+
+    private double jaccard(Set<String> a, Set<String> b) {
+        if (a.isEmpty() || b.isEmpty()) return 0;
+        Set<String> inter = new HashSet<>(a);
+        inter.retainAll(b);
+        Set<String> union = new HashSet<>(a);
+        union.addAll(b);
+        return (double) inter.size() / union.size();
     }
 
     /**
