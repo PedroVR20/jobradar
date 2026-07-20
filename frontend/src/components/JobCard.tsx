@@ -1,6 +1,7 @@
 import { DragEvent, useEffect, useRef, useState } from 'react';
 import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
 import { AgendaModal } from './AgendaModal';
+import { useAgenda } from '../hooks/useAgenda';
 
 interface Props {
   job: Job;
@@ -66,6 +67,23 @@ function deadlineInfo(expiresAt: string | null): { label: string; className: str
   return { label: `📆 Fecha em ${days}d`, className: 'badge-deadline--ok' };
 }
 
+function daysUntilIso(iso: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(iso);
+  target.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
+}
+
+function agendaDeadlineInfo(dueAt: string | null): { label: string; className: string } | null {
+  if (!dueAt) return null;
+  const days = daysUntilIso(dueAt);
+  if (days < 0) return { label: '🔔 Agenda: atrasado', className: 'badge-deadline--closed' };
+  if (days === 0) return { label: '🔔 Agenda: hoje', className: 'badge-deadline--urgent' };
+  if (days <= 2) return { label: `🔔 Agenda: ${days}d`, className: 'badge-deadline--urgent' };
+  return { label: `🔔 Agenda: ${days}d`, className: 'badge-deadline--soon' };
+}
+
 // Gera iniciais da empresa para o avatar fallback
 function companyInitials(name: string): string {
   return name
@@ -81,6 +99,9 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const seniority = seniorityMeta[job.seniority] ?? seniorityMeta.NAO_INFORMADO;
   const showSeniority = job.seniority && job.seniority !== 'NAO_INFORMADO';
   const deadline = deadlineInfo(job.expiresAt);
+  const { getLinkedTask } = useAgenda();
+  const agendaTask = job.rejected ? null : getLinkedTask(job.id);
+  const agendaDeadline = agendaDeadlineInfo(agendaTask?.dueAt ?? null);
 
   const isSeenOnly = job.seen && !job.applied && !job.rejected;
   const isPlainApplied = job.applied && !job.inProgress && !job.rejected;
@@ -238,10 +259,11 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         </p>
       )}
 
-      {(job.salary || deadline || daysLeft !== null) && (
+      {(job.salary || deadline || agendaDeadline || daysLeft !== null) && (
         <div className="card-badges">
           {job.salary && <span className="badge-salary">💰 {job.salary}</span>}
           {deadline && <span className={`badge-deadline ${deadline.className}`}>{deadline.label}</span>}
+          {agendaDeadline && <span className={`badge-deadline ${agendaDeadline.className}`}>{agendaDeadline.label}</span>}
           {daysLeft !== null && (
             <span className="badge-deletion">
               🗑 {daysLeft === 0 ? 'Some hoje' : `Some em ${daysLeft}d`}

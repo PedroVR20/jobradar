@@ -10,6 +10,7 @@ import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './ty
 import './App.css';
 
 const FOLLOWUP_DAYS = 7;
+const NOTIFY_BEFORE_MINUTES = 24 * 60;
 
 function followUpDueAt(): string {
   const d = new Date();
@@ -81,15 +82,17 @@ export default function App() {
     if (isConnected()) {
       const job = jobs.find(j => j.id === id);
       if (job) {
+        const dueAt = followUpDueAt();
         const result = await createTask({
           title: `Follow up: ${job.company} — ${job.title}`,
           description: `🔗 ${job.url}`,
-          dueAt: followUpDueAt(),
+          dueAt,
           priority: 'HIGH',
           icon: 'notifications',
+          notifyBeforeMinutes: NOTIFY_BEFORE_MINUTES,
         });
         if (result !== 'unauthorized' && result !== 'error') {
-          linkTask(id, result.id);
+          linkTask(id, result.id, dueAt);
           showToast('🔄 Em Andamento — 📅 follow up criado na Agenda!');
           return;
         }

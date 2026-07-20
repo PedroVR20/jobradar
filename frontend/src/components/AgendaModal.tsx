@@ -8,12 +8,21 @@ interface Props {
   onSuccess: () => void;
 }
 
+const NOTIFY_BEFORE_MINUTES = 24 * 60;
+
 function buildPayload(job: Job, title: string, withDeadline: boolean): AgendaTaskPayload {
   const description = `🔗 ${job.url}${job.notes ? `\n\n📝 ${job.notes}` : ''}`;
   const dueAt = withDeadline && job.expiresAt
     ? `${job.expiresAt}T23:59:00-03:00`
     : null;
-  return { title, description, dueAt: dueAt ?? undefined, priority: 'HIGH', icon: 'work' };
+  return {
+    title,
+    description,
+    dueAt: dueAt ?? undefined,
+    priority: 'HIGH',
+    icon: 'work',
+    notifyBeforeMinutes: dueAt ? NOTIFY_BEFORE_MINUTES : undefined,
+  };
 }
 
 export function AgendaModal({ job, onClose, onSuccess }: Props) {
@@ -54,7 +63,7 @@ export function AgendaModal({ job, onClose, onSuccess }: Props) {
     const result = await createTask(payload);
     setSending(false);
     if (result !== 'unauthorized' && result !== 'error') {
-      linkTask(job.id, result.id);
+      linkTask(job.id, result.id, payload.dueAt ?? null);
       onSuccess();
     } else if (result === 'unauthorized') {
       setStep('connect');

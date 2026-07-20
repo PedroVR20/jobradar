@@ -11,9 +11,15 @@ export interface AgendaTaskPayload {
   dueAt?: string | null;
   priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
   icon?: string;
+  notifyBeforeMinutes?: number | null;
 }
 
 export type CreateTaskResult = { id: string } | 'unauthorized' | 'error';
+
+export interface LinkedTask {
+  id: string;
+  dueAt: string | null;
+}
 
 export function useAgenda() {
   const getToken = () => localStorage.getItem(TOKEN_KEY);
@@ -43,12 +49,21 @@ export function useAgenda() {
     localStorage.removeItem(EMAIL_KEY);
   };
 
-  const linkTask = (jobId: number, taskId: string) => {
-    localStorage.setItem(TASK_KEY(jobId), taskId);
+  const linkTask = (jobId: number, taskId: string, dueAt: string | null = null) => {
+    localStorage.setItem(TASK_KEY(jobId), JSON.stringify({ id: taskId, dueAt }));
   };
 
-  const getLinkedTaskId = (jobId: number): string | null =>
-    localStorage.getItem(TASK_KEY(jobId));
+  const getLinkedTask = (jobId: number): LinkedTask | null => {
+    const raw = localStorage.getItem(TASK_KEY(jobId));
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as LinkedTask;
+    } catch {
+      return null;
+    }
+  };
+
+  const getLinkedTaskId = (jobId: number): string | null => getLinkedTask(jobId)?.id ?? null;
 
   const createTask = async (payload: AgendaTaskPayload): Promise<CreateTaskResult> => {
     const token = getToken();
@@ -92,5 +107,5 @@ export function useAgenda() {
     }
   };
 
-  return { isConnected, savedEmail, login, disconnect, createTask, linkTask, getLinkedTaskId, syncTaskStatus };
+  return { isConnected, savedEmail, login, disconnect, createTask, linkTask, getLinkedTask, getLinkedTaskId, syncTaskStatus };
 }
