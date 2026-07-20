@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useJobs } from './hooks/useJobs';
 import { AgendaTaskStatus, useAgenda } from './hooks/useAgenda';
 import { StatsBar } from './components/StatsBar';
@@ -6,6 +6,7 @@ import { FilterBar } from './components/FilterBar';
 import { ViewTabs } from './components/ViewTabs';
 import { JobCard } from './components/JobCard';
 import { AddJobModal } from './components/AddJobModal';
+import { AgendaStatusBar } from './components/AgendaStatusBar';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
 import './App.css';
 
@@ -23,6 +24,15 @@ const agendaStatusFor: Partial<Record<JobStatus, AgendaTaskStatus>> = {
   APLICADA: 'PENDING',
   ANDAMENTO: 'IN_PROGRESS',
   RECUSADA: 'DONE',
+};
+
+// Sentido inverso: status da tarefa na Agenda → status da vaga no Job Radar.
+// DONE e NOT_DONE significam "processo encerrado" pro nosso funil, então os dois viram RECUSADA.
+const jobStatusFor: Partial<Record<AgendaTaskStatus, JobStatus>> = {
+  PENDING: 'APLICADA',
+  IN_PROGRESS: 'ANDAMENTO',
+  DONE: 'RECUSADA',
+  NOT_DONE: 'RECUSADA',
 };
 
 const defaultFilters: Filters = {
@@ -48,23 +58,63 @@ export default function App() {
 
   const { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
-  const { isConnected, createTask, linkTask, syncTaskStatus } = useAgenda();
+  const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
+  const [syncingAgenda, setSyncingAgenda] = useState(false);
+  const reconciledRef = useRef(false);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const syncAgendaForStatus = (id: number, status: JobStatus) => {
     const agendaStatus = agendaStatusFor[status];
     if (agendaStatus) syncTaskStatus(id, agendaStatus);
   };
 
+  // Sentido inverso: relê o status de cada tarefa vinculada na Agenda e reflete
+  // no Job Radar quando o usuário mexeu no Kanban por lá em vez de por aqui.
+  // Usa setStatus (não syncAgendaForStatus) pra não devolver o PATCH pra Agenda à toa.
+  const reconcileWithAgenda = useCallback(async (): Promise<number> => {
+    if (!isConnected()) return 0;
+    const candidates = jobs.filter(j => (j.applied || j.inProgress) && !j.rejected);
+    let changed = 0;
+    await Promise.all(candidates.map(async job => {
+      const linked = getLinkedTask(job.id);
+      if (!linked) return;
+      const agendaStatus = await getTaskStatus(linked.id);
+      if (!agendaStatus) return;
+      const mapped = jobStatusFor[agendaStatus];
+      const current: JobStatus = job.inProgress ? 'ANDAMENTO' : 'APLICADA';
+      if (mapped && mapped !== current) {
+        await setStatus(job.id, mapped);
+        changed++;
+      }
+    }));
+    return changed;
+  }, [jobs, isConnected, getLinkedTask, getTaskStatus, setStatus]);
+
+  const handleAgendaSync = async () => {
+    setSyncingAgenda(true);
+    const changed = await reconcileWithAgenda();
+    setSyncingAgenda(false);
+    showToast(changed > 0 ? `🔄 ${changed} vaga(s) sincronizada(s) com a Agenda` : '✅ Tudo sincronizado com a Agenda');
+  };
+
+  // roda a reconciliação automaticamente uma vez, assim que as vagas carregam
+  useEffect(() => {
+    if (reconciledRef.current || jobs.length === 0 || !isConnected()) return;
+    reconciledRef.current = true;
+    reconcileWithAgenda().then(changed => {
+      if (changed > 0) showToast(`🔄 ${changed} vaga(s) sincronizada(s) com a Agenda`);
+    });
+  }, [jobs, isConnected, reconcileWithAgenda]);
+
   // volta pra primeira "página" sempre que os filtros mudam a lista
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filters]);
 
   const visibleJobs = jobs.slice(0, visibleCount);
   const hasMore = visibleCount < jobs.length;
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const handleFetch = async () => {
     const novas = await triggerFetch();
@@ -135,9 +185,12 @@ export default function App() {
             <h1 className="app-title">🎯 Job Radar</h1>
             <p className="app-subtitle">Vagas de programação remotas na Europa + vagas no Brasil (Gupy) · Atualizado diariamente às 08:00</p>
           </div>
-          <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>
-            ➕ Adicionar vaga
-          </button>
+          <div className="header-actions">
+            <AgendaStatusBar syncing={syncingAgenda} onSync={handleAgendaSync} />
+            <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>
+              ➕ Adicionar vaga
+            </button>
+          </div>
         </div>
       </header>
 

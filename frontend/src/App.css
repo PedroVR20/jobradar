@@ -56,6 +56,7 @@ a:hover { text-decoration: underline; }
   flex-wrap: wrap;
 }
 .add-job-btn { white-space: nowrap; }
+.header-actions { display: flex; align-items: center; gap: 0.75rem; }
 
 .app-title {
   font-size: 1.5rem;
@@ -766,6 +767,64 @@ a:hover { text-decoration: underline; }
 .agenda-preview-row { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agenda-preview-row a { color: var(--accent); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
+
+/* Agenda status bar (header) */
+.agenda-status { position: relative; display: flex; align-items: center; }
+.agenda-status--connected {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 8px 5px 12px;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+.agenda-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+.agenda-status-label { color: var(--text-muted); white-space: nowrap; }
+.agenda-status-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 6px;
+}
+.agenda-status-btn:hover:not(:disabled) { background: var(--border); color: var(--text); }
+.agenda-status-btn:disabled { opacity: 0.6; cursor: default; }
+.agenda-status-toggle {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.agenda-status-toggle:hover { color: var(--text); border-color: var(--text-muted); }
+.agenda-status-form {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 220px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  z-index: 200;
+}
+.agenda-error--inline { text-align: center; }
 
 .modal-subtitle {
   color: var(--text-muted);

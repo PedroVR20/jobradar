@@ -107,5 +107,26 @@ export function useAgenda() {
     }
   };
 
-  return { isConnected, savedEmail, login, disconnect, createTask, linkTask, getLinkedTask, getLinkedTaskId, syncTaskStatus };
+  // Lê o status atual de uma tarefa na Agenda — usado pra sincronizar no sentido inverso
+  // (Agenda → Job Radar), quando o usuário move a tarefa direto por lá.
+  const getTaskStatus = async (taskId: string): Promise<AgendaTaskStatus | null> => {
+    const token = getToken();
+    if (!token) return null;
+    try {
+      const res = await fetch(`${AGENDA_API}/api/v1/tasks/${taskId}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (res.status === 401) {
+        disconnect();
+        return null;
+      }
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.status as AgendaTaskStatus;
+    } catch {
+      return null;
+    }
+  };
+
+  return { isConnected, savedEmail, login, disconnect, createTask, linkTask, getLinkedTask, getLinkedTaskId, syncTaskStatus, getTaskStatus };
 }
