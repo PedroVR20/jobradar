@@ -9,13 +9,19 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.text.Normalizer;
+import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.TemporalAdjusters;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalDouble;
 
 @RestController
 @RequestMapping("/api/jobs")
@@ -157,6 +163,63 @@ public class JobController {
     }
 
     /**
+     * Métricas de funil de candidatura pro dashboard de métricas.
+     * Só considera vagas que já foram aplicadas em algum momento
+     * (aguardando/em andamento/recusadas), independente do estado atual.
+     * GET /api/jobs/metrics
+     */
+    @GetMapping("/metrics")
+    public Map<String, Object> getMetrics() {
+        List<Job> aplicadas = jobRepository.findByAppliedTrue();
+
+        long total = aplicadas.size();
+        long emAndamento = aplicadas.stream().filter(Job::isInProgress).count();
+        long recusadas = aplicadas.stream().filter(Job::isRejected).count();
+        long aguardandoRetorno = Math.max(0, total - emAndamento - recusadas);
+        Double taxaResposta = total == 0
+                ? null
+                : Math.round((emAndamento + recusadas) * 1000.0 / total) / 10.0;
+
+        // aplicações por semana (últimas 8 semanas, segunda-feira como início de cada uma)
+        LocalDate inicioSemanaAtual = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        List<Map<String, Object>> porSemana = new ArrayList<>();
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd/MM");
+        for (int i = 7; i >= 0; i--) {
+            LocalDate segunda = inicioSemanaAtual.minusWeeks(i);
+            LocalDate proximaSegunda = segunda.plusDays(7);
+            long count = aplicadas.stream()
+                    .filter(j -> j.getAppliedAt() != null)
+                    .map(j -> j.getAppliedAt().toLocalDate())
+                    .filter(d -> !d.isBefore(segunda) && d.isBefore(proximaSegunda))
+                    .count();
+            porSemana.add(Map.of("semana", segunda.format(fmt), "count", count));
+        }
+
+        // tempo médio até avançar pra "em andamento" / até ser recusada — só
+        // conta vagas com os dois timestamps disponíveis (appliedAt é campo novo,
+        // então vagas antigas ficam de fora até serem reaplicadas)
+        OptionalDouble avgAndamento = aplicadas.stream()
+                .filter(j -> j.getAppliedAt() != null && j.getInProgressAt() != null)
+                .mapToLong(j -> Duration.between(j.getAppliedAt(), j.getInProgressAt()).toDays())
+                .average();
+        OptionalDouble avgRecusa = aplicadas.stream()
+                .filter(j -> j.getAppliedAt() != null && j.getRejectedAt() != null)
+                .mapToLong(j -> Duration.between(j.getAppliedAt(), j.getRejectedAt()).toDays())
+                .average();
+
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("totalAplicadas", total);
+        metrics.put("emAndamento", emAndamento);
+        metrics.put("recusadas", recusadas);
+        metrics.put("aguardandoRetorno", aguardandoRetorno);
+        metrics.put("taxaResposta", taxaResposta);
+        metrics.put("aplicacoesPorSemana", porSemana);
+        metrics.put("tempoMedioAteAndamentoDias", avgAndamento.isPresent() ? Math.round(avgAndamento.getAsDouble() * 10) / 10.0 : null);
+        metrics.put("tempoMedioAteRecusaDias", avgRecusa.isPresent() ? Math.round(avgRecusa.getAsDouble() * 10) / 10.0 : null);
+        return metrics;
+    }
+
+    /**
      * Marca uma vaga como vista
      * PATCH /api/jobs/{id}/seen
      */
@@ -224,9 +287,18 @@ public class JobController {
     // RECUSADA) para os campos booleanos da entidade. RECUSADA marca rejectedAt
     // com o instante atual, usado depois pra excluir a vaga após alguns dias.
     private void aplicarStatus(Job job, String status) {
+        boolean applied = status.equals("APLICADA") || status.equals("ANDAMENTO") || status.equals("RECUSADA");
+        boolean inProgress = status.equals("ANDAMENTO");
+
         job.setSeen(!status.equals("NOVA"));
-        job.setApplied(status.equals("APLICADA") || status.equals("ANDAMENTO") || status.equals("RECUSADA"));
-        job.setInProgress(status.equals("ANDAMENTO"));
+        job.setApplied(applied);
+        if (applied && job.getAppliedAt() == null) {
+            job.setAppliedAt(LocalDateTime.now());
+        }
+        job.setInProgress(inProgress);
+        if (inProgress && job.getInProgressAt() == null) {
+            job.setInProgressAt(LocalDateTime.now());
+        }
         job.setRejected(status.equals("RECUSADA"));
         job.setRejectedAt(status.equals("RECUSADA") ? LocalDateTime.now() : null);
     }
@@ -321,7 +393,9 @@ public class JobController {
         dto.put("fetchedAt", job.getFetchedAt() != null ? job.getFetchedAt().toString() : null);
         dto.put("seen", job.isSeen());
         dto.put("applied", job.isApplied());
+        dto.put("appliedAt", job.getAppliedAt() != null ? job.getAppliedAt().toString() : null);
         dto.put("inProgress", job.isInProgress());
+        dto.put("inProgressAt", job.getInProgressAt() != null ? job.getInProgressAt().toString() : null);
         dto.put("rejected", job.isRejected());
         dto.put("rejectedAt", job.getRejectedAt() != null ? job.getRejectedAt().toString() : null);
         dto.put("tags", job.getTags() != null

@@ -55,11 +55,18 @@ public class Job {
     @Builder.Default
     private boolean applied = false;
 
+    // Marca a primeira vez que a vaga foi aplicada — não é sobrescrito em reaplicações
+    // (ver aplicarStatus). Usado pra métricas de tempo/volume ao longo do tempo.
+    private LocalDateTime appliedAt;
+
     // true = aplicou e está em processo seletivo ativo (entrevistas etc),
     // separado de "aplicada" pra não misturar com vagas que só foram aplicadas
     // e ainda não tiveram retorno.
     @Builder.Default
     private boolean inProgress = false;
+
+    // Marca a primeira vez que a vaga entrou em processo ativo.
+    private LocalDateTime inProgressAt;
 
     // true = vaga recusada (processo encerrado sem sucesso) ou vaga congelada
     // pela empresa. rejectedAt marca quando isso aconteceu, usado pra excluir

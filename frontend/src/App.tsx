@@ -7,6 +7,7 @@ import { ViewTabs } from './components/ViewTabs';
 import { JobCard } from './components/JobCard';
 import { AddJobModal } from './components/AddJobModal';
 import { AgendaStatusBar } from './components/AgendaStatusBar';
+import { MetricsModal } from './components/MetricsModal';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
 import './App.css';
 
@@ -55,6 +56,7 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showMetrics, setShowMetrics] = useState(false);
 
   const { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
@@ -187,6 +189,9 @@ export default function App() {
           </div>
           <div className="header-actions">
             <AgendaStatusBar syncing={syncingAgenda} onSync={handleAgendaSync} />
+            <button className="btn btn-ghost" onClick={() => setShowMetrics(true)}>
+              📊 Métricas
+            </button>
             <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>
               ➕ Adicionar vaga
             </button>
@@ -196,6 +201,10 @@ export default function App() {
 
       {showAddModal && (
         <AddJobModal onClose={() => setShowAddModal(false)} onSubmit={handleAddManual} />
+      )}
+
+      {showMetrics && (
+        <MetricsModal onClose={() => setShowMetrics(false)} />
       )}
 
       <main className="app-main">

@@ -21,7 +21,9 @@ export interface Job {
   fetchedAt: string | null;
   seen: boolean;
   applied: boolean;
+  appliedAt: string | null;
   inProgress: boolean;
+  inProgressAt: string | null;
   rejected: boolean;
   rejectedAt: string | null;
   companyLogoUrl: string | null;
@@ -45,6 +47,17 @@ export interface Stats {
     EURECA: number;
   };
   porSenioridade: Record<Seniority, number>;
+}
+
+export interface Metrics {
+  totalAplicadas: number;
+  emAndamento: number;
+  recusadas: number;
+  aguardandoRetorno: number;
+  taxaResposta: number | null;
+  aplicacoesPorSemana: { semana: string; count: number }[];
+  tempoMedioAteAndamentoDias: number | null;
+  tempoMedioAteRecusaDias: number | null;
 }
 
 export type SortOption = 'posted_desc' | 'posted_asc' | 'fetched_desc';
