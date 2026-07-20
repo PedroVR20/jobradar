@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useJobs } from './hooks/useJobs';
-import { useAgenda } from './hooks/useAgenda';
+import { AgendaTaskStatus, useAgenda } from './hooks/useAgenda';
 import { StatsBar } from './components/StatsBar';
 import { FilterBar } from './components/FilterBar';
 import { ViewTabs } from './components/ViewTabs';
@@ -17,6 +17,12 @@ function followUpDueAt(): string {
   const pad = (n: number) => n.toString().padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T23:59:00-03:00`;
 }
+
+const agendaStatusFor: Partial<Record<JobStatus, AgendaTaskStatus>> = {
+  APLICADA: 'PENDING',
+  ANDAMENTO: 'IN_PROGRESS',
+  RECUSADA: 'DONE',
+};
 
 const defaultFilters: Filters = {
   source: '',
@@ -41,7 +47,12 @@ export default function App() {
 
   const { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
-  const { isConnected, createTask } = useAgenda();
+  const { isConnected, createTask, linkTask, syncTaskStatus } = useAgenda();
+
+  const syncAgendaForStatus = (id: number, status: JobStatus) => {
+    const agendaStatus = agendaStatusFor[status];
+    if (agendaStatus) syncTaskStatus(id, agendaStatus);
+  };
 
   // volta pra primeira "página" sempre que os filtros mudam a lista
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filters]);
@@ -61,6 +72,7 @@ export default function App() {
 
   const handleApplied = async (id: number) => {
     await markApplied(id);
+    syncAgendaForStatus(id, 'APLICADA');
     showToast('✅ Vaga marcada como aplicada!');
   };
 
@@ -76,23 +88,29 @@ export default function App() {
           priority: 'HIGH',
           icon: 'notifications',
         });
-        if (result === 'ok') {
+        if (result !== 'unauthorized' && result !== 'error') {
+          linkTask(id, result.id);
           showToast('🔄 Em Andamento — 📅 follow up criado na Agenda!');
           return;
         }
       }
     }
+    syncAgendaForStatus(id, 'ANDAMENTO');
     showToast('🔄 Vaga movida pra "Em Andamento"!');
   };
 
   const handleDropJob = async (jobId: number, tab: ViewMode) => {
     if (tab === 'andamento') await handleInProgress(jobId);
     else if (tab === 'aplicadas') await handleApplied(jobId);
-    else if (tab === 'recusadas') await setStatus(jobId, 'RECUSADA');
+    else if (tab === 'recusadas') {
+      await setStatus(jobId, 'RECUSADA');
+      syncAgendaForStatus(jobId, 'RECUSADA');
+    }
   };
 
   const handleSetStatus = async (id: number, status: JobStatus) => {
     await setStatus(id, status);
+    syncAgendaForStatus(id, status);
     showToast(`Vaga movida pra "${statusMeta[status]}"!`);
   };
 

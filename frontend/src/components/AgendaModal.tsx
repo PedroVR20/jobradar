@@ -17,7 +17,7 @@ function buildPayload(job: Job, title: string, withDeadline: boolean): AgendaTas
 }
 
 export function AgendaModal({ job, onClose, onSuccess }: Props) {
-  const { isConnected, savedEmail, login, createTask } = useAgenda();
+  const { isConnected, savedEmail, login, createTask, linkTask } = useAgenda();
 
   // Etapa: 'connect' → 'confirm' → 'sending'
   const [step, setStep] = useState<'connect' | 'confirm'>(isConnected() ? 'confirm' : 'connect');
@@ -53,7 +53,8 @@ export function AgendaModal({ job, onClose, onSuccess }: Props) {
     const payload = buildPayload(job, taskTitle, withDeadline);
     const result = await createTask(payload);
     setSending(false);
-    if (result === 'ok') {
+    if (result !== 'unauthorized' && result !== 'error') {
+      linkTask(job.id, result.id);
       onSuccess();
     } else if (result === 'unauthorized') {
       setStep('connect');

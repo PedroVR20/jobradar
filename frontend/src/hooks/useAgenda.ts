@@ -1,6 +1,9 @@
 const AGENDA_API = 'http://localhost:8081';
 const TOKEN_KEY = 'agenda_token';
 const EMAIL_KEY = 'agenda_email';
+const TASK_KEY = (jobId: number) => `agenda_task_${jobId}`;
+
+export type AgendaTaskStatus = 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'NOT_DONE';
 
 export interface AgendaTaskPayload {
   title: string;
@@ -9,6 +12,8 @@ export interface AgendaTaskPayload {
   priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
   icon?: string;
 }
+
+export type CreateTaskResult = { id: string } | 'unauthorized' | 'error';
 
 export function useAgenda() {
   const getToken = () => localStorage.getItem(TOKEN_KEY);
@@ -38,8 +43,14 @@ export function useAgenda() {
     localStorage.removeItem(EMAIL_KEY);
   };
 
-  // Retorna 'ok' | 'unauthorized' | 'error'
-  const createTask = async (payload: AgendaTaskPayload): Promise<'ok' | 'unauthorized' | 'error'> => {
+  const linkTask = (jobId: number, taskId: string) => {
+    localStorage.setItem(TASK_KEY(jobId), taskId);
+  };
+
+  const getLinkedTaskId = (jobId: number): string | null =>
+    localStorage.getItem(TASK_KEY(jobId));
+
+  const createTask = async (payload: AgendaTaskPayload): Promise<CreateTaskResult> => {
     const token = getToken();
     if (!token) return 'unauthorized';
     try {
@@ -55,11 +66,31 @@ export function useAgenda() {
         disconnect();
         return 'unauthorized';
       }
-      return res.status === 201 ? 'ok' : 'error';
+      if (res.status !== 201) return 'error';
+      const data = await res.json();
+      return { id: data.id as string };
     } catch {
       return 'error';
     }
   };
 
-  return { isConnected, savedEmail, login, disconnect, createTask };
+  const syncTaskStatus = async (jobId: number, status: AgendaTaskStatus): Promise<void> => {
+    const token = getToken();
+    const taskId = getLinkedTaskId(jobId);
+    if (!token || !taskId) return;
+    try {
+      await fetch(`${AGENDA_API}/api/v1/tasks/${taskId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status }),
+      });
+    } catch {
+      // silent — sync failure doesn't affect Job Radar flow
+    }
+  };
+
+  return { isConnected, savedEmail, login, disconnect, createTask, linkTask, getLinkedTaskId, syncTaskStatus };
 }
