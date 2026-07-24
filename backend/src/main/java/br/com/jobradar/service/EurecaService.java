@@ -8,8 +8,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +32,7 @@ public class EurecaService {
 
     private static final String API_URL = "https://candidate-api.eureca.me/v2/opportunities";
     private static final int PAGE_SIZE = 50; // máximo aceito pela API
+    private static final ZoneId BRASILIA = ZoneId.of("America/Sao_Paulo");
 
     private final ObjectMapper mapper = new ObjectMapper();
     private final RestTemplate restTemplate = new RestTemplate();
@@ -143,10 +146,19 @@ public class EurecaService {
 
     private LocalDate parseDate(JsonNode node) {
         if (node == null || node.isNull() || node.asText().isBlank()) return null;
+        String raw = node.asText();
         try {
-            return LocalDate.parse(node.asText().substring(0, 10));
+            // endApplying vem como instante UTC (ex: "...T02:59:00.000Z"), que em
+            // Brasília (UTC-3) já é 23:59 do dia anterior — pegar só os 10 primeiros
+            // caracteres da string UTC cravava um dia a mais na data de encerramento.
+            return Instant.parse(raw).atZone(BRASILIA).toLocalDate();
         } catch (Exception e) {
-            return null;
+            try {
+                // fallback pra quando a API manda só a data, sem horário/timezone
+                return LocalDate.parse(raw.substring(0, 10));
+            } catch (Exception e2) {
+                return null;
+            }
         }
     }
 }
