@@ -124,9 +124,11 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
   const [notesText, setNotesText] = useState(job.notes ?? '');
+  const [notesSaved, setNotesSaved] = useState(false);
   const [logoError, setLogoError] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const notesTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setNotesText(job.notes ?? '');
@@ -155,9 +157,13 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
   const handleNotesChange = (value: string) => {
     setNotesText(value);
+    setNotesSaved(false);
     if (notesTimeout.current) clearTimeout(notesTimeout.current);
     notesTimeout.current = setTimeout(() => {
       onUpdateNotes(job.id, value);
+      setNotesSaved(true);
+      if (savedTimeout.current) clearTimeout(savedTimeout.current);
+      savedTimeout.current = setTimeout(() => setNotesSaved(false), 2000);
     }, 800);
   };
 
@@ -301,21 +307,41 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
       {/* Notas pessoais */}
       <div className="card-notes-section">
-        <button
-          className="notes-toggle"
-          onClick={() => setNotesOpen(o => !o)}
-        >
-          📝 {notesOpen ? 'Fechar notas' : job.notes ? 'Ver notas' : 'Adicionar nota'}
-          {job.notes && !notesOpen && <span className="notes-dot" />}
-        </button>
-        {notesOpen && (
-          <textarea
-            className="notes-textarea"
-            placeholder="Escreva notas sobre essa vaga (salário negociado, contato do recrutador, impressões da entrevista...)"
-            value={notesText}
-            onChange={e => handleNotesChange(e.target.value)}
-            rows={3}
-          />
+        {notesOpen ? (
+          <div className="notes-editor">
+            <div className="notes-editor-head">
+              <span className="notes-editor-title">📝 Notas pessoais</span>
+              <span className="notes-save-status">
+                {notesSaved ? '✓ Salvo' : notesText !== (job.notes ?? '') ? 'Salvando...' : ''}
+              </span>
+              <button
+                className="notes-editor-close"
+                onClick={() => setNotesOpen(false)}
+                aria-label="Fechar notas"
+                title="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+            <textarea
+              className="notes-textarea"
+              placeholder="Salário negociado, contato do recrutador, impressões da entrevista..."
+              value={notesText}
+              onChange={e => handleNotesChange(e.target.value)}
+              rows={3}
+              autoFocus
+            />
+          </div>
+        ) : job.notes ? (
+          <button className="notes-preview" onClick={() => setNotesOpen(true)} title="Editar notas">
+            <span className="notes-preview-icon">📝</span>
+            <span className="notes-preview-text">{job.notes}</span>
+            <span className="notes-preview-edit">editar</span>
+          </button>
+        ) : (
+          <button className="notes-toggle" onClick={() => setNotesOpen(true)}>
+            📝 Adicionar nota
+          </button>
         )}
       </div>
 
