@@ -325,6 +325,7 @@ a:hover { text-decoration: underline; }
 .job-card--new    { border-left: 3px solid var(--red); }
 .job-card--seen   { border-left: 3px solid var(--border); opacity: 0.7; }
 .job-card--applied { border-left: 3px solid var(--green); opacity: 0.85; }
+.job-card--interested { border-left: 3px solid #a855f7; }
 .job-card--in-progress { border-left: 3px solid var(--yellow); }
 .job-card--rejected { border-left: 3px solid var(--text-muted); opacity: 0.6; }
 .job-card[draggable="true"] { cursor: grab; }
@@ -371,6 +372,15 @@ a:hover { text-decoration: underline; }
   background: var(--yellow);
   color: #1a1305;
   letter-spacing: 0.3px;
+}
+
+.badge-interested {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: #a855f7;
+  color: #fff;
 }
 
 .badge-rejected {
@@ -616,6 +626,12 @@ a:hover { text-decoration: underline; }
   border: 1px solid #0ea5e944;
 }
 .btn-agenda:hover:not(:disabled) { background: #0ea5e933; }
+.btn-interested {
+  background: #a855f722;
+  color: #c084fc;
+  border: 1px solid #a855f744;
+}
+.btn-interested:hover:not(:disabled) { background: #a855f733; }
 
 .fetch-btn {
   margin-left: auto;

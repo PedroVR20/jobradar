@@ -52,6 +52,11 @@ public class Job {
     @Builder.Default
     private boolean seen = false;
 
+    // true = vaga vista que despertou interesse, mas ainda não foi aplicada —
+    // fica na aba "Interessado" pra não se perder junto com as demais "já vistas".
+    @Builder.Default
+    private boolean interested = false;
+
     @Builder.Default
     private boolean applied = false;
 

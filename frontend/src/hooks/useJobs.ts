@@ -37,6 +37,7 @@ export function useJobs(filters: Filters) {
     if (filters.sort) params.set('sort', filters.sort);
     if (filters.viewMode === 'novas') params.set('onlyNew', 'true');
     if (filters.viewMode === 'vistas') params.set('onlySeen', 'true');
+    if (filters.viewMode === 'interessado') params.set('onlyInteressado', 'true');
     if (filters.viewMode === 'aplicadas') params.set('onlyApplied', 'true');
     if (filters.viewMode === 'andamento') params.set('onlyInProgress', 'true');
     if (filters.viewMode === 'recusadas') params.set('onlyRejected', 'true');
@@ -85,7 +86,7 @@ export function useJobs(filters: Filters) {
   const markApplied = async (id: number) => {
     await fetch(`${API}/${id}/applied`, { method: 'PATCH' });
     setJobs(prev => prev.map(j =>
-      j.id === id ? { ...j, applied: true, seen: true, inProgress: false } : j
+      j.id === id ? { ...j, applied: true, seen: true, interested: false, inProgress: false } : j
     ));
     loadJobs(true); // atualiza stats sem piscar loading
   };
@@ -93,7 +94,7 @@ export function useJobs(filters: Filters) {
   const markInProgress = async (id: number) => {
     await fetch(`${API}/${id}/in-progress`, { method: 'PATCH' });
     setJobs(prev => prev.map(j =>
-      j.id === id ? { ...j, applied: true, seen: true, inProgress: true } : j
+      j.id === id ? { ...j, applied: true, seen: true, interested: false, inProgress: true } : j
     ));
     loadJobs(true); // atualiza stats sem piscar loading
   };
@@ -103,11 +104,12 @@ export function useJobs(filters: Filters) {
   const setStatus = async (id: number, status: JobStatus) => {
     await fetch(`${API}/${id}/status?value=${status}`, { method: 'PATCH' });
     const patch: Partial<Job> = {
-      NOVA:      { seen: false, applied: false, inProgress: false, rejected: false, rejectedAt: null },
-      VISTA:     { seen: true,  applied: false, inProgress: false, rejected: false, rejectedAt: null },
-      APLICADA:  { seen: true,  applied: true,  inProgress: false, rejected: false, rejectedAt: null },
-      ANDAMENTO: { seen: true,  applied: true,  inProgress: true,  rejected: false, rejectedAt: null },
-      RECUSADA:  { seen: true,  applied: true,  inProgress: false, rejected: true,  rejectedAt: new Date().toISOString() },
+      NOVA:        { seen: false, interested: false, applied: false, inProgress: false, rejected: false, rejectedAt: null },
+      VISTA:       { seen: true,  interested: false, applied: false, inProgress: false, rejected: false, rejectedAt: null },
+      INTERESSADO: { seen: true,  interested: true,  applied: false, inProgress: false, rejected: false, rejectedAt: null },
+      APLICADA:    { seen: true,  interested: false, applied: true,  inProgress: false, rejected: false, rejectedAt: null },
+      ANDAMENTO:   { seen: true,  interested: false, applied: true,  inProgress: true,  rejected: false, rejectedAt: null },
+      RECUSADA:    { seen: true,  interested: false, applied: true,  inProgress: false, rejected: true,  rejectedAt: new Date().toISOString() },
     }[status];
     setJobs(prev => prev.map(j => j.id === id ? { ...j, ...patch } : j));
     loadJobs(true); // reflete a mudança de aba e atualiza stats sem piscar loading

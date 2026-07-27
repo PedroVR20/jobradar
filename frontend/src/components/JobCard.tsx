@@ -21,12 +21,13 @@ const techTags = [
   'fullstack', 'backend', 'frontend', 'devops', 'remote', 'remoto',
 ];
 
-const ALL_STATUSES: JobStatus[] = ['NOVA', 'VISTA', 'APLICADA', 'ANDAMENTO', 'RECUSADA'];
+const ALL_STATUSES: JobStatus[] = ['NOVA', 'VISTA', 'INTERESSADO', 'APLICADA', 'ANDAMENTO', 'RECUSADA'];
 
 function currentStatus(job: Job): JobStatus {
   if (job.rejected) return 'RECUSADA';
   if (job.inProgress) return 'ANDAMENTO';
   if (job.applied) return 'APLICADA';
+  if (job.interested) return 'INTERESSADO';
   if (job.seen) return 'VISTA';
   return 'NOVA';
 }
@@ -114,7 +115,8 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const interviewTask = job.rejected ? null : getInterviewTask(job.id);
   const interview = interviewInfo(interviewTask?.dueAt ?? null);
 
-  const isSeenOnly = job.seen && !job.applied && !job.rejected;
+  const isSeenOnly = job.seen && !job.interested && !job.applied && !job.rejected;
+  const isInterestedOnly = job.interested && !job.applied && !job.rejected;
   const isPlainApplied = job.applied && !job.inProgress && !job.rejected;
   const status = currentStatus(job);
   const daysLeft = job.rejected && job.rejectedAt ? daysUntilDeletion(job.rejectedAt) : null;
@@ -169,7 +171,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
   return (
     <div
-      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${job.pinned ? 'job-card--pinned' : ''}`}
+      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''}`}
       draggable={job.applied}
       onDragStart={job.applied ? handleDragStart : undefined}
       title={job.applied ? 'Arraste pra outra aba, ou use o menu ⋮' : undefined}
@@ -198,6 +200,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             {job.rejected && <span className="badge-rejected">❌ RECUSADA</span>}
             {job.inProgress && !job.rejected && <span className="badge-in-progress">EM ANDAMENTO 🔄</span>}
             {isPlainApplied && <span className="badge-applied">APLICADA ✅</span>}
+            {isInterestedOnly && <span className="badge-interested">⭐ INTERESSADO</span>}
             <span className="badge-source" style={{ background: src.color + '22', color: src.color }}>
               {src.label}
             </span>
@@ -412,6 +415,23 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
           >
             👁 Marcar como vista
           </button>
+        )}
+        {!job.applied && !job.rejected && (
+          job.interested ? (
+            <button
+              className="btn btn-ghost"
+              onClick={() => onSetStatus(job.id, 'VISTA')}
+            >
+              ⭐ Tirar interesse
+            </button>
+          ) : (
+            <button
+              className="btn btn-interested"
+              onClick={() => onSetStatus(job.id, 'INTERESSADO')}
+            >
+              ⭐ Marquei interesse
+            </button>
+          )
         )}
         {isPlainApplied && (
           <button

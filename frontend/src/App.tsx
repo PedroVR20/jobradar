@@ -157,6 +157,7 @@ export default function App() {
   const handleDropJob = async (jobId: number, tab: ViewMode) => {
     if (tab === 'andamento') await handleInProgress(jobId);
     else if (tab === 'aplicadas') await handleApplied(jobId);
+    else if (tab === 'interessado') await setStatus(jobId, 'INTERESSADO');
     else if (tab === 'recusadas') {
       await setStatus(jobId, 'RECUSADA');
       syncAgendaForStatus(jobId, 'RECUSADA');

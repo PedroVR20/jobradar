@@ -30,6 +30,8 @@ public interface JobRepository extends JpaRepository<Job, Long> {
 
     long countByAppliedTrue();
 
+    long countByInterestedTrue();
+
     long countBySeniority(String seniority);
 
     List<Job> findBySeniorityIsNull();
