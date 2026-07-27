@@ -24,6 +24,17 @@ Aguarda uns 2-3 minutos para o Maven baixar as dependências e compilar o backen
 | Backend   | http://localhost:8080      |
 | Banco     | localhost:5432 / jobradar  |
 
+**Porta já em uso?** Se `docker compose up` falhar com algo tipo
+`port is already allocated` (comum com 5432/8080, portas padrão de muita
+coisa), copie `.env.example` para `.env` e troque a porta do serviço que
+conflitar — não precisa editar o `docker-compose.yml`:
+
+```bash
+cp .env.example .env
+# edite .env, ex: BACKEND_PORT=8081
+docker compose up --build
+```
+
 Se você também roda o projeto **Agenda Pessoal** localmente (integração
 descrita mais abaixo), rode `.\scripts\health-check.ps1` pra checar de
 uma vez o status dos containers e endpoints dos dois projetos — útil
