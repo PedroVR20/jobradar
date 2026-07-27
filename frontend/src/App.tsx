@@ -1,12 +1,40 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useJobs } from './hooks/useJobs';
+import { AgendaTaskStatus, useAgenda } from './hooks/useAgenda';
 import { StatsBar } from './components/StatsBar';
 import { FilterBar } from './components/FilterBar';
 import { ViewTabs } from './components/ViewTabs';
 import { JobCard } from './components/JobCard';
 import { AddJobModal } from './components/AddJobModal';
+import { AgendaStatusBar } from './components/AgendaStatusBar';
+import { MetricsModal } from './components/MetricsModal';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
 import './App.css';
+
+const FOLLOWUP_DAYS = 7;
+const NOTIFY_BEFORE_MINUTES = 24 * 60;
+
+function followUpDueAt(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + FOLLOWUP_DAYS);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T23:59:00-03:00`;
+}
+
+const agendaStatusFor: Partial<Record<JobStatus, AgendaTaskStatus>> = {
+  APLICADA: 'PENDING',
+  ANDAMENTO: 'IN_PROGRESS',
+  RECUSADA: 'DONE',
+};
+
+// Sentido inverso: status da tarefa na Agenda → status da vaga no Job Radar.
+// DONE e NOT_DONE significam "processo encerrado" pro nosso funil, então os dois viram RECUSADA.
+const jobStatusFor: Partial<Record<AgendaTaskStatus, JobStatus>> = {
+  PENDING: 'APLICADA',
+  IN_PROGRESS: 'ANDAMENTO',
+  DONE: 'RECUSADA',
+  NOT_DONE: 'RECUSADA',
+};
 
 const defaultFilters: Filters = {
   source: '',
@@ -28,20 +56,67 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showMetrics, setShowMetrics] = useState(false);
 
   const { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
+  const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
+  const [syncingAgenda, setSyncingAgenda] = useState(false);
+  const reconciledRef = useRef(false);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const syncAgendaForStatus = (id: number, status: JobStatus) => {
+    const agendaStatus = agendaStatusFor[status];
+    if (agendaStatus) syncTaskStatus(id, agendaStatus);
+  };
+
+  // Sentido inverso: relê o status de cada tarefa vinculada na Agenda e reflete
+  // no Job Radar quando o usuário mexeu no Kanban por lá em vez de por aqui.
+  // Usa setStatus (não syncAgendaForStatus) pra não devolver o PATCH pra Agenda à toa.
+  const reconcileWithAgenda = useCallback(async (): Promise<number> => {
+    if (!isConnected()) return 0;
+    const candidates = jobs.filter(j => (j.applied || j.inProgress) && !j.rejected);
+    let changed = 0;
+    await Promise.all(candidates.map(async job => {
+      const linked = getLinkedTask(job.id);
+      if (!linked) return;
+      const agendaStatus = await getTaskStatus(linked.id);
+      if (!agendaStatus) return;
+      const mapped = jobStatusFor[agendaStatus];
+      const current: JobStatus = job.inProgress ? 'ANDAMENTO' : 'APLICADA';
+      if (mapped && mapped !== current) {
+        await setStatus(job.id, mapped);
+        changed++;
+      }
+    }));
+    return changed;
+  }, [jobs, isConnected, getLinkedTask, getTaskStatus, setStatus]);
+
+  const handleAgendaSync = async () => {
+    setSyncingAgenda(true);
+    const changed = await reconcileWithAgenda();
+    setSyncingAgenda(false);
+    showToast(changed > 0 ? `🔄 ${changed} vaga(s) sincronizada(s) com a Agenda` : '✅ Tudo sincronizado com a Agenda');
+  };
+
+  // roda a reconciliação automaticamente uma vez, assim que as vagas carregam
+  useEffect(() => {
+    if (reconciledRef.current || jobs.length === 0 || !isConnected()) return;
+    reconciledRef.current = true;
+    reconcileWithAgenda().then(changed => {
+      if (changed > 0) showToast(`🔄 ${changed} vaga(s) sincronizada(s) com a Agenda`);
+    });
+  }, [jobs, isConnected, reconcileWithAgenda]);
 
   // volta pra primeira "página" sempre que os filtros mudam a lista
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filters]);
 
   const visibleJobs = jobs.slice(0, visibleCount);
   const hasMore = visibleCount < jobs.length;
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const handleFetch = async () => {
     const novas = await triggerFetch();
@@ -50,22 +125,47 @@ export default function App() {
 
   const handleApplied = async (id: number) => {
     await markApplied(id);
+    syncAgendaForStatus(id, 'APLICADA');
     showToast('✅ Vaga marcada como aplicada!');
   };
 
   const handleInProgress = async (id: number) => {
     await markInProgress(id);
+    if (isConnected()) {
+      const job = jobs.find(j => j.id === id);
+      if (job) {
+        const dueAt = followUpDueAt();
+        const result = await createTask({
+          title: `Follow up: ${job.company} — ${job.title}`,
+          description: `🔗 ${job.url}`,
+          dueAt,
+          priority: 'HIGH',
+          icon: 'notifications',
+          notifyBeforeMinutes: NOTIFY_BEFORE_MINUTES,
+        });
+        if (result !== 'unauthorized' && result !== 'error') {
+          linkTask(id, result.id, dueAt);
+          showToast('🔄 Em Andamento — 📅 follow up criado na Agenda!');
+          return;
+        }
+      }
+    }
+    syncAgendaForStatus(id, 'ANDAMENTO');
     showToast('🔄 Vaga movida pra "Em Andamento"!');
   };
 
   const handleDropJob = async (jobId: number, tab: ViewMode) => {
     if (tab === 'andamento') await handleInProgress(jobId);
     else if (tab === 'aplicadas') await handleApplied(jobId);
-    else if (tab === 'recusadas') await setStatus(jobId, 'RECUSADA');
+    else if (tab === 'recusadas') {
+      await setStatus(jobId, 'RECUSADA');
+      syncAgendaForStatus(jobId, 'RECUSADA');
+    }
   };
 
   const handleSetStatus = async (id: number, status: JobStatus) => {
     await setStatus(id, status);
+    syncAgendaForStatus(id, status);
     showToast(`Vaga movida pra "${statusMeta[status]}"!`);
   };
 
@@ -87,14 +187,24 @@ export default function App() {
             <h1 className="app-title">🎯 Job Radar</h1>
             <p className="app-subtitle">Vagas de programação remotas na Europa + vagas no Brasil (Gupy) · Atualizado diariamente às 08:00</p>
           </div>
-          <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>
-            ➕ Adicionar vaga
-          </button>
+          <div className="header-actions">
+            <AgendaStatusBar syncing={syncingAgenda} onSync={handleAgendaSync} />
+            <button className="btn btn-ghost" onClick={() => setShowMetrics(true)}>
+              📊 Métricas
+            </button>
+            <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>
+              ➕ Adicionar vaga
+            </button>
+          </div>
         </div>
       </header>
 
       {showAddModal && (
         <AddJobModal onClose={() => setShowAddModal(false)} onSubmit={handleAddManual} />
+      )}
+
+      {showMetrics && (
+        <MetricsModal onClose={() => setShowMetrics(false)} />
       )}
 
       <main className="app-main">
@@ -158,6 +268,7 @@ export default function App() {
                   onSetStatus={handleSetStatus}
                   onTogglePin={togglePin}
                   onUpdateNotes={updateNotes}
+                  onToast={showToast}
                 />
               ))}
             </div>

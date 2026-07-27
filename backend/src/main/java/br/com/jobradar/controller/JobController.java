@@ -9,13 +9,23 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.text.Normalizer;
+import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.TemporalAdjusters;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalDouble;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/jobs")
@@ -157,6 +167,174 @@ public class JobController {
     }
 
     /**
+     * Métricas de funil de candidatura pro dashboard de métricas.
+     * Só considera vagas que já foram aplicadas em algum momento
+     * (aguardando/em andamento/recusadas), independente do estado atual.
+     * GET /api/jobs/metrics
+     */
+    @GetMapping("/metrics")
+    public Map<String, Object> getMetrics() {
+        List<Job> aplicadas = jobRepository.findByAppliedTrue();
+
+        long total = aplicadas.size();
+        long emAndamento = aplicadas.stream().filter(Job::isInProgress).count();
+        long recusadas = aplicadas.stream().filter(Job::isRejected).count();
+        long aguardandoRetorno = Math.max(0, total - emAndamento - recusadas);
+        Double taxaResposta = total == 0
+                ? null
+                : Math.round((emAndamento + recusadas) * 1000.0 / total) / 10.0;
+
+        // aplicações por semana (últimas 8 semanas, segunda-feira como início de cada uma)
+        LocalDate inicioSemanaAtual = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        List<Map<String, Object>> porSemana = new ArrayList<>();
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd/MM");
+        for (int i = 7; i >= 0; i--) {
+            LocalDate segunda = inicioSemanaAtual.minusWeeks(i);
+            LocalDate proximaSegunda = segunda.plusDays(7);
+            long count = aplicadas.stream()
+                    .filter(j -> j.getAppliedAt() != null)
+                    .map(j -> j.getAppliedAt().toLocalDate())
+                    .filter(d -> !d.isBefore(segunda) && d.isBefore(proximaSegunda))
+                    .count();
+            porSemana.add(Map.of("semana", segunda.format(fmt), "count", count));
+        }
+
+        // tempo médio até avançar pra "em andamento" / até ser recusada — só
+        // conta vagas com os dois timestamps disponíveis (appliedAt é campo novo,
+        // então vagas antigas ficam de fora até serem reaplicadas)
+        OptionalDouble avgAndamento = aplicadas.stream()
+                .filter(j -> j.getAppliedAt() != null && j.getInProgressAt() != null)
+                .mapToLong(j -> Duration.between(j.getAppliedAt(), j.getInProgressAt()).toDays())
+                .average();
+        OptionalDouble avgRecusa = aplicadas.stream()
+                .filter(j -> j.getAppliedAt() != null && j.getRejectedAt() != null)
+                .mapToLong(j -> Duration.between(j.getAppliedAt(), j.getRejectedAt()).toDays())
+                .average();
+
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("totalAplicadas", total);
+        metrics.put("emAndamento", emAndamento);
+        metrics.put("recusadas", recusadas);
+        metrics.put("aguardandoRetorno", aguardandoRetorno);
+        metrics.put("taxaResposta", taxaResposta);
+        metrics.put("aplicacoesPorSemana", porSemana);
+        metrics.put("tempoMedioAteAndamentoDias", avgAndamento.isPresent() ? Math.round(avgAndamento.getAsDouble() * 10) / 10.0 : null);
+        metrics.put("tempoMedioAteRecusaDias", avgRecusa.isPresent() ? Math.round(avgRecusa.getAsDouble() * 10) / 10.0 : null);
+        return metrics;
+    }
+
+    /**
+     * Detecta possíveis vagas duplicadas publicadas em fontes diferentes —
+     * mesma empresa (normalizada) + título com alta similaridade de palavras.
+     * Só sinaliza pra revisão manual: não deleta nem mescla nada sozinho.
+     * GET /api/jobs/duplicates
+     */
+    @GetMapping("/duplicates")
+    public List<Map<String, Object>> getDuplicates() {
+        List<Job> ativos = jobRepository.findAll().stream()
+                .filter(j -> !j.isRejected())
+                .toList();
+
+        Map<String, List<Job>> porEmpresa = new HashMap<>();
+        for (Job j : ativos) {
+            String key = normalizeCompany(j.getCompany());
+            if (key.isBlank()) continue;
+            porEmpresa.computeIfAbsent(key, k -> new ArrayList<>()).add(j);
+        }
+
+        List<Map<String, Object>> grupos = new ArrayList<>();
+        for (List<Job> candidatos : porEmpresa.values()) {
+            if (candidatos.size() < 2) continue;
+
+            // agrupa por similaridade de título via BFS (componentes conectados)
+            boolean[] visitado = new boolean[candidatos.size()];
+            for (int i = 0; i < candidatos.size(); i++) {
+                if (visitado[i]) continue;
+                List<Job> componente = new ArrayList<>();
+                Deque<Integer> fila = new ArrayDeque<>();
+                fila.add(i);
+                visitado[i] = true;
+                while (!fila.isEmpty()) {
+                    int atual = fila.poll();
+                    Job jobAtual = candidatos.get(atual);
+                    componente.add(jobAtual);
+                    Set<String> palavrasAtual = titleWords(jobAtual.getTitle());
+                    for (int j = 0; j < candidatos.size(); j++) {
+                        if (visitado[j] || j == atual) continue;
+                        Job jobCandidato = candidatos.get(j);
+                        // senioridade precisa bater — "Dev Pleno" e "Dev Sênior" da mesma empresa
+                        // são vagas diferentes, não duplicata, mesmo com título quase idêntico
+                        boolean mesmaSenioridade = java.util.Objects.equals(jobAtual.getSeniority(), jobCandidato.getSeniority());
+                        if (mesmaSenioridade && jaccard(palavrasAtual, titleWords(jobCandidato.getTitle())) >= 0.6) {
+                            visitado[j] = true;
+                            fila.add(j);
+                        }
+                    }
+                }
+                if (componente.size() < 2) continue;
+
+                List<Map<String, Object>> vagas = componente.stream()
+                        .map(j -> {
+                            Map<String, Object> m = new HashMap<>();
+                            m.put("id", j.getId());
+                            m.put("title", j.getTitle());
+                            m.put("source", j.getSource());
+                            m.put("url", j.getUrl());
+                            m.put("postedAt", j.getPostedAt() != null ? j.getPostedAt().toString() : null);
+                            return m;
+                        })
+                        .toList();
+                Map<String, Object> grupo = new HashMap<>();
+                grupo.put("company", componente.get(0).getCompany());
+                grupo.put("jobs", vagas);
+                grupos.add(grupo);
+            }
+        }
+
+        return grupos;
+    }
+
+    private static final Set<String> COMPANY_SUFFIXES = Set.of(
+            "sa", "s a", "ltda", "me", "eireli", "inc", "llc", "corp", "corporation", "co"
+    );
+
+    private String normalizeCompany(String company) {
+        if (company == null) return "";
+        String norm = normalize(company).replaceAll("[^a-z0-9 ]", " ").trim();
+        StringBuilder sb = new StringBuilder();
+        for (String w : norm.split("\\s+")) {
+            if (COMPANY_SUFFIXES.contains(w)) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(w);
+        }
+        return sb.toString().trim();
+    }
+
+    private static final Set<String> TITLE_STOPWORDS = Set.of(
+            "de", "da", "do", "das", "dos", "e", "para", "com", "em", "a", "o", "i", "ii", "iii"
+    );
+
+    private Set<String> titleWords(String title) {
+        if (title == null) return Set.of();
+        String norm = normalize(title).replaceAll("[^a-z0-9 ]", " ").trim();
+        Set<String> words = new HashSet<>();
+        for (String w : norm.split("\\s+")) {
+            if (w.length() < 2 || TITLE_STOPWORDS.contains(w)) continue;
+            words.add(w);
+        }
+        return words;
+    }
+
+    private double jaccard(Set<String> a, Set<String> b) {
+        if (a.isEmpty() || b.isEmpty()) return 0;
+        Set<String> inter = new HashSet<>(a);
+        inter.retainAll(b);
+        Set<String> union = new HashSet<>(a);
+        union.addAll(b);
+        return (double) inter.size() / union.size();
+    }
+
+    /**
      * Marca uma vaga como vista
      * PATCH /api/jobs/{id}/seen
      */
@@ -224,9 +402,18 @@ public class JobController {
     // RECUSADA) para os campos booleanos da entidade. RECUSADA marca rejectedAt
     // com o instante atual, usado depois pra excluir a vaga após alguns dias.
     private void aplicarStatus(Job job, String status) {
+        boolean applied = status.equals("APLICADA") || status.equals("ANDAMENTO") || status.equals("RECUSADA");
+        boolean inProgress = status.equals("ANDAMENTO");
+
         job.setSeen(!status.equals("NOVA"));
-        job.setApplied(status.equals("APLICADA") || status.equals("ANDAMENTO") || status.equals("RECUSADA"));
-        job.setInProgress(status.equals("ANDAMENTO"));
+        job.setApplied(applied);
+        if (applied && job.getAppliedAt() == null) {
+            job.setAppliedAt(LocalDateTime.now());
+        }
+        job.setInProgress(inProgress);
+        if (inProgress && job.getInProgressAt() == null) {
+            job.setInProgressAt(LocalDateTime.now());
+        }
         job.setRejected(status.equals("RECUSADA"));
         job.setRejectedAt(status.equals("RECUSADA") ? LocalDateTime.now() : null);
     }
@@ -321,7 +508,9 @@ public class JobController {
         dto.put("fetchedAt", job.getFetchedAt() != null ? job.getFetchedAt().toString() : null);
         dto.put("seen", job.isSeen());
         dto.put("applied", job.isApplied());
+        dto.put("appliedAt", job.getAppliedAt() != null ? job.getAppliedAt().toString() : null);
         dto.put("inProgress", job.isInProgress());
+        dto.put("inProgressAt", job.getInProgressAt() != null ? job.getInProgressAt().toString() : null);
         dto.put("rejected", job.isRejected());
         dto.put("rejectedAt", job.getRejectedAt() != null ? job.getRejectedAt().toString() : null);
         dto.put("tags", job.getTags() != null

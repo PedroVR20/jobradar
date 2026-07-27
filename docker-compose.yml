@@ -8,7 +8,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jobradar"]
       interval: 10s
@@ -18,8 +18,10 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8080:8080"
+      - "${BACKEND_PORT:-8080}:8080"
     environment:
+      # Aponta pro serviço "postgres" na rede interna do Compose — usa sempre a porta
+      # interna do container (5432), independente do host-side POSTGRES_PORT acima.
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/jobradar
       SPRING_DATASOURCE_USERNAME: jobradar
       SPRING_DATASOURCE_PASSWORD: jobradar123
@@ -31,7 +33,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "3000:80"
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
 

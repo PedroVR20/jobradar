@@ -56,6 +56,7 @@ a:hover { text-decoration: underline; }
   flex-wrap: wrap;
 }
 .add-job-btn { white-space: nowrap; }
+.header-actions { display: flex; align-items: center; gap: 0.75rem; }
 
 .app-title {
   font-size: 1.5rem;
@@ -609,6 +610,12 @@ a:hover { text-decoration: underline; }
   color: var(--red);
   border: 1px solid #ef444444;
 }
+.btn-agenda {
+  background: #0ea5e922;
+  color: #38bdf8;
+  border: 1px solid #0ea5e944;
+}
+.btn-agenda:hover:not(:disabled) { background: #0ea5e933; }
 
 .fetch-btn {
   margin-left: auto;
@@ -730,6 +737,168 @@ a:hover { text-decoration: underline; }
   font-size: 0.9rem;
 }
 .modal-close:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* Agenda modal */
+.agenda-modal { max-width: 460px; }
+.agenda-form, .agenda-confirm { display: flex; flex-direction: column; gap: 0.9rem; margin-top: 1rem; }
+.agenda-hint { color: var(--text-muted); font-size: 0.85rem; margin: 0; }
+.agenda-label { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); }
+.agenda-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.agenda-input:focus { outline: none; border-color: var(--accent); }
+.agenda-checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-muted); cursor: pointer; }
+.agenda-error { color: var(--red); font-size: 0.82rem; margin: 0; }
+.agenda-preview {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+.agenda-preview-row { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agenda-preview-row a { color: var(--accent); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
+
+/* Agenda status bar (header) */
+.agenda-status { position: relative; display: flex; align-items: center; }
+.agenda-status--connected {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 8px 5px 12px;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+.agenda-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+.agenda-status-label { color: var(--text-muted); white-space: nowrap; }
+.agenda-status-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 6px;
+}
+.agenda-status-btn:hover:not(:disabled) { background: var(--border); color: var(--text); }
+.agenda-status-btn:disabled { opacity: 0.6; cursor: default; }
+.agenda-status-toggle {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.agenda-status-toggle:hover { color: var(--text); border-color: var(--text-muted); }
+.agenda-status-form {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 220px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  z-index: 200;
+}
+.agenda-error--inline { text-align: center; }
+
+/* Metrics modal */
+.metrics-modal { max-width: 640px; }
+.metrics-body { display: flex; flex-direction: column; gap: 1.5rem; margin-top: 1rem; }
+
+.metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
+.metric-card {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.metric-value { font-size: 1.5rem; font-weight: 700; }
+.metric-value--progress { color: var(--yellow); }
+.metric-value--waiting  { color: var(--text-muted); }
+.metric-value--rejected { color: var(--red); }
+.metric-label { font-size: 0.72rem; color: var(--text-muted); }
+
+.metric-highlight {
+  background: var(--accent);
+  background: linear-gradient(135deg, #6366f122, #6366f10a);
+  border: 1px solid #6366f144;
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.metric-highlight-value { font-size: 2rem; font-weight: 800; color: var(--accent); }
+.metric-highlight-label { font-size: 0.78rem; color: var(--text-muted); max-width: 420px; }
+
+.metrics-section-title { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.6rem; }
+
+.metrics-chart { display: flex; align-items: flex-end; gap: 0.5rem; height: 140px; }
+.metrics-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  gap: 4px;
+}
+.metrics-bar-value { font-size: 0.7rem; color: var(--text-muted); }
+.metrics-bar-track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.metrics-bar {
+  width: 60%;
+  min-height: 4px;
+  background: var(--accent);
+  border-radius: 4px 4px 0 0;
+}
+.metrics-bar-label { font-size: 0.65rem; color: var(--text-muted); white-space: nowrap; }
+
+.metrics-times { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.metrics-time-pill {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+}
+.metrics-note { font-size: 0.72rem; }
 
 .modal-subtitle {
   color: var(--text-muted);
@@ -895,17 +1064,80 @@ a:hover { text-decoration: underline; }
 }
 .notes-toggle:hover { border-color: var(--accent); color: var(--text); }
 
-.notes-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
+/* Chip de preview — vaga já tem nota, card fechado */
+.notes-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f59e0b14;
+  border: 1px solid #f59e0b3d;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.15s, background 0.15s;
 }
+.notes-preview:hover { border-color: #f59e0b77; background: #f59e0b22; }
+.notes-preview-icon { flex-shrink: 0; font-size: 0.85rem; }
+.notes-preview-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.notes-preview-edit {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--yellow);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.notes-preview:hover .notes-preview-edit { opacity: 1; }
 
-.notes-textarea {
+/* Editor — card aberto pra escrever/editar */
+.notes-editor {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
+  overflow: hidden;
+}
+.notes-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-card2);
+  border-bottom: 1px solid var(--border);
+}
+.notes-editor-title { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); }
+.notes-save-status {
+  flex: 1;
+  text-align: right;
+  font-size: 0.68rem;
+  color: var(--green);
+}
+.notes-editor-close {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.notes-editor-close:hover { color: var(--text); background: var(--border); }
+
+.notes-textarea {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: none;
   padding: 8px 10px;
   color: var(--text);
   font-size: 0.82rem;
@@ -913,9 +1145,7 @@ a:hover { text-decoration: underline; }
   resize: vertical;
   outline: none;
   line-height: 1.5;
-  transition: border-color 0.2s;
 }
-.notes-textarea:focus { border-color: var(--accent); }
 .notes-textarea::placeholder { color: var(--text-muted); }
 
 /* ============================

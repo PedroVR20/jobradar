@@ -1,5 +1,8 @@
 import { DragEvent, useEffect, useRef, useState } from 'react';
 import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
+import { AgendaModal } from './AgendaModal';
+import { InterviewModal } from './InterviewModal';
+import { useAgenda } from '../hooks/useAgenda';
 
 interface Props {
   job: Job;
@@ -9,6 +12,7 @@ interface Props {
   onSetStatus: (id: number, status: JobStatus) => void;
   onTogglePin: (id: number) => void;
   onUpdateNotes: (id: number, notes: string) => void;
+  onToast: (msg: string) => void;
 }
 
 const techTags = [
@@ -64,6 +68,31 @@ function deadlineInfo(expiresAt: string | null): { label: string; className: str
   return { label: `📆 Fecha em ${days}d`, className: 'badge-deadline--ok' };
 }
 
+function daysUntilIso(iso: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(iso);
+  target.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
+}
+
+function agendaDeadlineInfo(dueAt: string | null): { label: string; className: string } | null {
+  if (!dueAt) return null;
+  const days = daysUntilIso(dueAt);
+  if (days < 0) return { label: '🔔 Agenda: atrasado', className: 'badge-deadline--closed' };
+  if (days === 0) return { label: '🔔 Agenda: hoje', className: 'badge-deadline--urgent' };
+  if (days <= 2) return { label: `🔔 Agenda: ${days}d`, className: 'badge-deadline--urgent' };
+  return { label: `🔔 Agenda: ${days}d`, className: 'badge-deadline--soon' };
+}
+
+function interviewInfo(dueAt: string | null): { label: string; className: string } | null {
+  if (!dueAt) return null;
+  const days = daysUntilIso(dueAt);
+  if (days < 0) return { label: '🎤 Entrevista encerrada', className: 'badge-deadline--closed' };
+  if (days === 0) return { label: '🎤 Entrevista hoje!', className: 'badge-deadline--urgent' };
+  return { label: `🎤 Entrevista em ${days}d`, className: 'badge-deadline--urgent' };
+}
+
 // Gera iniciais da empresa para o avatar fallback
 function companyInitials(name: string): string {
   return name
@@ -73,12 +102,17 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast }: Props) {
   const src = sourceMeta[job.source] ?? { label: job.source, color: '#64748b' };
   const isNew = !job.seen && !job.applied;
   const seniority = seniorityMeta[job.seniority] ?? seniorityMeta.NAO_INFORMADO;
   const showSeniority = job.seniority && job.seniority !== 'NAO_INFORMADO';
   const deadline = deadlineInfo(job.expiresAt);
+  const { getLinkedTask, getInterviewTask } = useAgenda();
+  const agendaTask = job.rejected ? null : getLinkedTask(job.id);
+  const agendaDeadline = agendaDeadlineInfo(agendaTask?.dueAt ?? null);
+  const interviewTask = job.rejected ? null : getInterviewTask(job.id);
+  const interview = interviewInfo(interviewTask?.dueAt ?? null);
 
   const isSeenOnly = job.seen && !job.applied && !job.rejected;
   const isPlainApplied = job.applied && !job.inProgress && !job.rejected;
@@ -87,10 +121,14 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [agendaOpen, setAgendaOpen] = useState(false);
+  const [interviewOpen, setInterviewOpen] = useState(false);
   const [notesText, setNotesText] = useState(job.notes ?? '');
+  const [notesSaved, setNotesSaved] = useState(false);
   const [logoError, setLogoError] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const notesTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setNotesText(job.notes ?? '');
@@ -119,9 +157,13 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
   const handleNotesChange = (value: string) => {
     setNotesText(value);
+    setNotesSaved(false);
     if (notesTimeout.current) clearTimeout(notesTimeout.current);
     notesTimeout.current = setTimeout(() => {
       onUpdateNotes(job.id, value);
+      setNotesSaved(true);
+      if (savedTimeout.current) clearTimeout(savedTimeout.current);
+      savedTimeout.current = setTimeout(() => setNotesSaved(false), 2000);
     }, 800);
   };
 
@@ -235,10 +277,12 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         </p>
       )}
 
-      {(job.salary || deadline || daysLeft !== null) && (
+      {(job.salary || deadline || agendaDeadline || interview || daysLeft !== null) && (
         <div className="card-badges">
           {job.salary && <span className="badge-salary">💰 {job.salary}</span>}
           {deadline && <span className={`badge-deadline ${deadline.className}`}>{deadline.label}</span>}
+          {agendaDeadline && <span className={`badge-deadline ${agendaDeadline.className}`}>{agendaDeadline.label}</span>}
+          {interview && <span className={`badge-deadline ${interview.className}`}>{interview.label}</span>}
           {daysLeft !== null && (
             <span className="badge-deletion">
               🗑 {daysLeft === 0 ? 'Some hoje' : `Some em ${daysLeft}d`}
@@ -263,23 +307,65 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
       {/* Notas pessoais */}
       <div className="card-notes-section">
-        <button
-          className="notes-toggle"
-          onClick={() => setNotesOpen(o => !o)}
-        >
-          📝 {notesOpen ? 'Fechar notas' : job.notes ? 'Ver notas' : 'Adicionar nota'}
-          {job.notes && !notesOpen && <span className="notes-dot" />}
-        </button>
-        {notesOpen && (
-          <textarea
-            className="notes-textarea"
-            placeholder="Escreva notas sobre essa vaga (salário negociado, contato do recrutador, impressões da entrevista...)"
-            value={notesText}
-            onChange={e => handleNotesChange(e.target.value)}
-            rows={3}
-          />
+        {notesOpen ? (
+          <div className="notes-editor">
+            <div className="notes-editor-head">
+              <span className="notes-editor-title">📝 Notas pessoais</span>
+              <span className="notes-save-status">
+                {notesSaved ? '✓ Salvo' : notesText !== (job.notes ?? '') ? 'Salvando...' : ''}
+              </span>
+              <button
+                className="notes-editor-close"
+                onClick={() => setNotesOpen(false)}
+                aria-label="Fechar notas"
+                title="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+            <textarea
+              className="notes-textarea"
+              placeholder="Salário negociado, contato do recrutador, impressões da entrevista..."
+              value={notesText}
+              onChange={e => handleNotesChange(e.target.value)}
+              rows={3}
+              autoFocus
+            />
+          </div>
+        ) : job.notes ? (
+          <button className="notes-preview" onClick={() => setNotesOpen(true)} title="Editar notas">
+            <span className="notes-preview-icon">📝</span>
+            <span className="notes-preview-text">{job.notes}</span>
+            <span className="notes-preview-edit">editar</span>
+          </button>
+        ) : (
+          <button className="notes-toggle" onClick={() => setNotesOpen(true)}>
+            📝 Adicionar nota
+          </button>
         )}
       </div>
+
+      {agendaOpen && (
+        <AgendaModal
+          job={job}
+          onClose={() => setAgendaOpen(false)}
+          onSuccess={() => {
+            setAgendaOpen(false);
+            onToast('📅 Tarefa criada na Agenda!');
+          }}
+        />
+      )}
+
+      {interviewOpen && (
+        <InterviewModal
+          job={job}
+          onClose={() => setInterviewOpen(false)}
+          onSuccess={() => {
+            setInterviewOpen(false);
+            onToast('🎤 Entrevista marcada na Agenda!');
+          }}
+        />
+      )}
 
       {/* Actions */}
       <div className="card-actions">
@@ -293,6 +379,24 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         >
           Ver vaga →
         </a>
+        {!job.rejected && (
+          <button
+            className="btn btn-agenda"
+            onClick={() => setAgendaOpen(true)}
+            title="Salvar esta vaga como tarefa na Agenda Pessoal"
+          >
+            📅 Salvar na Agenda
+          </button>
+        )}
+        {job.inProgress && !job.rejected && (
+          <button
+            className="btn btn-agenda"
+            onClick={() => setInterviewOpen(true)}
+            title="Agendar entrevista na Agenda Pessoal (prioridade crítica)"
+          >
+            🎤 Marcar entrevista
+          </button>
+        )}
         {!job.applied && (
           <button
             className="btn btn-success"
