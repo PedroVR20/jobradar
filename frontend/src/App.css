@@ -120,6 +120,12 @@ a:hover { text-decoration: underline; }
   letter-spacing: 0.5px;
 }
 
+.stat-note {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
 .sources-row {
   display: flex;
   align-items: center;
