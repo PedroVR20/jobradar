@@ -58,7 +58,7 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
 
-  const { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
+  const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
   const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
   const [syncingAgenda, setSyncingAgenda] = useState(false);
@@ -235,6 +235,7 @@ export default function App() {
           onClear={() => setFilters(defaultFilters)}
           total={jobs.length}
           states={states}
+          sources={sources}
         />
 
         {/* Content */}

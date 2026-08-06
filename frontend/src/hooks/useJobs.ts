@@ -7,13 +7,15 @@ export function useJobs(filters: Filters) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [states, setStates] = useState<string[]>([]);
+  const [sources, setSources] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // lista de estados só muda quando novas vagas chegam; carrega uma vez
+  // lista de estados/fontes só muda quando novas vagas chegam; carrega uma vez
   useEffect(() => {
     fetch(`${API}/states`).then(r => r.json()).then(setStates).catch(() => {});
+    fetch(`${API}/sources`).then(r => r.json()).then(setSources).catch(() => {});
   }, []);
 
   const buildQuery = useCallback(() => {
@@ -126,6 +128,8 @@ export function useJobs(filters: Filters) {
     if (!res.ok) return null;
     const job = await res.json() as Job;
     await loadJobs();
+    // fonte digitada pode ser nova (ex: "InfoJobs") — atualiza a lista pro filtro já oferecer na hora
+    setSources(prev => prev.includes(job.source) ? prev : [...prev, job.source].sort());
     return job;
   };
 
@@ -158,5 +162,5 @@ export function useJobs(filters: Filters) {
     setJobs(prev => prev.map(j => j.id === id ? { ...j, notes: notes.trim() || null } : j));
   };
 
-  return { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reload: loadJobs };
+  return { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reload: loadJobs };
 }

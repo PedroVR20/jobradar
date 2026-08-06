@@ -3,6 +3,7 @@ import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, statusMeta, seniorityMeta,
 import { AgendaModal } from './AgendaModal';
 import { InterviewModal } from './InterviewModal';
 import { useAgenda } from '../hooks/useAgenda';
+import { useSourceColors } from '../hooks/useSourceColors';
 
 interface Props {
   job: Job;
@@ -104,7 +105,11 @@ function companyInitials(name: string): string {
 }
 
 export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast }: Props) {
-  const src = sourceMeta[job.source] ?? { label: job.source, color: '#64748b' };
+  const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
+  const { getColor, setColor } = useSourceColors();
+  const customColor = !isOfficialSource ? getColor(job.source) : null;
+  const src = sourceMeta[job.source] ?? { label: job.source, color: customColor ?? '#64748b' };
+  const colorInputRef = useRef<HTMLInputElement>(null);
   const isNew = !job.seen && !job.applied;
   const seniority = seniorityMeta[job.seniority] ?? seniorityMeta.NAO_INFORMADO;
   const showSeniority = job.seniority && job.seniority !== 'NAO_INFORMADO';
@@ -201,9 +206,31 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             {job.inProgress && !job.rejected && <span className="badge-in-progress">EM ANDAMENTO 🔄</span>}
             {isPlainApplied && <span className="badge-applied">APLICADA ✅</span>}
             {isInterestedOnly && <span className="badge-interested">⭐ INTERESSADO</span>}
-            <span className="badge-source" style={{ background: src.color + '22', color: src.color }}>
-              {src.label}
-            </span>
+            {isOfficialSource ? (
+              <span className="badge-source" style={{ background: src.color + '22', color: src.color }}>
+                {src.label}
+              </span>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="badge-source badge-source--custom"
+                  style={{ background: src.color + '22', color: src.color, borderColor: src.color + '55' }}
+                  onClick={() => colorInputRef.current?.click()}
+                  title="Fonte personalizada — clique pra escolher uma cor"
+                >
+                  {src.label} 🎨
+                </button>
+                <input
+                  ref={colorInputRef}
+                  type="color"
+                  className="badge-source-color-input"
+                  value={src.color}
+                  onChange={e => setColor(job.source, e.target.value)}
+                  aria-label={`Cor da fonte ${src.label}`}
+                />
+              </>
+            )}
             {showSeniority && (
               <span
                 className="badge-seniority"

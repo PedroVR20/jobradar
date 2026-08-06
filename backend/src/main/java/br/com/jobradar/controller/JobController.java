@@ -112,6 +112,18 @@ public class JobController {
         return jobRepository.findDistinctStates();
     }
 
+    /**
+     * Lista todas as fontes presentes no banco, incluindo fontes
+     * personalizadas digitadas na adição manual de vaga (ex: "INFOJOBS").
+     * Usado pra popular o filtro de fonte dinamicamente, sem precisar de
+     * uma lista fixa no frontend.
+     * GET /api/jobs/sources
+     */
+    @GetMapping("/sources")
+    public List<String> getSources() {
+        return jobRepository.findDistinctSources();
+    }
+
     // Todos os termos da busca devem aparecer em título, empresa ou tags.
     // Ignora acentuação para achar "itau" em "Itaú", "sao paulo" em "São Paulo", etc.
     private boolean matchesSearch(Job j, String search) {

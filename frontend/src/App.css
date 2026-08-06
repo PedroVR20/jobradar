@@ -415,6 +415,24 @@ a:hover { text-decoration: underline; }
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 3px;
+  border: none;
+  font-family: inherit;
+}
+
+.badge-source--custom {
+  border: 1px dashed;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.badge-source--custom:hover { filter: brightness(1.25); }
+
+/* input[type=color] nativo, disparado via ref pelo badge-source--custom */
+.badge-source-color-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .badge-seniority {
