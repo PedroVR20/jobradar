@@ -50,6 +50,7 @@ const defaultFilters: Filters = {
 };
 
 const PAGE_SIZE = 30;
+const LAST_VISIT_KEY = 'jobradar:last-visit';
 
 export default function App() {
   const [filters, setFilters] = useState<Filters>(defaultFilters);
@@ -64,10 +65,35 @@ export default function App() {
   const [syncingAgenda, setSyncingAgenda] = useState(false);
   const reconciledRef = useRef(false);
 
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, durationMs = 3000) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), durationMs);
   };
+
+  // Avisa quantas vagas novas chegaram desde a última vez que o app foi aberto
+  // (não uma janela fixa tipo "últimas 4h" — se você ficar 2 dias sem abrir,
+  // mostra tudo que chegou nesses 2 dias). Manda só os minutos decorridos pro
+  // backend calcular "agora - X" com o próprio relógio dele, evitando qualquer
+  // descompasso de fuso entre o navegador e o servidor.
+  useEffect(() => {
+    const lastVisit = localStorage.getItem(LAST_VISIT_KEY);
+    const now = Date.now();
+    if (lastVisit) {
+      const minutesAgo = Math.floor((now - Number(lastVisit)) / 60000);
+      if (minutesAgo > 0) {
+        fetch(`/api/jobs/new-since?minutesAgo=${minutesAgo}`)
+          .then(r => r.json())
+          .then(data => {
+            const count = data.count as number;
+            if (count > 0) {
+              showToast(`🔔 ${count} vaga${count === 1 ? '' : 's'} nova${count === 1 ? '' : 's'} desde sua última visita!`, 6000);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+    localStorage.setItem(LAST_VISIT_KEY, String(now));
+  }, []);
 
   const syncAgendaForStatus = (id: number, status: JobStatus) => {
     const agendaStatus = agendaStatusFor[status];

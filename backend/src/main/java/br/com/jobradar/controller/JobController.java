@@ -124,6 +124,23 @@ public class JobController {
         return jobRepository.findDistinctSources();
     }
 
+    /**
+     * Conta quantas vagas foram buscadas (fetchedAt) desde X minutos atrás.
+     * Usado pelo frontend pra avisar "N vagas novas desde sua última visita"
+     * ao abrir o app. Recebe minutos (não um timestamp absoluto do cliente)
+     * de propósito — o cálculo de "agora - minutos" roda inteiramente no
+     * servidor, então não tem risco de descompasso de fuso horário entre
+     * o relógio do navegador e o do backend (já tivemos um bug assim com
+     * a Eureca — ver EurecaService.parseDate).
+     * GET /api/jobs/new-since?minutesAgo=180
+     */
+    @GetMapping("/new-since")
+    public Map<String, Object> getNewSince(@RequestParam long minutesAgo) {
+        long clamped = Math.max(0, Math.min(minutesAgo, 30 * 24 * 60)); // no máximo 30 dias
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(clamped);
+        return Map.of("count", jobRepository.countByFetchedAtAfter(cutoff));
+    }
+
     // Todos os termos da busca devem aparecer em título, empresa ou tags.
     // Ignora acentuação para achar "itau" em "Itaú", "sao paulo" em "São Paulo", etc.
     private boolean matchesSearch(Job j, String search) {
