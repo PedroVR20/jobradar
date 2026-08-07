@@ -30,12 +30,14 @@ public class JobAggregatorService {
     private final SeniorityClassifier seniorityClassifier;
 
     /**
-     * Roda automaticamente todo dia às 08:00 BRT
+     * Roda automaticamente a cada 4 horas (00h, 04h, 08h, 12h, 16h, 20h BRT)
+     * — antes era só uma vez por dia às 08:00, mas isso deixava vagas postadas
+     * à tarde até ~16h atrasadas em relação a quem busca com mais frequência.
      */
-    @Scheduled(cron = "0 0 8 * * *", zone = "America/Sao_Paulo")
+    @Scheduled(cron = "0 0 */4 * * *", zone = "America/Sao_Paulo")
     @Transactional
-    public void fetchDiario() {
-        log.info("=== Fetch diário iniciado ===");
+    public void fetchPeriodico() {
+        log.info("=== Fetch periódico iniciado ===");
         fetchAllJobs();
         limparVagasRecusadasAntigas();
     }

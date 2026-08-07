@@ -186,7 +186,7 @@ export default function App() {
         <div className="header-inner header-inner--flex">
           <div>
             <h1 className="app-title">🎯 Job Radar</h1>
-            <p className="app-subtitle">Vagas de programação remotas na Europa + vagas no Brasil (Gupy) · Atualizado diariamente às 08:00</p>
+            <p className="app-subtitle">Vagas de programação remotas na Europa + vagas no Brasil (Gupy) · Atualizado a cada 4 horas</p>
           </div>
           <div className="header-actions">
             <AgendaStatusBar syncing={syncingAgenda} onSync={handleAgendaSync} />

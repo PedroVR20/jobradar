@@ -5,7 +5,7 @@ vagas no Brasil — empresas grandes como Itaú, Stone, Localiza, Boticário,
 TIM, Bradesco, Stellantis e Natura, entre centenas de outras, agregadas de
 6 fontes (Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech) num único
 funil de candidatura, com integração opcional a uma Agenda Pessoal.
-Busca automaticamente todo dia às **08:00 BRT** e guarda tudo no banco.
+Busca automaticamente **a cada 4 horas** e guarda tudo no banco.
 
 Repositório: https://github.com/PedroVR20/jobradar
 
@@ -272,7 +272,7 @@ O card mostra uma contagem regressiva (🗑 "Some em Xd") avisando quantos
 dias faltam. Se você mudar de ideia, o botão "↩ Reativar vaga" volta ela
 pra "Aplicadas" e cancela a exclusão.
 
-A limpeza roda automaticamente no fetch diário (08:00) e também ao subir o
+A limpeza roda automaticamente a cada fetch periódico (a cada 4h) e também ao subir o
 backend (`JobAggregatorService.limparVagasRecusadasAntigas`). Pra mudar o
 prazo, edite `DIAS_PARA_EXCLUIR_RECUSADAS` nesse arquivo **e** em
 `frontend/src/types/Job.ts` (`DIAS_PARA_EXCLUIR_RECUSADAS`) — os dois
@@ -395,13 +395,17 @@ job-radar/
 
 ---
 
-## ⚙️ Customizando o horário do fetch
+## ⚙️ Customizando a frequência do fetch
 
 Em `JobAggregatorService.java`:
 ```java
-@Scheduled(cron = "0 0 8 * * *", zone = "America/Sao_Paulo")
+@Scheduled(cron = "0 0 */4 * * *", zone = "America/Sao_Paulo")
 ```
-Muda o cron pra qualquer horário. Formato: `segundos minutos horas * * *`
+Hoje roda a cada 4h (00h, 04h, 08h, 12h, 16h, 20h BRT) — antes era só uma
+vez por dia às 08:00, mas isso atrasava demais vagas postadas à tarde.
+Muda o cron pra qualquer frequência/horário. Formato: `segundos minutos
+horas * * *` (ex: `0 0 */2 * * *` pra a cada 2h, `0 0 8,20 * * *` pra
+8h e 20h especificamente).
 
 ## ⚙️ Customizando os termos de busca da Gupy
 
