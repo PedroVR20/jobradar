@@ -30,6 +30,8 @@ public interface JobRepository extends JpaRepository<Job, Long> {
 
     long countByAppliedTrue();
 
+    long countByInterestedTrue();
+
     long countBySeniority(String seniority);
 
     List<Job> findBySeniorityIsNull();
@@ -49,4 +51,7 @@ public interface JobRepository extends JpaRepository<Job, Long> {
 
     @Query("SELECT DISTINCT j.state FROM Job j WHERE j.state IS NOT NULL AND j.state <> '' ORDER BY j.state")
     List<String> findDistinctStates();
+
+    @Query("SELECT DISTINCT j.source FROM Job j ORDER BY j.source")
+    List<String> findDistinctSources();
 }

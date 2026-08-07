@@ -58,7 +58,7 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
 
-  const { jobs, stats, states, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
+  const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
   const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
   const [syncingAgenda, setSyncingAgenda] = useState(false);
@@ -157,6 +157,7 @@ export default function App() {
   const handleDropJob = async (jobId: number, tab: ViewMode) => {
     if (tab === 'andamento') await handleInProgress(jobId);
     else if (tab === 'aplicadas') await handleApplied(jobId);
+    else if (tab === 'interessado') await setStatus(jobId, 'INTERESSADO');
     else if (tab === 'recusadas') {
       await setStatus(jobId, 'RECUSADA');
       syncAgendaForStatus(jobId, 'RECUSADA');
@@ -234,6 +235,7 @@ export default function App() {
           onClear={() => setFilters(defaultFilters)}
           total={jobs.length}
           states={states}
+          sources={sources}
         />
 
         {/* Content */}

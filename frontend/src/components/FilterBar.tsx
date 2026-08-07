@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Filters, seniorityMeta, workplaceMeta } from '../types/Job';
+import { Filters, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
 
 interface Props {
   filters: Filters;
@@ -7,6 +7,7 @@ interface Props {
   onClear: () => void;
   total: number;
   states: string[];
+  sources: string[];
 }
 
 const LS_KEY = 'jobradar:tech-pills';
@@ -23,7 +24,7 @@ function savePills(pills: string[]) {
   localStorage.setItem(LS_KEY, JSON.stringify(pills));
 }
 
-export function FilterBar({ filters, onChange, onClear, total, states }: Props) {
+export function FilterBar({ filters, onChange, onClear, total, states, sources }: Props) {
   const set = (partial: Partial<Filters>) => onChange({ ...filters, ...partial });
 
   const [pills, setPills] = useState<string[]>(loadPills);
@@ -173,14 +174,11 @@ export function FilterBar({ filters, onChange, onClear, total, states }: Props) 
           onChange={e => set({ search: e.target.value })}
         />
 
-        <select className="filter-select" value={filters.source} onChange={e => set({ source: e.target.value })}>
+        <select className="filter-select" value={filters.source} onChange={e => set({ source: e.target.value })} disabled={sources.length === 0}>
           <option value="">Todas as fontes</option>
-          <option value="REMOTIVE">Remotive</option>
-          <option value="ARBEITNOW">Arbeitnow (EU)</option>
-          <option value="WWR">We Work Remotely</option>
-          <option value="GUPY">Gupy (BR)</option>
-          <option value="EURECA">Eureca (BR)</option>
-          <option value="QUEROVAGASTECH">QueroVagasTech (BR)</option>
+          {sources.map(s => (
+            <option key={s} value={s}>{sourceMeta[s]?.label ?? s}</option>
+          ))}
         </select>
 
         <select

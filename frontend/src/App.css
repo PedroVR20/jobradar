@@ -56,7 +56,7 @@ a:hover { text-decoration: underline; }
   flex-wrap: wrap;
 }
 .add-job-btn { white-space: nowrap; }
-.header-actions { display: flex; align-items: center; gap: 0.75rem; }
+.header-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 
 .app-title {
   font-size: 1.5rem;
@@ -118,6 +118,12 @@ a:hover { text-decoration: underline; }
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.stat-note {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  opacity: 0.75;
 }
 
 .sources-row {
@@ -325,6 +331,7 @@ a:hover { text-decoration: underline; }
 .job-card--new    { border-left: 3px solid var(--red); }
 .job-card--seen   { border-left: 3px solid var(--border); opacity: 0.7; }
 .job-card--applied { border-left: 3px solid var(--green); opacity: 0.85; }
+.job-card--interested { border-left: 3px solid #a855f7; }
 .job-card--in-progress { border-left: 3px solid var(--yellow); }
 .job-card--rejected { border-left: 3px solid var(--text-muted); opacity: 0.6; }
 .job-card[draggable="true"] { cursor: grab; }
@@ -373,6 +380,15 @@ a:hover { text-decoration: underline; }
   letter-spacing: 0.3px;
 }
 
+.badge-interested {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: #a855f7;
+  color: #fff;
+}
+
 .badge-rejected {
   font-size: 0.65rem;
   font-weight: 700;
@@ -399,6 +415,24 @@ a:hover { text-decoration: underline; }
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 3px;
+  border: none;
+  font-family: inherit;
+}
+
+.badge-source--custom {
+  border: 1px dashed;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.badge-source--custom:hover { filter: brightness(1.25); }
+
+/* input[type=color] nativo, disparado via ref pelo badge-source--custom */
+.badge-source-color-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .badge-seniority {
@@ -616,6 +650,12 @@ a:hover { text-decoration: underline; }
   border: 1px solid #0ea5e944;
 }
 .btn-agenda:hover:not(:disabled) { background: #0ea5e933; }
+.btn-interested {
+  background: #a855f722;
+  color: #c084fc;
+  border: 1px solid #a855f744;
+}
+.btn-interested:hover:not(:disabled) { background: #a855f733; }
 
 .fetch-btn {
   margin-left: auto;
@@ -1067,32 +1107,38 @@ a:hover { text-decoration: underline; }
 /* Chip de preview — vaga já tem nota, card fechado */
 .notes-preview {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   background: #f59e0b14;
   border: 1px solid #f59e0b3d;
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: 8px 10px;
   cursor: pointer;
   text-align: left;
   width: 100%;
   transition: border-color 0.15s, background 0.15s;
 }
 .notes-preview:hover { border-color: #f59e0b77; background: #f59e0b22; }
-.notes-preview-icon { flex-shrink: 0; font-size: 0.85rem; }
+.notes-preview-icon { flex-shrink: 0; font-size: 0.85rem; margin-top: 1px; }
 .notes-preview-text {
   flex: 1;
   min-width: 0;
   font-size: 0.8rem;
   color: var(--text);
-  white-space: nowrap;
+  line-height: 1.4;
+  white-space: pre-line;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 .notes-preview-edit {
   flex-shrink: 0;
   font-size: 0.7rem;
   color: var(--yellow);
+  margin-top: 1px;
   opacity: 0;
   transition: opacity 0.15s;
 }

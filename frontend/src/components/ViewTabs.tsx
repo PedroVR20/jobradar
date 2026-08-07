@@ -11,6 +11,7 @@ interface Props {
 const tabs: { key: ViewMode; label: string; droppable?: boolean }[] = [
   { key: 'novas', label: '🔴 Novas' },
   { key: 'vistas', label: '👁 Já vistas' },
+  { key: 'interessado', label: '⭐ Interessado' },
   { key: 'aplicadas', label: '✅ Aplicadas', droppable: true },
   { key: 'andamento', label: '🔄 Em Andamento', droppable: true },
   { key: 'recusadas', label: '❌ Recusadas', droppable: true },
@@ -20,10 +21,11 @@ function countFor(tab: ViewMode, stats: Stats | null): number | null {
   if (!stats) return null;
   switch (tab) {
     case 'novas': return stats.novas;
+    case 'interessado': return stats.interessadas;
     case 'aplicadas': return Math.max(0, stats.aplicadas - stats.emAndamento - stats.recusadas);
     case 'andamento': return stats.emAndamento;
     case 'recusadas': return stats.recusadas;
-    case 'vistas': return Math.max(0, stats.total - stats.novas - stats.aplicadas);
+    case 'vistas': return Math.max(0, stats.total - stats.novas - stats.interessadas - stats.aplicadas);
   }
 }
 

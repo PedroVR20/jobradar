@@ -20,6 +20,7 @@ export interface Job {
   expiresAt: string | null;
   fetchedAt: string | null;
   seen: boolean;
+  interested: boolean;
   applied: boolean;
   appliedAt: string | null;
   inProgress: boolean;
@@ -35,6 +36,7 @@ export interface Job {
 export interface Stats {
   total: number;
   novas: number;
+  interessadas: number;
   aplicadas: number;
   emAndamento: number;
   recusadas: number;
@@ -62,13 +64,14 @@ export interface Metrics {
 
 export type SortOption = 'posted_desc' | 'posted_asc' | 'fetched_desc';
 
-export type ViewMode = 'novas' | 'vistas' | 'aplicadas' | 'andamento' | 'recusadas';
+export type ViewMode = 'novas' | 'vistas' | 'interessado' | 'aplicadas' | 'andamento' | 'recusadas';
 
-export type JobStatus = 'NOVA' | 'VISTA' | 'APLICADA' | 'ANDAMENTO' | 'RECUSADA';
+export type JobStatus = 'NOVA' | 'VISTA' | 'INTERESSADO' | 'APLICADA' | 'ANDAMENTO' | 'RECUSADA';
 
 export const statusMeta: Record<JobStatus, string> = {
   NOVA: '🔴 Nova (não vista)',
   VISTA: '👁 Já vista',
+  INTERESSADO: '⭐ Interessado',
   APLICADA: '✅ Aplicada',
   ANDAMENTO: '🔄 Em Andamento',
   RECUSADA: '❌ Recusada/congelada',

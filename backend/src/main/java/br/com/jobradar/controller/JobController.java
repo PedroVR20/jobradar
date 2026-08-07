@@ -48,7 +48,8 @@ public class JobController {
      * days      → só vagas publicadas nos últimos N dias
      * sort      → posted_desc (padrão) | posted_asc | fetched_desc
      * onlyNew   → só não vistas
-     * onlySeen  → só vistas e não aplicadas
+     * onlySeen  → só vistas, sem interesse marcado, e não aplicadas
+     * onlyInteressado → só marcadas com interesse, e não aplicadas
      * onlyApplied → só aplicadas e fora de processo (não confundir com em andamento)
      * onlyInProgress → só aplicadas e em processo seletivo ativo
      * onlyRejected → só recusadas/congeladas (somem sozinhas depois de 7 dias)
@@ -64,6 +65,7 @@ public class JobController {
             @RequestParam(required = false, defaultValue = "posted_desc") String sort,
             @RequestParam(required = false, defaultValue = "false") boolean onlyNew,
             @RequestParam(required = false, defaultValue = "false") boolean onlySeen,
+            @RequestParam(required = false, defaultValue = "false") boolean onlyInteressado,
             @RequestParam(required = false, defaultValue = "false") boolean onlyApplied,
             @RequestParam(required = false, defaultValue = "false") boolean onlyInProgress,
             @RequestParam(required = false, defaultValue = "false") boolean onlyRejected
@@ -87,7 +89,8 @@ public class JobController {
                 .filter(j -> state == null || state.isBlank()
                         || (j.getState() != null && normalize(state).equals(normalize(j.getState()))))
                 .filter(j -> !onlyNew || (!j.isSeen() && !j.isRejected()))
-                .filter(j -> !onlySeen || (j.isSeen() && !j.isApplied() && !j.isRejected()))
+                .filter(j -> !onlySeen || (j.isSeen() && !j.isInterested() && !j.isApplied() && !j.isRejected()))
+                .filter(j -> !onlyInteressado || (j.isInterested() && !j.isApplied() && !j.isRejected()))
                 .filter(j -> !onlyApplied || (j.isApplied() && !j.isInProgress() && !j.isRejected()))
                 .filter(j -> !onlyInProgress || (j.isApplied() && j.isInProgress() && !j.isRejected()))
                 .filter(j -> !onlyRejected || j.isRejected())
@@ -107,6 +110,18 @@ public class JobController {
     @GetMapping("/states")
     public List<String> getStates() {
         return jobRepository.findDistinctStates();
+    }
+
+    /**
+     * Lista todas as fontes presentes no banco, incluindo fontes
+     * personalizadas digitadas na adição manual de vaga (ex: "INFOJOBS").
+     * Usado pra popular o filtro de fonte dinamicamente, sem precisar de
+     * uma lista fixa no frontend.
+     * GET /api/jobs/sources
+     */
+    @GetMapping("/sources")
+    public List<String> getSources() {
+        return jobRepository.findDistinctSources();
     }
 
     // Todos os termos da busca devem aparecer em título, empresa ou tags.
@@ -144,6 +159,7 @@ public class JobController {
         Map<String, Object> stats = new HashMap<>();
         stats.put("total", jobRepository.count());
         stats.put("novas", jobRepository.countBySeenFalse());
+        stats.put("interessadas", jobRepository.countByInterestedTrue());
         stats.put("aplicadas", jobRepository.countByAppliedTrue());
         stats.put("emAndamento", jobRepository.countByAppliedTrueAndInProgressTrue());
         stats.put("recusadas", jobRepository.countByRejectedTrue());
@@ -375,7 +391,7 @@ public class JobController {
     }
 
     private static final List<String> VALID_STATUSES =
-            List.of("NOVA", "VISTA", "APLICADA", "ANDAMENTO", "RECUSADA");
+            List.of("NOVA", "VISTA", "INTERESSADO", "APLICADA", "ANDAMENTO", "RECUSADA");
 
     /**
      * Move a vaga diretamente pra um status específico — usado pelo menu "⋮"
@@ -406,6 +422,7 @@ public class JobController {
         boolean inProgress = status.equals("ANDAMENTO");
 
         job.setSeen(!status.equals("NOVA"));
+        job.setInterested(status.equals("INTERESSADO"));
         job.setApplied(applied);
         if (applied && job.getAppliedAt() == null) {
             job.setAppliedAt(LocalDateTime.now());
@@ -507,6 +524,7 @@ public class JobController {
         dto.put("expiresAt", job.getExpiresAt() != null ? job.getExpiresAt().toString() : null);
         dto.put("fetchedAt", job.getFetchedAt() != null ? job.getFetchedAt().toString() : null);
         dto.put("seen", job.isSeen());
+        dto.put("interested", job.isInterested());
         dto.put("applied", job.isApplied());
         dto.put("appliedAt", job.getAppliedAt() != null ? job.getAppliedAt().toString() : null);
         dto.put("inProgress", job.isInProgress());
