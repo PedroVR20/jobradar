@@ -2,8 +2,9 @@
 
 Dashboard pessoal para monitorar vagas de programação remotas na Europa **e**
 vagas no Brasil — empresas grandes como Itaú, Stone, Localiza, Boticário,
-TIM, Bradesco, Stellantis e Natura, entre centenas de outras, via Gupy e
-Eureca.
+TIM, Bradesco, Stellantis e Natura, entre centenas de outras, agregadas de
+6 fontes (Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech) num único
+funil de candidatura, com integração opcional a uma Agenda Pessoal.
 Busca automaticamente todo dia às **08:00 BRT** e guarda tudo no banco.
 
 Repositório: https://github.com/PedroVR20/jobradar
@@ -196,8 +197,17 @@ de centenas de outras. Clique de novo para desafixar. O estado persiste no banco
 ### Notas pessoais 📝
 Clique em "📝 Adicionar nota" embaixo das tags para expandir uma caixa de texto. Escreva
 qualquer coisa sobre a vaga (salário negociado, contato do recrutador, impressões da
-entrevista...) — salva automaticamente 800ms depois que parar de digitar. Uma bolinha azul
-aparece no botão quando a vaga já tem nota.
+entrevista...) — salva automaticamente 800ms depois que parar de digitar, com indicador
+de status ("Salvando..." → "✓ Salvo") no cabeçalho do editor. Quando a vaga já tem nota e
+o card está fechado, o texto (até 4 linhas) aparece direto num chip âmbar — sem precisar
+abrir pra lembrar o que foi escrito.
+
+### Cores personalizadas de fonte 🎨
+Vagas adicionadas manualmente com uma fonte que não existe no sistema (ex: digitar
+"InfoJobs" no campo Fonte do formulário) ganham um badge clicável com ícone 🎨 em vez do
+cinza padrão. Clicar abre o seletor de cor nativo do navegador — a cor escolhida fica
+salva por nome de fonte (no navegador) e vale pra toda vaga com aquela mesma fonte.
+Fontes oficiais (Gupy, Eureca, Remotive etc.) não têm esse botão, já vêm com cor fixa.
 
 ### 🎓 Modo Iniciante
 Botão no topo dos filtros que restringe os resultados para vagas de **Estágio** e **Júnior**
@@ -227,6 +237,7 @@ Em vez de só ficar cinza, vagas já vistas saem da aba "Novas" e vão para
 
 - 🔴 **Novas** — ainda não vistas (aba padrão ao abrir o app)
 - 👁 **Já vistas** — vistas mas não aplicadas
+- ⭐ **Interessado** — vaga que chamou atenção mas ainda não foi aplicada, separada de "Já vistas" pra não se perder no meio de dezenas de outras
 - ✅ **Aplicadas** — aplicou, mas ainda sem retorno/processo ativo
 - 🔄 **Em Andamento** — aplicou e está em processo seletivo ativo (entrevistas etc), separado de "Aplicadas" pra não confundir/esquecer
 - ❌ **Recusadas** — processo encerrado sem sucesso, ou vaga congelada/cancelada pela empresa (some sozinha depois de 7 dias, veja abaixo)
@@ -239,7 +250,10 @@ Pra mover uma vaga entre abas, três formas (todas fazem a mesma coisa):
    falhar se você começar a arrastar clicando em cima do título (que é um
    link, e o navegador tenta arrastar o link em vez do card).
 3. Botões dedicados no card: "🔄 Entrei em processo", "↩ Voltar pra
-   Aplicadas", "❌ Recusada/congelada", "↩ Reativar vaga".
+   Aplicadas", "❌ Recusada/congelada", "↩ Reativar vaga", e em qualquer
+   vaga ainda não aplicada "⭐ Marquei interesse" / "⭐ Tirar interesse"
+   pra entrar/sair da aba Interessado (essa não é destino de drag-and-drop,
+   só o botão ou o menu "⋮").
 
 A lista pagina 30 vagas por vez com "Carregar mais vagas" (o volume subiu
 bastante com Gupy e Eureca).
@@ -279,11 +293,51 @@ a vaga existente em vez de duplicar.
 
 ---
 
+## 🔗 Integração com Agenda Pessoal
+
+Se você também roda o projeto **Agenda Pessoal** localmente
+(`localhost:8081`), o Job Radar se conecta a ele **inteiramente pelo
+navegador** — o backend do Job Radar nunca fala com a Agenda, só o frontend,
+via token JWT guardado no `localStorage`. Um indicador no canto superior
+direito mostra o status da conexão (🟢 conectado / formulário de login
+compacto) com botões de sincronizar e desconectar.
+
+| Recurso | O que faz |
+|---|---|
+| **📅 Salvar na Agenda** | Botão no card cria uma tarefa vinculada à vaga (título, link, notas, prazo opcional) |
+| **Follow-up automático** | Ao mover a vaga pra "Em Andamento", cria sozinho uma tarefa de prioridade alta vencendo em 7 dias — sem precisar abrir modal |
+| **Sincronização de status** | Aplicada/Em Andamento/Recusada refletem automaticamente como Pendente/Em Andamento/Concluída na tarefa vinculada da Agenda, nos dois sentidos — se você mexer direto no Kanban da Agenda, o Job Radar relê e ajusta sozinho ao carregar (ou pelo botão de sincronizar manual) |
+| **🎤 Marcar entrevista** | Em vagas "Em Andamento", cria uma tarefa de prioridade **crítica** com aviso 2h antes do horário escolhido, vinculada separadamente da tarefa de candidatura |
+| **Notificações** | Tarefas criadas pelo Job Radar já saem com aviso configurado (24h antes pra candidatura/follow-up, 2h antes pra entrevista) |
+
+Nada disso funciona se a Agenda Pessoal não estiver rodando em `localhost:8081`
+— os botões continuam visíveis, mas pedem login na hora de usar.
+
+---
+
+## 📊 Dashboard de métricas
+
+Botão "📊 Métricas" no topo abre um painel com:
+- **Funil de candidatura**: total aplicadas, em andamento, aguardando
+  retorno, recusadas
+- **Taxa de resposta**: % das aplicações que já tiveram algum retorno
+  (avançou ou foi recusada)
+- **Aplicações por semana**: gráfico de barras das últimas 8 semanas
+- **Tempo médio de resposta**: dias até avançar pra "Em Andamento" e dias
+  até ser recusado
+
+Os tempos médios só contam vagas aplicadas depois que os campos
+`appliedAt`/`inProgressAt` foram criados — candidaturas antigas não têm
+essa marcação e ficam de fora dessa conta específica (mas continuam
+contando no funil normalmente).
+
+---
+
 ## 📡 API do Backend
 
 ```
 GET  /api/jobs                    → Lista vagas (com filtros)
-GET  /api/jobs?source=GUPY         → Filtra por fonte (REMOTIVE|ARBEITNOW|WWR|GUPY|EURECA|GLASSDOOR|MANUAL)
+GET  /api/jobs?source=GUPY         → Filtra por fonte — qualquer valor presente no banco, oficial ou personalizado (veja /api/jobs/sources)
 GET  /api/jobs?search=itau         → Busca multi-termo, ignora acentos ("itau" acha "Itaú")
 GET  /api/jobs?seniority=JUNIOR    → Filtra por nível (ESTAGIO|JUNIOR|PLENO|SENIOR|NAO_INFORMADO)
 GET  /api/jobs?workplaceType=REMOTO → Filtra por modalidade (REMOTO|HIBRIDO|PRESENCIAL)
@@ -291,16 +345,20 @@ GET  /api/jobs?state=São+Paulo     → Filtra por estado (nome por extenso, ign
 GET  /api/jobs?days=7              → Só publicadas nos últimos N dias
 GET  /api/jobs?sort=posted_desc    → Ordenação: posted_desc | posted_asc | fetched_desc
 GET  /api/jobs?onlyNew=true        → Só não vistas
-GET  /api/jobs?onlySeen=true       → Só vistas e não aplicadas
+GET  /api/jobs?onlySeen=true       → Só vistas, sem interesse marcado, e não aplicadas
+GET  /api/jobs?onlyInteressado=true → Só marcadas com interesse (aba ⭐ Interessado), e não aplicadas
 GET  /api/jobs?onlyApplied=true    → Só aplicadas (fora de processo)
 GET  /api/jobs?onlyInProgress=true → Só aplicadas e em processo seletivo ativo
 GET  /api/jobs?onlyRejected=true   → Só recusadas/congeladas
 GET  /api/jobs/states              → Lista de estados presentes no banco (popula o filtro)
-GET  /api/jobs/stats               → Estatísticas gerais (inclui porSenioridade, porFonte, emAndamento, recusadas)
+GET  /api/jobs/sources             → Lista de fontes presentes no banco, oficiais + personalizadas (popula o filtro de fonte)
+GET  /api/jobs/stats               → Estatísticas gerais (inclui porSenioridade, porFonte, interessadas, emAndamento, recusadas)
+GET  /api/jobs/metrics              → Funil de candidatura, taxa de resposta, aplicações/semana, tempo médio de resposta
+GET  /api/jobs/duplicates          → Detecta possíveis vagas duplicadas entre fontes (mesma empresa + título similar + mesma senioridade) — sem UI própria hoje, endpoint disponível
 PATCH /api/jobs/{id}/seen          → Marca como vista
-PATCH /api/jobs/{id}/applied       → Marca como aplicada (e tira de "em andamento"/"recusada")
+PATCH /api/jobs/{id}/applied       → Marca como aplicada (e tira de "em andamento"/"recusada"/"interessado")
 PATCH /api/jobs/{id}/in-progress   → Marca como em processo seletivo ativo
-PATCH /api/jobs/{id}/status?value=X → Move pra um status específico: NOVA|VISTA|APLICADA|ANDAMENTO|RECUSADA
+PATCH /api/jobs/{id}/status?value=X → Move pra um status específico: NOVA|VISTA|INTERESSADO|APLICADA|ANDAMENTO|RECUSADA
 POST  /api/jobs/manual              → Adiciona/atualiza vaga manual (title, company, url obrigatórios)
 POST  /api/jobs/fetch               → Dispara fetch manual
 PATCH /api/jobs/{id}/pin            → Fixa/desfixa vaga no topo da lista (pinned ↔ unpinned)
@@ -314,21 +372,25 @@ PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes
 ```
 job-radar/
 ├── docker-compose.yml
+├── .env.example          ← Portas configuráveis (POSTGRES_PORT, BACKEND_PORT, FRONTEND_PORT)
+├── scripts/
+│   └── health-check.ps1  ← Checa containers/endpoints do Job Radar + Agenda Pessoal juntos
 ├── backend/              ← Spring Boot 3 + Java 21
 │   ├── Dockerfile
 │   ├── pom.xml
 │   └── src/main/java/br/com/jobradar/
 │       ├── model/        ← Entidade Job
 │       ├── repository/   ← JPA Repository
-│       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, SeniorityClassifier, SalaryExtractor, Aggregator
-│       └── controller/   ← REST API
+│       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, SeniorityClassifier, SalaryExtractor, Aggregator
+│       └── controller/   ← REST API (jobs, stats, metrics, duplicates)
 └── frontend/             ← React 18 + TypeScript + Vite
     ├── Dockerfile
     ├── nginx.conf
     └── src/
-        ├── components/   ← JobCard, FilterBar, StatsBar, ViewTabs, AddJobModal
-        ├── hooks/        ← useJobs
-        └── types/        ← Job, Stats, Filters
+        ├── components/   ← JobCard, FilterBar, StatsBar, ViewTabs, AddJobModal, MetricsModal,
+        │                    AgendaModal, AgendaStatusBar, InterviewModal
+        ├── hooks/        ← useJobs, useAgenda (integração client-side), useSourceColors
+        └── types/        ← Job, Stats, Filters, Metrics
 ```
 
 ---
