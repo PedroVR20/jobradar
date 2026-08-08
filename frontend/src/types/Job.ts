@@ -1,4 +1,4 @@
-export type JobSource = 'REMOTIVE' | 'ARBEITNOW' | 'WWR' | 'GUPY' | 'EURECA' | 'GLASSDOOR' | 'MANUAL' | 'QUEROVAGASTECH';
+export type JobSource = 'REMOTIVE' | 'ARBEITNOW' | 'WWR' | 'GUPY' | 'EURECA' | 'GLASSDOOR' | 'MANUAL' | 'QUEROVAGASTECH' | 'NERDIN';
 
 export type Seniority = 'ESTAGIO' | 'JUNIOR' | 'PLENO' | 'SENIOR' | 'NAO_INFORMADO';
 
@@ -47,6 +47,8 @@ export interface Stats {
     WWR: number;
     GUPY: number;
     EURECA: number;
+    QUEROVAGASTECH: number;
+    NERDIN: number;
   };
   porSenioridade: Record<Seniority, number>;
 }
@@ -110,6 +112,7 @@ export const sourceMeta: Record<string, { label: string; color: string }> = {
   GLASSDOOR:        { label: 'Glassdoor',              color: '#0caa41' },
   MANUAL:           { label: 'Adicionada manualmente', color: '#94a3b8' },
   QUEROVAGASTECH:   { label: 'QueroVagasTech (BR)',    color: '#f97316' },
+  NERDIN:           { label: 'Nerdin (BR)',            color: '#8b5cf6' },
 };
 
 export const workplaceMeta: Record<WorkplaceType, { label: string; icon: string }> = {

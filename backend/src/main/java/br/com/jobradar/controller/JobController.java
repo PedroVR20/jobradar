@@ -187,7 +187,9 @@ public class JobController {
                 "ARBEITNOW", jobRepository.countBySource("ARBEITNOW"),
                 "WWR", jobRepository.countBySource("WWR"),
                 "GUPY", jobRepository.countBySource("GUPY"),
-                "EURECA", jobRepository.countBySource("EURECA")
+                "EURECA", jobRepository.countBySource("EURECA"),
+                "QUEROVAGASTECH", jobRepository.countBySource("QUEROVAGASTECH"),
+                "NERDIN", jobRepository.countBySource("NERDIN")
         ));
         stats.put("porSenioridade", Map.of(
                 SeniorityClassifier.ESTAGIO, jobRepository.countBySeniority(SeniorityClassifier.ESTAGIO),

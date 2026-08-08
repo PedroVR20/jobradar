@@ -3,8 +3,8 @@
 Dashboard pessoal para monitorar vagas de programação remotas na Europa **e**
 vagas no Brasil — empresas grandes como Itaú, Stone, Localiza, Boticário,
 TIM, Bradesco, Stellantis e Natura, entre centenas de outras, agregadas de
-6 fontes (Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech) num único
-funil de candidatura, com integração opcional a uma Agenda Pessoal.
+7 fontes (Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, Nerdin)
+num único funil de candidatura, com integração opcional a uma Agenda Pessoal.
 Busca automaticamente **a cada 4 horas** e guarda tudo no banco.
 
 Repositório: https://github.com/PedroVR20/jobradar
@@ -81,6 +81,7 @@ npm run dev
 | **Gupy**               | Vagas de tecnologia em empresas brasileiras (Itaú, Stone, Localiza, Boticário, TIM e centenas de outras) — remoto, híbrido e presencial | ✅ |
 | **Eureca**             | Programas de estágio/trainee em grandes empresas (Bradesco, Stellantis, Natura, Sephora, Equinor, SLC Agrícola e outras) | ✅ |
 | **QueroVagasTech**     | Agregador BR com InfoJobs, Stone (Vagas.com), Solides, Thoughtworks, Totvs, RedHat, Accenture e outras fontes corporativas — fontes Gupy já cobertas são ignoradas para não duplicar | ✅ |
+| **Nerdin**              | Vagas de TI (nerdin.com.br) — foco em desenvolvimento, dados, infra, DevOps, IA | ✅ |
 
 **Sobre a fonte Gupy:** usa a API pública do portal de busca de vagas da
 Gupy (`portal.gupy.io/job-search`), o mesmo ATS usado por milhares de
@@ -107,6 +108,28 @@ backend as fontes `GupyPortalTecnologia` e `GupyExample` (já cobertas
 pelo `GupyService`). Salary vem estruturado (`min`/`max`/`currency`/`period`)
 e é formatado automaticamente como "R$ X – Y/mês". Adicionou ~611 vagas
 novas no primeiro fetch, principalmente do InfoJobs.
+
+**Sobre a fonte Nerdin:** diferente das outras fontes BR, o Nerdin **não
+tem API pública nem interna descoberta** — é scraping direto do HTML da
+listagem paginada (`nerdin.com.br/vagas.php?pagina=N`), via `NerdinService`
+usando Jsoup. As classes CSS dos cards (`.vaga-card`, `.vaga-titulo`,
+`.vaga-empresa-nome`...) são as mesmas que o JS do próprio site usa pra
+favoritar vagas, então tendem a ser relativamente estáveis, mas ainda é
+HTML — pode quebrar se o site for redesenhado (fica isolado, como as
+outras fontes, sem afetar o resto se parar de funcionar). `robots.txt`
+permite (`Allow: /`, sem disallow pra `/vagas.php`).
+
+Cada vaga individual tem um JSON-LD `JobPosting` (schema.org) bem completo
+na página de detalhe — inclusive prazo de inscrição — mas isso exigiria
+uma requisição HTTP extra por vaga (~700 no catálogo inteiro), então por
+ora só a listagem é usada: dá título, empresa, salário, modalidade, data
+de publicação e tags, sem esse custo. **Sem prazo de inscrição** por
+enquanto (mesma limitação de Remotive/Arbeitnow/WWR).
+
+O Nerdin também não parece filtrar a listagem só pra vagas ativas —
+algumas datadas de anos atrás apareceram misturadas nos testes. Por isso,
+qualquer vaga "publicada" há mais de 90 dias é descartada no parsing, pra
+não mostrar vaga morta como se fosse oportunidade nova.
 
 > LinkedIn **não foi incluído**: bloqueia scraping ativamente e não oferece
 > API pública de vagas. Se quiser acompanhar uma vaga específica achada no
@@ -381,7 +404,7 @@ job-radar/
 │   └── src/main/java/br/com/jobradar/
 │       ├── model/        ← Entidade Job
 │       ├── repository/   ← JPA Repository
-│       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, SeniorityClassifier, SalaryExtractor, Aggregator
+│       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, Nerdin, SeniorityClassifier, SalaryExtractor, Aggregator
 │       └── controller/   ← REST API (jobs, stats, metrics, duplicates)
 └── frontend/             ← React 18 + TypeScript + Vite
     ├── Dockerfile

@@ -14,6 +14,8 @@ const sourceColors: Record<string, string> = {
   WWR: '#f59e0b',
   GUPY: '#ec4899',
   EURECA: '#14b8a6',
+  QUEROVAGASTECH: '#f97316',
+  NERDIN: '#8b5cf6',
 };
 
 const seniorityOrder: Seniority[] = ['ESTAGIO', 'JUNIOR', 'PLENO', 'SENIOR', 'NAO_INFORMADO'];

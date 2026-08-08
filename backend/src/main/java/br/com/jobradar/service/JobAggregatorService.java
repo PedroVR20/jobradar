@@ -27,6 +27,7 @@ public class JobAggregatorService {
     private final GupyService gupyService;
     private final EurecaService eurecaService;
     private final QuerovagastechService querovagastechService;
+    private final NerdinService nerdinService;
     private final SeniorityClassifier seniorityClassifier;
 
     /**
@@ -145,6 +146,7 @@ public class JobAggregatorService {
         allJobs.addAll(gupyService.fetchJobs());
         allJobs.addAll(eurecaService.fetchJobs());
         allJobs.addAll(querovagastechService.fetchJobs());
+        allJobs.addAll(nerdinService.fetchJobs());
 
         int novos = 0;
         int enriquecidas = 0;
