@@ -12,8 +12,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -29,6 +32,7 @@ public class JobAggregatorService {
     private final QuerovagastechService querovagastechService;
     private final NerdinService nerdinService;
     private final SeniorityClassifier seniorityClassifier;
+    private final AiClassifierService aiClassifierService;
 
     /**
      * Roda automaticamente a cada 4 horas (00h, 04h, 08h, 12h, 16h, 20h BRT)
@@ -150,10 +154,25 @@ public class JobAggregatorService {
 
         int novos = 0;
         int enriquecidas = 0;
+        int classificadasPorIa = 0;
         for (Job job : allJobs) {
             Optional<Job> existente = jobRepository.findByUrl(job.getUrl());
             if (existente.isEmpty()) {
-                job.setSeniority(seniorityClassifier.classify(job.getTitle(), job.getTags()));
+                String seniority = seniorityClassifier.classify(job.getTitle(), job.getTags());
+                // regex não decidiu — só aí vale a pena gastar uma chamada de IA
+                // (título ambíguo ou em idioma que os padrões não cobrem)
+                if (SeniorityClassifier.NAO_INFORMADO.equals(seniority)) {
+                    AiClassifierService.Resultado ia = aiClassifierService.classificar(
+                            job.getTitle(), job.getCompany(), job.getTags());
+                    if (ia != null) {
+                        seniority = ia.seniority();
+                        if (!ia.stackTags().isEmpty()) {
+                            job.setTags(mergeTags(job.getTags(), ia.stackTags()));
+                        }
+                        classificadasPorIa++;
+                    }
+                }
+                job.setSeniority(seniority);
                 if ("GUPY".equals(job.getSource()) && job.getSalary() == null) {
                     job.setSalary(gupyService.fetchSalaryHint(job.getUrl()));
                 }
@@ -164,10 +183,26 @@ public class JobAggregatorService {
                 enriquecidas++;
             }
         }
+        if (classificadasPorIa > 0) {
+            log.info("=== {} vagas ambíguas classificadas via IA (Gemini) ===", classificadasPorIa);
+        }
 
         log.info("=== Fetch concluído: {} vagas totais, {} novas salvas, {} enriquecidas ===",
                 allJobs.size(), novos, enriquecidas);
         return novos;
+    }
+
+    // Junta as tags extraídas pela IA com as que a vaga já tinha, sem duplicar
+    // (LinkedHashSet preserva a ordem original e ignora repetições).
+    private String mergeTags(String tagsAtuais, List<String> novasTags) {
+        Set<String> merged = new LinkedHashSet<>();
+        if (tagsAtuais != null && !tagsAtuais.isBlank()) {
+            merged.addAll(Arrays.asList(tagsAtuais.split(",")));
+        }
+        for (String t : novasTags) {
+            if (t != null && !t.isBlank()) merged.add(t.trim());
+        }
+        return String.join(",", merged);
     }
 
     /**

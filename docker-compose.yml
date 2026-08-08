@@ -25,6 +25,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/jobradar
       SPRING_DATASOURCE_USERNAME: jobradar
       SPRING_DATASOURCE_PASSWORD: jobradar123
+      # Opcional — recursos de IA (carta de apresentação, duplicatas, classificação)
+      # ficam desativados sem isso, o resto do app funciona normal.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

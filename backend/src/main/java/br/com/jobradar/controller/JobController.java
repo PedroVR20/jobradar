@@ -2,6 +2,9 @@ package br.com.jobradar.controller;
 
 import br.com.jobradar.model.Job;
 import br.com.jobradar.repository.JobRepository;
+import br.com.jobradar.service.AiDuplicateVerifierService;
+import br.com.jobradar.service.CoverLetterService;
+import br.com.jobradar.service.GeminiService;
 import br.com.jobradar.service.JobAggregatorService;
 import br.com.jobradar.service.SeniorityClassifier;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +39,9 @@ public class JobController {
     private final JobRepository jobRepository;
     private final JobAggregatorService aggregatorService;
     private final SeniorityClassifier seniorityClassifier;
+    private final AiDuplicateVerifierService aiDuplicateVerifierService;
+    private final CoverLetterService coverLetterService;
+    private final GeminiService geminiService;
 
     /**
      * Lista todas as vagas com filtros opcionais
@@ -264,6 +270,12 @@ public class JobController {
      * Só sinaliza pra revisão manual: não deleta nem mescla nada sozinho.
      * GET /api/jobs/duplicates
      */
+    // Limite de grupos verificados por IA por chamada — o Jaccard já reduz
+    // milhares de vagas a um punhado de grupos candidatos, mas ainda assim
+    // pode passar disso, e cada verificação é uma chamada ao Gemini (free
+    // tier tem limite de requisições por minuto).
+    private static final int MAX_VERIFICACOES_IA = 20;
+
     @GetMapping("/duplicates")
     public List<Map<String, Object>> getDuplicates() {
         List<Job> ativos = jobRepository.findAll().stream()
@@ -278,6 +290,7 @@ public class JobController {
         }
 
         List<Map<String, Object>> grupos = new ArrayList<>();
+        int verificacoesIa = 0;
         for (List<Job> candidatos : porEmpresa.values()) {
             if (candidatos.size() < 2) continue;
 
@@ -308,6 +321,19 @@ public class JobController {
                 }
                 if (componente.size() < 2) continue;
 
+                // segunda opinião via IA — descarta grupos que o Jaccard achou parecidos
+                // por palavra mas que são vagas de times/produtos genuinamente diferentes.
+                // Sem IA disponível, ou depois do limite de verificações por chamada,
+                // mantém o comportamento anterior (só o veredito do Jaccard).
+                boolean aiVerificado = false;
+                if (verificacoesIa < MAX_VERIFICACOES_IA) {
+                    List<String> titulos = componente.stream().map(Job::getTitle).toList();
+                    boolean confirmado = aiDuplicateVerifierService.confirmar(componente.get(0).getCompany(), titulos);
+                    verificacoesIa++;
+                    if (!confirmado) continue; // IA disse que são vagas diferentes
+                    aiVerificado = true;
+                }
+
                 List<Map<String, Object>> vagas = componente.stream()
                         .map(j -> {
                             Map<String, Object> m = new HashMap<>();
@@ -322,6 +348,7 @@ public class JobController {
                 Map<String, Object> grupo = new HashMap<>();
                 grupo.put("company", componente.get(0).getCompany());
                 grupo.put("jobs", vagas);
+                grupo.put("aiVerificado", aiVerificado);
                 grupos.add(grupo);
             }
         }
@@ -584,6 +611,34 @@ public class JobController {
             String text = body.getOrDefault("notes", "");
             job.setNotes(text.isBlank() ? null : text.trim());
             return ResponseEntity.ok(toDto(jobRepository.save(job)));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    public record CoverLetterRequest(String extraContext) {}
+
+    /**
+     * Gera uma carta de apresentação personalizada pra vaga via Gemini —
+     * usa os campos que o Job Radar já tem (não a descrição completa, que
+     * não é armazenada) mais qualquer contexto extra que o usuário quiser
+     * colar no corpo da requisição. 503 se a IA não estiver configurada
+     * (sem GEMINI_API_KEY), 502 se a chamada ao Gemini falhar.
+     * POST /api/jobs/{id}/cover-letter  Body (opcional): { "extraContext": "..." }
+     */
+    @PostMapping("/{id}/cover-letter")
+    public ResponseEntity<Map<String, Object>> gerarCartaApresentacao(
+            @PathVariable Long id, @RequestBody(required = false) CoverLetterRequest req) {
+        if (!geminiService.isEnabled()) {
+            return ResponseEntity.status(503)
+                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+        }
+        return jobRepository.findById(id).map(job -> {
+            String extraContext = req != null ? req.extraContext() : null;
+            String carta = coverLetterService.gerar(job, extraContext);
+            if (carta == null) {
+                return ResponseEntity.status(502)
+                        .body(Map.<String, Object>of("error", "Não foi possível gerar a carta agora. Tente de novo em instantes."));
+            }
+            return ResponseEntity.ok(Map.<String, Object>of("coverLetter", carta));
         }).orElse(ResponseEntity.notFound().build());
     }
 }

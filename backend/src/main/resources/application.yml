@@ -16,6 +16,12 @@ spring:
 server:
   port: 8080
 
+gemini:
+  # Vazio por padrão — recursos de IA ficam desativados sem uma key.
+  # Grátis em https://aistudio.google.com/apikey
+  api-key: ${GEMINI_API_KEY:}
+  model: gemini-2.5-flash
+
 logging:
   level:
     br.com.jobradar: INFO
