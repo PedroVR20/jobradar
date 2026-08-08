@@ -41,6 +41,9 @@ export interface AiStatus {
   // Contagem aproximada de chamadas feitas hoje — não é a oficial do Google
   // (reseta se o backend reiniciar), só um sinal antes de bater no limite.
   requestsToday: number | null;
+  // Presente só quando há mais de uma GEMINI_API_KEYS configurada — o
+  // backend faz rodízio automático entre elas quando uma bate no limite.
+  keyPool: { total: number; availableToday: number; exhaustedToday: number } | null;
 }
 
 export interface DuplicateJobRef {

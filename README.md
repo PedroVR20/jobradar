@@ -348,6 +348,25 @@ estourar, a mensagem de erro já diz qual dos dois foi: "espera uns 20-30s"
 (por minuto) ou "só volta amanhã" (diário) — bem diferente do que fazer em
 cada caso, por isso a distinção.
 
+**Pool de várias keys (opcional):** em vez de `GEMINI_API_KEY` (uma key),
+dá pra configurar `GEMINI_API_KEYS` no `.env` com várias separadas por
+vírgula. O backend testa isso sozinho: numa mesma chamada, se uma key bater
+em rate limit (por minuto ou diário), ele tenta a próxima automaticamente,
+sem o usuário perceber — só devolve erro se todas as keys da pool falharem.
+Configurações mostra "🔑 X de N keys disponíveis hoje".
+
+⚠️ **Isso só ajuda de verdade se as keys forem de projetos Google Cloud
+diferentes.** Testamos com 9 keys geradas em sequência no AI Studio sem
+trocar de projeto entre uma e outra, e **todas** bateram no limite diário já
+na primeira chamada de cada — inclusive as que nunca tinham sido usadas
+antes, o que só se explica se estiverem compartilhando a mesma cota (mesmo
+projeto, ou possivelmente cota por conta Google — não confirmamos qual dos
+dois). Antes de contar com a pool, confira em
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey) se cada key
+aparece sob um projeto diferente; se todas caem no mesmo projeto, é preciso
+trocar explicitamente de projeto (seletor no topo da página) antes de gerar
+cada key nova.
+
 | Recurso | Onde aparece | O que faz |
 |---|---|---|
 | **Carta de apresentação** | Botão **🤖 Gerar carta** em cada vaga (some se a IA estiver desativada), abre um modal próprio com campo de contexto extra opcional e botão de copiar | `POST /api/jobs/{id}/cover-letter` gera uma carta personalizada a partir do que a vaga tem salva (título, empresa, senioridade, modalidade, local, tags, salário, suas notas). Sem descrição completa da vaga nem seu currículo no banco, então o texto fica específico sobre a vaga mas genérico sobre sua experiência — a IA é instruída a não inventar histórico profissional, então normalmente vale revisar/completar antes de enviar. |

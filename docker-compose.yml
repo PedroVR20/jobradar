@@ -28,6 +28,10 @@ services:
       # Opcional — recursos de IA (carta de apresentação, duplicatas, classificação)
       # ficam desativados sem isso, o resto do app funciona normal.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # Opcional: várias keys separadas por vírgula (projetos diferentes) —
+      # se preenchida, o backend faz rodízio automático entre elas quando
+      # uma bate no limite do free tier. Tem prioridade sobre GEMINI_API_KEY.
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
     depends_on:
       postgres:
         condition: service_healthy

@@ -1474,6 +1474,25 @@ a:hover { text-decoration: underline; }
 }
 .ai-status-model { font-weight: 400; opacity: 0.85; }
 
+.key-pool-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  margin-top: 0.5rem;
+  background: #2dd4bf1a;
+  color: #2dd4bf;
+  border: 1px solid #2dd4bf44;
+}
+.key-pool-pill--empty {
+  background: #ef444422;
+  color: var(--red);
+  border-color: #ef444444;
+}
+.key-pool-exhausted { opacity: 0.85; font-weight: 400; }
+
 .settings-usage-hint { margin-top: 0.5rem; }
 .settings-usage-hint code {
   background: var(--bg-card2);

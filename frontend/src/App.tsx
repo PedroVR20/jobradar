@@ -255,7 +255,7 @@ export default function App() {
 
       {showSettings && (
         <SettingsModal
-          aiStatus={{ enabled: aiStatus.enabled, model: aiStatus.model, requestsToday: aiStatus.requestsToday }}
+          aiStatus={{ enabled: aiStatus.enabled, model: aiStatus.model, requestsToday: aiStatus.requestsToday, keyPool: aiStatus.keyPool }}
           aiLoading={aiStatus.loading}
           onRefreshAiStatus={aiStatus.refresh}
           onClose={() => setShowSettings(false)}

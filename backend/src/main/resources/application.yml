@@ -20,6 +20,11 @@ gemini:
   # Vazio por padrão — recursos de IA ficam desativados sem uma key.
   # Grátis em https://aistudio.google.com/apikey
   api-key: ${GEMINI_API_KEY:}
+  # Opcional: várias keys separadas por vírgula (de projetos Google Cloud
+  # diferentes, senão compartilham a mesma cota) — se preenchida, tem
+  # prioridade sobre api-key e o backend faz rodízio automático entre elas
+  # quando uma bate no limite do free tier. Ver GeminiService.
+  api-keys: ${GEMINI_API_KEYS:}
   model: gemini-2.5-flash
 
 logging:

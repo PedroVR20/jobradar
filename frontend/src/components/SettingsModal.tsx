@@ -120,16 +120,32 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
 
           <p className="agenda-hint">
             {aiStatus.enabled
-              ? 'Configurada via GEMINI_API_KEY no .env do backend. Gratuita (free tier do Google AI Studio).'
-              : 'Não configurada. Para ativar, gere uma chave gratuita em aistudio.google.com/apikey e defina GEMINI_API_KEY no .env do backend.'}
+              ? aiStatus.keyPool && aiStatus.keyPool.total > 1
+                ? `Configurada via GEMINI_API_KEYS no .env do backend, com rodízio automático entre as ${aiStatus.keyPool.total} keys quando uma bate no limite. Gratuita (free tier do Google AI Studio).`
+                : 'Configurada via GEMINI_API_KEY no .env do backend. Gratuita (free tier do Google AI Studio).'
+              : 'Não configurada. Para ativar, gere uma chave gratuita em aistudio.google.com/apikey e defina GEMINI_API_KEY (ou GEMINI_API_KEYS, com várias) no .env do backend.'}
           </p>
+
+          {aiStatus.enabled && aiStatus.keyPool && aiStatus.keyPool.total > 1 && (
+            <div className={`key-pool-pill ${aiStatus.keyPool.availableToday === 0 ? 'key-pool-pill--empty' : ''}`}>
+              🔑 <strong>{aiStatus.keyPool.availableToday}</strong> de <strong>{aiStatus.keyPool.total}</strong> keys
+              disponíveis hoje
+              {aiStatus.keyPool.exhaustedToday > 0 && (
+                <span className="key-pool-exhausted"> · {aiStatus.keyPool.exhaustedToday} esgotada(s)</span>
+              )}
+            </div>
+          )}
 
           {aiStatus.enabled && aiStatus.requestsToday !== null && (
             <p className="agenda-hint settings-usage-hint">
-              📊 <strong>{aiStatus.requestsToday}</strong> requisições ao Gemini hoje (contagem aproximada,
-              zera se o backend reiniciar). O free tier do <code>{aiStatus.model}</code> tem limite por
-              minuto <strong>e</strong> por dia — se aparecer "limite atingido", a mensagem diz qual dos
-              dois foi e quanto esperar.
+              📊 <strong>{aiStatus.requestsToday}</strong> requisições ao Gemini hoje
+              {aiStatus.keyPool && aiStatus.keyPool.total > 1 ? ' (somando todas as keys)' : ''} — contagem
+              aproximada, zera se o backend reiniciar. O free tier do <code>{aiStatus.model}</code> tem
+              limite por minuto <strong>e</strong> por dia — se aparecer "limite atingido", a mensagem diz
+              qual dos dois foi e quanto esperar
+              {aiStatus.keyPool && aiStatus.keyPool.total > 1
+                ? ', ou avisa quando todas as keys da pool se esgotaram.'
+                : '.'}
             </p>
           )}
 

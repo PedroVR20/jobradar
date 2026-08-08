@@ -603,6 +603,16 @@ public class JobController {
         // Contagem aproximada (não é a oficial do Google) — só pra dar um
         // sinal antes do usuário esbarrar no limite do free tier.
         status.put("requestsToday", enabled ? geminiService.getRequestsToday() : null);
+        if (enabled) {
+            GeminiService.KeyPoolStatus pool = geminiService.getKeyPoolStatus();
+            Map<String, Object> keyPool = new HashMap<>();
+            keyPool.put("total", pool.total());
+            keyPool.put("availableToday", pool.availableToday());
+            keyPool.put("exhaustedToday", pool.exhaustedToday());
+            status.put("keyPool", keyPool);
+        } else {
+            status.put("keyPool", null);
+        }
         return status;
     }
 
@@ -655,9 +665,7 @@ public class JobController {
             String extraContext = req != null ? req.extraContext() : null;
             GeminiService.GeminiResult resultado = coverLetterService.gerar(job, extraContext);
             if (!resultado.ok()) {
-                boolean rateLimited = resultado.errorMessage() != null
-                        && resultado.errorMessage().toLowerCase().contains("limite");
-                return ResponseEntity.status(rateLimited ? 429 : 502)
+                return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
                         .body(Map.<String, Object>of("error", resultado.errorMessage()));
             }
             return ResponseEntity.ok(Map.<String, Object>of("coverLetter", resultado.text()));
