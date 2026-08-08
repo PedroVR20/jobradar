@@ -26,6 +26,14 @@ body {
   line-height: 1.6;
 }
 
+/* Scrollbar escura pra combinar com o tema — sem isso, o navegador usa a
+   barra clara padrão, que destoa bastante dentro de modais/textareas escuros. */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
@@ -1497,7 +1505,7 @@ a:hover { text-decoration: underline; }
 .settings-feature-state { font-size: 0.9rem; flex-shrink: 0; }
 
 .settings-profile-head { display: flex; align-items: center; gap: 0.6rem; }
-.settings-profile-textarea { margin-top: 0.6rem; resize: vertical; font-family: inherit; line-height: 1.5; }
+.settings-profile-textarea { margin-top: 0.6rem; resize: none; font-family: inherit; line-height: 1.5; }
 
 .profile-file-input { display: none; }
 
