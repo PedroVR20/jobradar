@@ -316,6 +316,21 @@ a vaga existente em vez de duplicar.
 
 ---
 
+## 🤖 Recursos de IA (Gemini — opcional)
+
+Totalmente opcional: sem uma `GEMINI_API_KEY` configurada, o resto do app
+funciona normal, só esses três recursos ficam desativados. Key grátis em
+**https://aistudio.google.com/apikey** — copie `.env.example` pra `.env` e
+preencha `GEMINI_API_KEY=`.
+
+| Recurso | O que faz |
+|---|---|
+| **Carta de apresentação** | `POST /api/jobs/{id}/cover-letter` gera uma carta personalizada a partir do que a vaga tem salva (título, empresa, senioridade, modalidade, local, tags, salário, suas notas). Sem descrição completa da vaga nem seu currículo no banco, então o texto fica específico sobre a vaga mas genérico sobre sua experiência — a IA é instruída a não inventar histórico profissional, então normalmente vale revisar/completar antes de enviar. |
+| **Detecção de duplicatas mais precisa** | O endpoint `/api/jobs/duplicates` (mesma empresa + título parecido, já existia) agora pede uma segunda opinião ao Gemini pra descartar grupos que só parecem duplicata por palavra em comum mas são vagas de times/produtos diferentes. Limitado a 20 verificações por chamada (limite do free tier) — grupos além disso mantêm só o veredito por similaridade de palavras. |
+| **Classificação de senioridade/stack** | Quando o classificador por regex não decide (título ambíguo ou em outro idioma), uma chamada extra ao Gemini tenta resolver e também extrai tecnologias citadas no título pra completar as tags. Só roda nos casos que o regex não resolveu, não em toda vaga nova. |
+
+---
+
 ## 🔗 Integração com Agenda Pessoal
 
 Se você também roda o projeto **Agenda Pessoal** localmente
@@ -386,6 +401,7 @@ POST  /api/jobs/manual              → Adiciona/atualiza vaga manual (title, co
 POST  /api/jobs/fetch               → Dispara fetch manual
 PATCH /api/jobs/{id}/pin            → Fixa/desfixa vaga no topo da lista (pinned ↔ unpinned)
 PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes": "..." }
+POST  /api/jobs/{id}/cover-letter   → Gera carta de apresentação via IA (503 sem GEMINI_API_KEY)  Body opcional: { "extraContext": "..." }
 ```
 
 ---
@@ -404,7 +420,8 @@ job-radar/
 │   └── src/main/java/br/com/jobradar/
 │       ├── model/        ← Entidade Job
 │       ├── repository/   ← JPA Repository
-│       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, Nerdin, SeniorityClassifier, SalaryExtractor, Aggregator
+│       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, Nerdin, SeniorityClassifier,
+│       │                    SalaryExtractor, Aggregator, GeminiService + AiClassifier/AiDuplicateVerifier/CoverLetter (IA opcional)
 │       └── controller/   ← REST API (jobs, stats, metrics, duplicates)
 └── frontend/             ← React 18 + TypeScript + Vite
     ├── Dockerfile
