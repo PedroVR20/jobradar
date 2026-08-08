@@ -1474,6 +1474,15 @@ a:hover { text-decoration: underline; }
 }
 .ai-status-model { font-weight: 400; opacity: 0.85; }
 
+.settings-usage-hint { margin-top: 0.5rem; }
+.settings-usage-hint code {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.78rem;
+}
+
 /* Settings modal */
 .settings-modal { max-width: 520px; }
 .settings-section { margin-top: 1rem; }

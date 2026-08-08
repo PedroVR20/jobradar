@@ -340,6 +340,14 @@ carta** em qualquer vaga — edita à vontade por vaga sem afetar o perfil
 salvo. As libs de leitura de arquivo (~1MB) só são baixadas na hora que você
 realmente usa o upload, não pesam no carregamento normal do app.
 
+**Limite de requisições (free tier):** o Gemini grátis tem cota por **minuto
+e** por **dia**, ambas bem apertadas. Configurações mostra um contador
+aproximado de quantas chamadas o backend já fez hoje (reseta se ele
+reiniciar — não é a contagem oficial do Google, só um sinal). Se o limite
+estourar, a mensagem de erro já diz qual dos dois foi: "espera uns 20-30s"
+(por minuto) ou "só volta amanhã" (diário) — bem diferente do que fazer em
+cada caso, por isso a distinção.
+
 | Recurso | Onde aparece | O que faz |
 |---|---|---|
 | **Carta de apresentação** | Botão **🤖 Gerar carta** em cada vaga (some se a IA estiver desativada), abre um modal próprio com campo de contexto extra opcional e botão de copiar | `POST /api/jobs/{id}/cover-letter` gera uma carta personalizada a partir do que a vaga tem salva (título, empresa, senioridade, modalidade, local, tags, salário, suas notas). Sem descrição completa da vaga nem seu currículo no banco, então o texto fica específico sobre a vaga mas genérico sobre sua experiência — a IA é instruída a não inventar histórico profissional, então normalmente vale revisar/completar antes de enviar. |
@@ -419,7 +427,9 @@ POST  /api/jobs/manual              → Adiciona/atualiza vaga manual (title, co
 POST  /api/jobs/fetch               → Dispara fetch manual
 PATCH /api/jobs/{id}/pin            → Fixa/desfixa vaga no topo da lista (pinned ↔ unpinned)
 PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes": "..." }
-POST  /api/jobs/{id}/cover-letter   → Gera carta de apresentação via IA (503 sem GEMINI_API_KEY)  Body opcional: { "extraContext": "..." }  UI: botão 🤖 Gerar carta no card, abre modal próprio
+POST  /api/jobs/{id}/cover-letter   → Gera carta de apresentação via IA. 503 sem GEMINI_API_KEY, 429 se o free tier
+                                       estourou (mensagem diz se foi por minuto ou por dia), 502 pra outras falhas do
+                                       Gemini.  Body opcional: { "extraContext": "..." }  UI: botão 🤖 Gerar carta no card
 ```
 
 ---

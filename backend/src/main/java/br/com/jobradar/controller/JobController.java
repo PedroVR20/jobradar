@@ -600,6 +600,9 @@ public class JobController {
         boolean enabled = geminiService.isEnabled();
         status.put("enabled", enabled);
         status.put("model", enabled ? geminiService.getModel() : null);
+        // Contagem aproximada (não é a oficial do Google) — só pra dar um
+        // sinal antes do usuário esbarrar no limite do free tier.
+        status.put("requestsToday", enabled ? geminiService.getRequestsToday() : null);
         return status;
     }
 
@@ -637,7 +640,8 @@ public class JobController {
      * usa os campos que o Job Radar já tem (não a descrição completa, que
      * não é armazenada) mais qualquer contexto extra que o usuário quiser
      * colar no corpo da requisição. 503 se a IA não estiver configurada
-     * (sem GEMINI_API_KEY), 502 se a chamada ao Gemini falhar.
+     * (sem GEMINI_API_KEY), 429 se o free tier estourou (por minuto ou por
+     * dia — a mensagem diz qual), 502 pra qualquer outra falha do Gemini.
      * POST /api/jobs/{id}/cover-letter  Body (opcional): { "extraContext": "..." }
      */
     @PostMapping("/{id}/cover-letter")
@@ -649,12 +653,14 @@ public class JobController {
         }
         return jobRepository.findById(id).map(job -> {
             String extraContext = req != null ? req.extraContext() : null;
-            String carta = coverLetterService.gerar(job, extraContext);
-            if (carta == null) {
-                return ResponseEntity.status(502)
-                        .body(Map.<String, Object>of("error", "Não foi possível gerar a carta agora. Tente de novo em instantes."));
+            GeminiService.GeminiResult resultado = coverLetterService.gerar(job, extraContext);
+            if (!resultado.ok()) {
+                boolean rateLimited = resultado.errorMessage() != null
+                        && resultado.errorMessage().toLowerCase().contains("limite");
+                return ResponseEntity.status(rateLimited ? 429 : 502)
+                        .body(Map.<String, Object>of("error", resultado.errorMessage()));
             }
-            return ResponseEntity.ok(Map.<String, Object>of("coverLetter", carta));
+            return ResponseEntity.ok(Map.<String, Object>of("coverLetter", resultado.text()));
         }).orElse(ResponseEntity.notFound().build());
     }
 }

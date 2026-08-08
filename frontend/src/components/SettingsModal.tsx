@@ -1,10 +1,14 @@
-import { ChangeEvent, DragEvent, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
 import { AiStatus } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 
 interface Props {
   aiStatus: AiStatus;
   aiLoading: boolean;
+  // Re-busca o status ao abrir o modal — o número de requisições de hoje
+  // muda a cada carta/duplicata verificada, então o valor buscado uma vez
+  // no carregamento da página (em App.tsx) fica velho rápido.
+  onRefreshAiStatus: () => void;
   onClose: () => void;
 }
 
@@ -18,7 +22,12 @@ function formatSize(chars: number): string {
   return `${chars.toLocaleString('pt-BR')} caracteres`;
 }
 
-export function SettingsModal({ aiStatus, aiLoading, onClose }: Props) {
+export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose }: Props) {
+  useEffect(() => {
+    onRefreshAiStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const { profile, fileName, setProfile } = useCandidateProfile();
   const [saved, setSaved] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -114,6 +123,15 @@ export function SettingsModal({ aiStatus, aiLoading, onClose }: Props) {
               ? 'Configurada via GEMINI_API_KEY no .env do backend. Gratuita (free tier do Google AI Studio).'
               : 'Não configurada. Para ativar, gere uma chave gratuita em aistudio.google.com/apikey e defina GEMINI_API_KEY no .env do backend.'}
           </p>
+
+          {aiStatus.enabled && aiStatus.requestsToday !== null && (
+            <p className="agenda-hint settings-usage-hint">
+              📊 <strong>{aiStatus.requestsToday}</strong> requisições ao Gemini hoje (contagem aproximada,
+              zera se o backend reiniciar). O free tier do <code>{aiStatus.model}</code> tem limite por
+              minuto <strong>e</strong> por dia — se aparecer "limite atingido", a mensagem diz qual dos
+              dois foi e quanto esperar.
+            </p>
+          )}
 
           <ul className="settings-feature-list">
             {AI_FEATURES.map(f => (

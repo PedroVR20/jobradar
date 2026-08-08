@@ -38,6 +38,9 @@ export interface Job {
 export interface AiStatus {
   enabled: boolean;
   model: string | null;
+  // Contagem aproximada de chamadas feitas hoje — não é a oficial do Google
+  // (reseta se o backend reiniciar), só um sinal antes de bater no limite.
+  requestsToday: number | null;
 }
 
 export interface DuplicateJobRef {

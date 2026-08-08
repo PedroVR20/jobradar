@@ -24,7 +24,7 @@ public class CoverLetterService {
 
     private final GeminiService geminiService;
 
-    public String gerar(Job job, String extraContext) {
+    public GeminiService.GeminiResult gerar(Job job, String extraContext) {
         StringBuilder contexto = new StringBuilder();
         contexto.append("Vaga: ").append(job.getTitle()).append("\n");
         contexto.append("Empresa: ").append(job.getCompany()).append("\n");
@@ -67,6 +67,6 @@ public class CoverLetterService {
                 Devolva só o texto da carta, sem markdown, sem título, sem aspas ao redor.
                 """.formatted(contexto);
 
-        return geminiService.generateText(prompt);
+        return geminiService.generate(prompt);
     }
 }
