@@ -328,11 +328,17 @@ painel dedicado com o status (🟢 IA ativa/desativada, modelo em uso) e o que
 cada um dos 3 recursos faz — sem isso, não dava pra saber olhando a tela
 principal que a integração existe.
 
-**Perfil salvo (currículo/stack):** o mesmo painel de Configurações tem um
-campo pra colar um resumo da sua experiência/stack uma única vez (fica só no
-`localStorage` do navegador). Esse texto pré-preenche automaticamente o
-"Contexto adicional" toda vez que você abre **🤖 Gerar carta** em qualquer
-vaga — edita à vontade por vaga sem afetar o perfil salvo.
+**Perfil salvo (currículo/stack):** o mesmo painel de Configurações tem uma
+área pra enviar seu currículo em **PDF ou DOCX** (arrastar ou clicar) — o
+texto é extraído **inteiramente no navegador** (`pdfjs-dist`/`mammoth`, nada é
+enviado ao backend nem a lugar nenhum) e salvo no `localStorage`. Tem também
+um modo "colar manualmente" pra quem preferir digitar em vez de enviar
+arquivo, e um "Ver/editar texto" pra corrigir a extração se ela sair um pouco
+torta (comum em PDFs com layout em colunas). Esse texto pré-preenche
+automaticamente o "Contexto adicional" toda vez que você abre **🤖 Gerar
+carta** em qualquer vaga — edita à vontade por vaga sem afetar o perfil
+salvo. As libs de leitura de arquivo (~1MB) só são baixadas na hora que você
+realmente usa o upload, não pesam no carregamento normal do app.
 
 | Recurso | Onde aparece | O que faz |
 |---|---|---|
@@ -444,6 +450,7 @@ job-radar/
         │                    DuplicatesModal, CoverLetterModal (IA opcional)
         ├── hooks/         ← useJobs, useAgenda (integração client-side), useSourceColors,
         │                    useAiStatus, useCandidateProfile
+        ├── utils/         ← extractResumeText (PDF/DOCX → texto, 100% client-side)
         └── types/        ← Job, Stats, Filters, Metrics
 ```
 

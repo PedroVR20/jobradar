@@ -1499,6 +1499,65 @@ a:hover { text-decoration: underline; }
 .settings-profile-head { display: flex; align-items: center; gap: 0.6rem; }
 .settings-profile-textarea { margin-top: 0.6rem; resize: vertical; font-family: inherit; line-height: 1.5; }
 
+.profile-file-input { display: none; }
+
+.profile-dropzone {
+  margin-top: 0.75rem;
+  border: 1.5px dashed var(--border);
+  border-radius: 10px;
+  padding: 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  cursor: pointer;
+  background: #ffffff05;
+  transition: border-color 0.15s, background 0.15s;
+}
+.profile-dropzone:hover { border-color: var(--accent); background: #6366f10c; }
+.profile-dropzone--dragover { border-color: var(--accent); background: #6366f11a; }
+.profile-dropzone--busy { cursor: default; }
+.profile-dropzone-icon { font-size: 1.6rem; }
+.profile-dropzone-title { font-size: 0.85rem; font-weight: 600; color: var(--text); }
+.profile-dropzone-hint { font-size: 0.72rem; color: var(--text-muted); }
+
+.profile-file-card {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #2dd4bf0f;
+  border: 1px solid #2dd4bf33;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+.profile-file-icon { font-size: 1.4rem; flex-shrink: 0; }
+.profile-file-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.profile-file-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profile-file-meta { font-size: 0.72rem; color: var(--text-muted); }
+.profile-file-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+.profile-file-btn { font-size: 0.75rem; padding: 5px 9px; }
+
+.profile-manual-toggle {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0.6rem 0 0;
+  text-align: left;
+}
+.profile-manual-toggle:hover { color: var(--text); }
+
 /* Cover letter modal */
 .cover-letter-modal { max-width: 560px; }
 .cover-letter-profile-hint { margin-top: -0.4rem; }

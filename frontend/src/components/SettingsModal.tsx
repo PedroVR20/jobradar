@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, useRef, useState } from 'react';
 import { AiStatus } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 
@@ -14,22 +14,78 @@ const AI_FEATURES = [
   { icon: '🏷️', label: 'Classificação de senioridade/stack', hint: 'Só entra em ação quando o título é ambíguo — selo "🤖" no card' },
 ];
 
+function formatSize(chars: number): string {
+  return `${chars.toLocaleString('pt-BR')} caracteres`;
+}
+
 export function SettingsModal({ aiStatus, aiLoading, onClose }: Props) {
-  const { profile, setProfile } = useCandidateProfile();
-  const [text, setText] = useState(profile);
+  const { profile, fileName, setProfile } = useCandidateProfile();
   const [saved, setSaved] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState('');
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualText, setManualText] = useState(profile);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleChange = (value: string) => {
-    setText(value);
+  const flashSaved = () => {
+    setSaved(true);
+    if (savedTimeout.current) clearTimeout(savedTimeout.current);
+    savedTimeout.current = setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleFile = async (file: File) => {
+    setExtractError('');
+    setExtracting(true);
+    try {
+      // pdfjs-dist + mammoth (>1MB juntos) só são baixados aqui, na hora que
+      // alguém realmente solta um arquivo — não pesam no carregamento normal do app.
+      const { extractResumeText, ResumeExtractionError } = await import('../utils/extractResumeText');
+      try {
+        const text = await extractResumeText(file);
+        setProfile(text, file.name);
+        setManualText(text);
+        flashSaved();
+      } catch (e) {
+        setExtractError(e instanceof ResumeExtractionError ? e.message : 'Erro inesperado ao ler o arquivo.');
+      }
+    } catch {
+      setExtractError('Não foi possível carregar o leitor de arquivos. Tente recarregar a página.');
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permite selecionar o mesmo arquivo de novo depois
+    if (file) handleFile(file);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  };
+
+  const handleRemove = () => {
+    setProfile('', null);
+    setManualText('');
+    setExtractError('');
+  };
+
+  // Edição manual do texto já extraído (ou colado direto) — debounce igual
+  // ao editor de notas do card, não mexe no nome do arquivo de origem.
+  const handleManualChange = (value: string) => {
+    setManualText(value);
     setSaved(false);
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(() => {
       setProfile(value);
-      setSaved(true);
-      if (savedTimeout.current) clearTimeout(savedTimeout.current);
-      savedTimeout.current = setTimeout(() => setSaved(false), 2000);
+      flashSaved();
     }, 800);
   };
 
@@ -81,22 +137,92 @@ export function SettingsModal({ aiStatus, aiLoading, onClose }: Props) {
         <div className="settings-section">
           <div className="settings-profile-head">
             <h3 className="settings-section-title">📄 Meu perfil (currículo/stack)</h3>
-            <span className="notes-save-status">
-              {saved ? '✓ Salvo' : text !== profile ? 'Salvando...' : ''}
-            </span>
+            <span className="notes-save-status">{saved ? '✓ Salvo' : ''}</span>
           </div>
           <p className="agenda-hint">
-            Cole aqui um resumo da sua experiência, stack e projetos relevantes — fica salvo só no seu
-            navegador e preenche automaticamente o campo "Contexto adicional" toda vez que você gerar
-            uma carta de apresentação, sem precisar colar de novo pra cada vaga.
+            Envie seu currículo uma vez — a IA lê o arquivo e usa o conteúdo pra preencher
+            automaticamente o "Contexto adicional" toda vez que você gerar uma carta de apresentação,
+            sem precisar colar de novo pra cada vaga.
           </p>
-          <textarea
-            className="agenda-input settings-profile-textarea"
-            value={text}
-            onChange={e => handleChange(e.target.value)}
-            placeholder="Ex: Desenvolvedor(a) fullstack com 3 anos de experiência, Java/Spring no back e React/TypeScript no front. Projeto X (breve descrição). Certificação Y..."
-            rows={6}
+
+          {profile && fileName ? (
+            <div className="profile-file-card">
+              <span className="profile-file-icon">📄</span>
+              <div className="profile-file-info">
+                <span className="profile-file-name">{fileName}</span>
+                <span className="profile-file-meta">{formatSize(profile.length)} extraídos</span>
+              </div>
+              <div className="profile-file-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost profile-file-btn"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={extracting}
+                >
+                  🔁 Trocar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger profile-file-btn"
+                  onClick={handleRemove}
+                  disabled={extracting}
+                >
+                  🗑
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className={`profile-dropzone ${dragOver ? 'profile-dropzone--dragover' : ''} ${extracting ? 'profile-dropzone--busy' : ''}`}
+              onClick={() => !extracting && fileInputRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              role="button"
+              tabIndex={0}
+            >
+              {extracting ? (
+                <>
+                  <span className="profile-dropzone-icon">⏳</span>
+                  <span className="profile-dropzone-title">Lendo currículo...</span>
+                </>
+              ) : (
+                <>
+                  <span className="profile-dropzone-icon">📤</span>
+                  <span className="profile-dropzone-title">Arraste seu currículo aqui ou clique para escolher</span>
+                  <span className="profile-dropzone-hint">PDF ou DOCX, até 8MB</span>
+                </>
+              )}
+            </div>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            className="profile-file-input"
+            onChange={handleInputChange}
           />
+
+          {extractError && <p className="agenda-error">{extractError}</p>}
+
+          <button
+            type="button"
+            className="profile-manual-toggle"
+            onClick={() => setManualOpen(o => !o)}
+          >
+            {manualOpen ? '▾' : '▸'} {profile ? 'Ver/editar texto' : 'Ou cole o texto manualmente'}
+          </button>
+
+          {manualOpen && (
+            <textarea
+              className="agenda-input settings-profile-textarea"
+              value={manualText}
+              onChange={e => handleManualChange(e.target.value)}
+              placeholder="Cole aqui um resumo da sua experiência, stack e projetos relevantes..."
+              rows={6}
+            />
+          )}
         </div>
       </div>
     </div>
