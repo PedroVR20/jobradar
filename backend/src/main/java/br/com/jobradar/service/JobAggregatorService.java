@@ -169,6 +169,7 @@ public class JobAggregatorService {
                         if (!ia.stackTags().isEmpty()) {
                             job.setTags(mergeTags(job.getTags(), ia.stackTags()));
                         }
+                        job.setClassifiedByAi(true);
                         classificadasPorIa++;
                     }
                 }

@@ -43,6 +43,12 @@ public class GeminiService {
         return apiKey != null && !apiKey.isBlank();
     }
 
+    // Exposto pro endpoint de status (GET /api/jobs/ai-status) — só o nome do
+    // modelo, nunca a key.
+    public String getModel() {
+        return model;
+    }
+
     /**
      * Manda um prompt de texto puro pro Gemini e devolve a resposta como
      * texto. Retorna null se a IA estiver desativada (sem key) ou se a

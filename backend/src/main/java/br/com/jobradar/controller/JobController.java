@@ -584,7 +584,23 @@ public class JobController {
         dto.put("pcd", job.getPcd() != null && job.getPcd());
         dto.put("pinned", job.getFavorited() != null && job.getFavorited());
         dto.put("notes", job.getNotes());
+        dto.put("classifiedByAi", job.getClassifiedByAi() != null && job.getClassifiedByAi());
         return dto;
+    }
+
+    /**
+     * Status da integração com IA (Gemini) — o frontend usa isso pra mostrar
+     * se os recursos de IA (carta de apresentação, duplicatas, classificação)
+     * estão ativos, sem nunca expor a key.
+     * GET /api/jobs/ai-status
+     */
+    @GetMapping("/ai-status")
+    public Map<String, Object> aiStatus() {
+        Map<String, Object> status = new HashMap<>();
+        boolean enabled = geminiService.isEnabled();
+        status.put("enabled", enabled);
+        status.put("model", enabled ? geminiService.getModel() : null);
+        return status;
     }
 
     /**

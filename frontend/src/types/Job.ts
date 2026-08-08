@@ -31,6 +31,29 @@ export interface Job {
   pcd: boolean;
   pinned: boolean;
   notes: string | null;
+  classifiedByAi: boolean;
+}
+
+// Status da integração com Gemini — GET /api/jobs/ai-status
+export interface AiStatus {
+  enabled: boolean;
+  model: string | null;
+}
+
+export interface DuplicateJobRef {
+  id: number;
+  title: string;
+  source: JobSource;
+  url: string;
+  postedAt: string | null;
+}
+
+export interface DuplicateGroup {
+  company: string;
+  jobs: DuplicateJobRef[];
+  // true = a IA (Gemini) confirmou que são a mesma vaga, além do Jaccard por
+  // palavras; false/omitido = só o veredito por similaridade de título (sem IA)
+  aiVerificado?: boolean;
 }
 
 export interface Stats {

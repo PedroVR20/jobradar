@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useJobs } from './hooks/useJobs';
 import { AgendaTaskStatus, useAgenda } from './hooks/useAgenda';
+import { useAiStatus } from './hooks/useAiStatus';
 import { StatsBar } from './components/StatsBar';
 import { FilterBar } from './components/FilterBar';
 import { ViewTabs } from './components/ViewTabs';
@@ -8,6 +9,8 @@ import { JobCard } from './components/JobCard';
 import { AddJobModal } from './components/AddJobModal';
 import { AgendaStatusBar } from './components/AgendaStatusBar';
 import { MetricsModal } from './components/MetricsModal';
+import { SettingsModal } from './components/SettingsModal';
+import { DuplicatesModal } from './components/DuplicatesModal';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
 import './App.css';
 
@@ -58,10 +61,13 @@ export default function App() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showDuplicates, setShowDuplicates] = useState(false);
 
   const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
   const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
+  const aiStatus = useAiStatus();
   const [syncingAgenda, setSyncingAgenda] = useState(false);
   const reconciledRef = useRef(false);
 
@@ -219,6 +225,12 @@ export default function App() {
             <button className="btn btn-ghost" onClick={() => setShowMetrics(true)}>
               📊 Métricas
             </button>
+            <button className="btn btn-ghost" onClick={() => setShowDuplicates(true)}>
+              🧩 Duplicatas
+            </button>
+            <button className="btn btn-ghost" onClick={() => setShowSettings(true)}>
+              ⚙️ Configurações
+            </button>
             <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>
               ➕ Adicionar vaga
             </button>
@@ -232,6 +244,21 @@ export default function App() {
 
       {showMetrics && (
         <MetricsModal onClose={() => setShowMetrics(false)} />
+      )}
+
+      {showDuplicates && (
+        <DuplicatesModal
+          onClose={() => setShowDuplicates(false)}
+          onReject={id => handleSetStatus(id, 'RECUSADA')}
+        />
+      )}
+
+      {showSettings && (
+        <SettingsModal
+          aiStatus={{ enabled: aiStatus.enabled, model: aiStatus.model }}
+          aiLoading={aiStatus.loading}
+          onClose={() => setShowSettings(false)}
+        />
       )}
 
       <main className="app-main">
@@ -297,6 +324,7 @@ export default function App() {
                   onTogglePin={togglePin}
                   onUpdateNotes={updateNotes}
                   onToast={showToast}
+                  aiEnabled={aiStatus.enabled}
                 />
               ))}
             </div>

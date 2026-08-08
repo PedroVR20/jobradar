@@ -1412,6 +1412,139 @@ a:hover { text-decoration: underline; }
 }
 
 /* ============================
+   IA (Gemini) — badge, botão, status
+   ============================ */
+.badge-ai {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: #2dd4bf22;
+  color: #2dd4bf;
+  border: 1px solid #2dd4bf44;
+  white-space: nowrap;
+}
+.badge-ai--inline {
+  margin-left: 0.5rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.btn-ai {
+  background: #2dd4bf22;
+  color: #2dd4bf;
+  border: 1px solid #2dd4bf44;
+}
+.btn-ai:hover:not(:disabled) { background: #2dd4bf33; }
+
+.ai-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.5rem;
+}
+.ai-status-pill--on {
+  background: #2dd4bf1a;
+  color: #2dd4bf;
+  border: 1px solid #2dd4bf44;
+}
+.ai-status-pill--off {
+  background: var(--bg-card2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.ai-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.ai-status-model { font-weight: 400; opacity: 0.85; }
+
+/* Settings modal */
+.settings-modal { max-width: 520px; }
+.settings-section { margin-top: 1rem; }
+.settings-section-title { font-size: 0.95rem; font-weight: 700; }
+.settings-note { margin-top: 0.9rem; }
+
+.settings-feature-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.9rem 0;
+  padding: 0;
+}
+.settings-feature {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+}
+.settings-feature--off { opacity: 0.55; }
+.settings-feature-icon { font-size: 1.1rem; flex-shrink: 0; }
+.settings-feature-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.settings-feature-label { font-size: 0.85rem; font-weight: 600; }
+.settings-feature-hint { font-size: 0.72rem; color: var(--text-muted); }
+.settings-feature-state { font-size: 0.9rem; flex-shrink: 0; }
+
+/* Cover letter modal */
+.cover-letter-modal { max-width: 560px; }
+.cover-letter-result { margin-top: 0.5rem; }
+.cover-letter-textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  font-family: inherit;
+  resize: vertical;
+}
+.cover-letter-textarea:focus { outline: none; border-color: var(--accent); }
+
+/* Duplicates modal */
+.duplicates-modal { max-width: 620px; }
+.duplicates-list { display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; max-height: 55vh; overflow-y: auto; }
+.duplicate-group {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.duplicate-group-title { font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; }
+.duplicate-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border);
+}
+.duplicate-item:first-of-type { border-top: none; }
+.duplicate-item-title {
+  flex: 1;
+  color: var(--text);
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.duplicate-item-reject { font-size: 0.72rem; padding: 4px 10px; white-space: nowrap; }
+
+/* ============================
    RESPONSIVO
    ============================ */
 

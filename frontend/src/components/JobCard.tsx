@@ -2,6 +2,7 @@ import { DragEvent, useEffect, useRef, useState } from 'react';
 import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
 import { AgendaModal } from './AgendaModal';
 import { InterviewModal } from './InterviewModal';
+import { CoverLetterModal } from './CoverLetterModal';
 import { useAgenda } from '../hooks/useAgenda';
 import { useSourceColors } from '../hooks/useSourceColors';
 
@@ -14,6 +15,7 @@ interface Props {
   onTogglePin: (id: number) => void;
   onUpdateNotes: (id: number, notes: string) => void;
   onToast: (msg: string) => void;
+  aiEnabled: boolean;
 }
 
 const techTags = [
@@ -104,7 +106,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -130,6 +132,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const [notesOpen, setNotesOpen] = useState(false);
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
+  const [coverLetterOpen, setCoverLetterOpen] = useState(false);
   const [notesText, setNotesText] = useState(job.notes ?? '');
   const [notesSaved, setNotesSaved] = useState(false);
   const [logoError, setLogoError] = useState(false);
@@ -237,6 +240,11 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
                 style={{ background: seniority.color + '22', color: seniority.color, borderColor: seniority.color + '55' }}
               >
                 {seniority.label}
+              </span>
+            )}
+            {job.classifiedByAi && (
+              <span className="badge-ai" title="Senioridade/stack classificados por IA (Gemini), porque o título era ambíguo">
+                🤖
               </span>
             )}
             {job.pcd && (
@@ -397,6 +405,10 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         />
       )}
 
+      {coverLetterOpen && (
+        <CoverLetterModal job={job} onClose={() => setCoverLetterOpen(false)} />
+      )}
+
       {/* Actions */}
       <div className="card-actions">
         <a
@@ -425,6 +437,15 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             title="Agendar entrevista na Agenda Pessoal (prioridade crítica)"
           >
             🎤 Marcar entrevista
+          </button>
+        )}
+        {aiEnabled && !job.rejected && (
+          <button
+            className="btn btn-ai"
+            onClick={() => setCoverLetterOpen(true)}
+            title="Gerar carta de apresentação personalizada via IA (Gemini)"
+          >
+            🤖 Gerar carta
           </button>
         )}
         {!job.applied && (

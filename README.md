@@ -319,15 +319,20 @@ a vaga existente em vez de duplicar.
 ## 🤖 Recursos de IA (Gemini — opcional)
 
 Totalmente opcional: sem uma `GEMINI_API_KEY` configurada, o resto do app
-funciona normal, só esses três recursos ficam desativados. Key grátis em
-**https://aistudio.google.com/apikey** — copie `.env.example` pra `.env` e
-preencha `GEMINI_API_KEY=`.
+funciona normal, só esses três recursos ficam desativados (e escondidos da
+UI). Key grátis em **https://aistudio.google.com/apikey** — copie
+`.env.example` pra `.env` e preencha `GEMINI_API_KEY=`.
 
-| Recurso | O que faz |
-|---|---|
-| **Carta de apresentação** | `POST /api/jobs/{id}/cover-letter` gera uma carta personalizada a partir do que a vaga tem salva (título, empresa, senioridade, modalidade, local, tags, salário, suas notas). Sem descrição completa da vaga nem seu currículo no banco, então o texto fica específico sobre a vaga mas genérico sobre sua experiência — a IA é instruída a não inventar histórico profissional, então normalmente vale revisar/completar antes de enviar. |
-| **Detecção de duplicatas mais precisa** | O endpoint `/api/jobs/duplicates` (mesma empresa + título parecido, já existia) agora pede uma segunda opinião ao Gemini pra descartar grupos que só parecem duplicata por palavra em comum mas são vagas de times/produtos diferentes. Limitado a 20 verificações por chamada (limite do free tier) — grupos além disso mantêm só o veredito por similaridade de palavras. |
-| **Classificação de senioridade/stack** | Quando o classificador por regex não decide (título ambíguo ou em outro idioma), uma chamada extra ao Gemini tenta resolver e também extrai tecnologias citadas no título pra completar as tags. Só roda nos casos que o regex não resolveu, não em toda vaga nova. |
+**Como saber se está ativa:** botão **⚙️ Configurações** no cabeçalho abre um
+painel dedicado com o status (🟢 IA ativa/desativada, modelo em uso) e o que
+cada um dos 3 recursos faz — sem isso, não dava pra saber olhando a tela
+principal que a integração existe.
+
+| Recurso | Onde aparece | O que faz |
+|---|---|---|
+| **Carta de apresentação** | Botão **🤖 Gerar carta** em cada vaga (some se a IA estiver desativada), abre um modal próprio com campo de contexto extra opcional e botão de copiar | `POST /api/jobs/{id}/cover-letter` gera uma carta personalizada a partir do que a vaga tem salva (título, empresa, senioridade, modalidade, local, tags, salário, suas notas). Sem descrição completa da vaga nem seu currículo no banco, então o texto fica específico sobre a vaga mas genérico sobre sua experiência — a IA é instruída a não inventar histórico profissional, então normalmente vale revisar/completar antes de enviar. |
+| **Detecção de duplicatas mais precisa** | Botão **🧩 Duplicatas** no cabeçalho, cada grupo confirmado pela IA leva o selo "🤖 confirmado por IA" | O endpoint `/api/jobs/duplicates` (mesma empresa + título parecido, já existia) agora pede uma segunda opinião ao Gemini pra descartar grupos que só parecem duplicata por palavra em comum mas são vagas de times/produtos diferentes. Limitado a 20 verificações por chamada (limite do free tier) — grupos além disso mantêm só o veredito por similaridade de palavras. |
+| **Classificação de senioridade/stack** | Selo **🤖** ao lado do badge de senioridade, nas vagas que passaram por ele | Quando o classificador por regex não decide (título ambíguo ou em outro idioma), uma chamada extra ao Gemini tenta resolver e também extrai tecnologias citadas no título pra completar as tags. Só roda nos casos que o regex não resolveu, não em toda vaga nova — o selo só aparece em vagas novas processadas depois que a IA foi ligada, não retroage nas antigas. |
 
 ---
 
@@ -392,7 +397,8 @@ GET  /api/jobs/states              → Lista de estados presentes no banco (popu
 GET  /api/jobs/sources             → Lista de fontes presentes no banco, oficiais + personalizadas (popula o filtro de fonte)
 GET  /api/jobs/stats               → Estatísticas gerais (inclui porSenioridade, porFonte, interessadas, emAndamento, recusadas)
 GET  /api/jobs/metrics              → Funil de candidatura, taxa de resposta, aplicações/semana, tempo médio de resposta
-GET  /api/jobs/duplicates          → Detecta possíveis vagas duplicadas entre fontes (mesma empresa + título similar + mesma senioridade) — sem UI própria hoje, endpoint disponível
+GET  /api/jobs/duplicates          → Detecta possíveis vagas duplicadas entre fontes (mesma empresa + título similar + mesma senioridade), UI: botão 🧩 Duplicatas no cabeçalho
+GET  /api/jobs/ai-status           → Status da IA (Gemini): { enabled, model } — sem expor a key. UI: botão ⚙️ Configurações no cabeçalho
 PATCH /api/jobs/{id}/seen          → Marca como vista
 PATCH /api/jobs/{id}/applied       → Marca como aplicada (e tira de "em andamento"/"recusada"/"interessado")
 PATCH /api/jobs/{id}/in-progress   → Marca como em processo seletivo ativo
@@ -401,7 +407,7 @@ POST  /api/jobs/manual              → Adiciona/atualiza vaga manual (title, co
 POST  /api/jobs/fetch               → Dispara fetch manual
 PATCH /api/jobs/{id}/pin            → Fixa/desfixa vaga no topo da lista (pinned ↔ unpinned)
 PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes": "..." }
-POST  /api/jobs/{id}/cover-letter   → Gera carta de apresentação via IA (503 sem GEMINI_API_KEY)  Body opcional: { "extraContext": "..." }
+POST  /api/jobs/{id}/cover-letter   → Gera carta de apresentação via IA (503 sem GEMINI_API_KEY)  Body opcional: { "extraContext": "..." }  UI: botão 🤖 Gerar carta no card, abre modal próprio
 ```
 
 ---
@@ -428,7 +434,8 @@ job-radar/
     ├── nginx.conf
     └── src/
         ├── components/   ← JobCard, FilterBar, StatsBar, ViewTabs, AddJobModal, MetricsModal,
-        │                    AgendaModal, AgendaStatusBar, InterviewModal
+        │                    AgendaModal, AgendaStatusBar, InterviewModal, SettingsModal,
+        │                    DuplicatesModal, CoverLetterModal (IA opcional)
         ├── hooks/        ← useJobs, useAgenda (integração client-side), useSourceColors
         └── types/        ← Job, Stats, Filters, Metrics
 ```

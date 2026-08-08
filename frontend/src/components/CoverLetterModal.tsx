@@ -1,0 +1,96 @@
+import { useState } from 'react';
+import { Job } from '../types/Job';
+
+interface Props {
+  job: Job;
+  onClose: () => void;
+}
+
+export function CoverLetterModal({ job, onClose }: Props) {
+  const [extraContext, setExtraContext] = useState('');
+  const [letter, setLetter] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError('');
+    setCopied(false);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/cover-letter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ extraContext: extraContext.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Não foi possível gerar a carta agora. Tente de novo em instantes.');
+        return;
+      }
+      setLetter(data.coverLetter as string);
+    } catch {
+      setError('Erro de conexão com o backend.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopy = () => {
+    if (!letter) return;
+    navigator.clipboard.writeText(letter).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal cover-letter-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <span>🤖</span>
+          <h2>Carta de apresentação</h2>
+          <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
+        </div>
+
+        <p className="agenda-hint">
+          Gerada por IA (Gemini) com os dados que o Job Radar já tem sobre <strong>{job.title}</strong> na{' '}
+          <strong>{job.company}</strong>. Ela não inventa sua experiência — cole abaixo trechos do seu
+          currículo/perfil ou requisitos da vaga pra deixar o resultado mais direcionado.
+        </p>
+
+        <label className="agenda-label">
+          Contexto adicional (opcional)
+          <textarea
+            className="agenda-input"
+            value={extraContext}
+            onChange={e => setExtraContext(e.target.value)}
+            placeholder="Ex: 3 anos com Java/Spring, projeto X, certificação Y..."
+            rows={3}
+            disabled={loading}
+          />
+        </label>
+
+        {error && <p className="agenda-error">{error}</p>}
+
+        {letter && (
+          <div className="cover-letter-result">
+            <textarea className="cover-letter-textarea" value={letter} readOnly rows={10} />
+          </div>
+        )}
+
+        <div className="modal-actions">
+          <button className="btn btn-ghost" onClick={onClose}>Fechar</button>
+          {letter && (
+            <button className="btn btn-ghost" onClick={handleCopy}>
+              {copied ? '✅ Copiado!' : '📋 Copiar'}
+            </button>
+          )}
+          <button className="btn btn-ai" onClick={handleGenerate} disabled={loading}>
+            {loading ? 'Gerando...' : letter ? '🔄 Gerar de novo' : '🤖 Gerar carta'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
