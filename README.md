@@ -328,6 +328,12 @@ painel dedicado com o status (🟢 IA ativa/desativada, modelo em uso) e o que
 cada um dos 3 recursos faz — sem isso, não dava pra saber olhando a tela
 principal que a integração existe.
 
+**Perfil salvo (currículo/stack):** o mesmo painel de Configurações tem um
+campo pra colar um resumo da sua experiência/stack uma única vez (fica só no
+`localStorage` do navegador). Esse texto pré-preenche automaticamente o
+"Contexto adicional" toda vez que você abre **🤖 Gerar carta** em qualquer
+vaga — edita à vontade por vaga sem afetar o perfil salvo.
+
 | Recurso | Onde aparece | O que faz |
 |---|---|---|
 | **Carta de apresentação** | Botão **🤖 Gerar carta** em cada vaga (some se a IA estiver desativada), abre um modal próprio com campo de contexto extra opcional e botão de copiar | `POST /api/jobs/{id}/cover-letter` gera uma carta personalizada a partir do que a vaga tem salva (título, empresa, senioridade, modalidade, local, tags, salário, suas notas). Sem descrição completa da vaga nem seu currículo no banco, então o texto fica específico sobre a vaga mas genérico sobre sua experiência — a IA é instruída a não inventar histórico profissional, então normalmente vale revisar/completar antes de enviar. |
@@ -436,7 +442,8 @@ job-radar/
         ├── components/   ← JobCard, FilterBar, StatsBar, ViewTabs, AddJobModal, MetricsModal,
         │                    AgendaModal, AgendaStatusBar, InterviewModal, SettingsModal,
         │                    DuplicatesModal, CoverLetterModal (IA opcional)
-        ├── hooks/        ← useJobs, useAgenda (integração client-side), useSourceColors
+        ├── hooks/         ← useJobs, useAgenda (integração client-side), useSourceColors,
+        │                    useAiStatus, useCandidateProfile
         └── types/        ← Job, Stats, Filters, Metrics
 ```
 

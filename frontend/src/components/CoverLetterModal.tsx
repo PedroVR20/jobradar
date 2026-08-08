@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Job } from '../types/Job';
+import { useCandidateProfile } from '../hooks/useCandidateProfile';
 
 interface Props {
   job: Job;
@@ -7,7 +9,11 @@ interface Props {
 }
 
 export function CoverLetterModal({ job, onClose }: Props) {
-  const [extraContext, setExtraContext] = useState('');
+  const { profile } = useCandidateProfile();
+  // Pré-preenche com o perfil salvo em Configurações (se houver) — o usuário
+  // pode editar/completar livremente pra essa vaga específica; a edição aqui
+  // não altera o perfil salvo, só afeta essa geração.
+  const [extraContext, setExtraContext] = useState(profile);
   const [letter, setLetter] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -44,7 +50,7 @@ export function CoverLetterModal({ job, onClose }: Props) {
     });
   };
 
-  return (
+  return createPortal(
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal cover-letter-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
@@ -71,6 +77,16 @@ export function CoverLetterModal({ job, onClose }: Props) {
           />
         </label>
 
+        {profile ? (
+          <p className="agenda-hint cover-letter-profile-hint">
+            📄 Pré-preenchido com seu perfil salvo em ⚙️ Configurações — edite à vontade pra essa vaga.
+          </p>
+        ) : (
+          <p className="agenda-hint cover-letter-profile-hint">
+            💡 Dica: salve seu currículo/stack uma vez em ⚙️ Configurações e ele preenche esse campo sozinho da próxima vez.
+          </p>
+        )}
+
         {error && <p className="agenda-error">{error}</p>}
 
         {letter && (
@@ -91,6 +107,7 @@ export function CoverLetterModal({ job, onClose }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
