@@ -11,6 +11,7 @@ import { AgendaStatusBar } from './components/AgendaStatusBar';
 import { MetricsModal } from './components/MetricsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { DuplicatesModal } from './components/DuplicatesModal';
+import { JarvisPanel } from './components/JarvisPanel';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
 import './App.css';
 
@@ -62,6 +63,7 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showJarvis, setShowJarvis] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
 
   const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
@@ -235,12 +237,19 @@ export default function App() {
             <button className="btn btn-ghost" onClick={() => setShowSettings(true)}>
               ⚙️ Configurações
             </button>
+            {aiStatus.enabled && (
+              <button className="btn jarvis-toggle-btn" onClick={() => setShowJarvis(o => !o)}>
+                🤖 Jarvis
+              </button>
+            )}
             <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>
               ➕ Adicionar vaga
             </button>
           </div>
         </div>
       </header>
+
+      {showJarvis && <JarvisPanel onClose={() => setShowJarvis(false)} />}
 
       {showAddModal && (
         <AddJobModal onClose={() => setShowAddModal(false)} onSubmit={handleAddManual} />

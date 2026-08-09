@@ -6,6 +6,7 @@ import br.com.jobradar.service.AiDuplicateVerifierService;
 import br.com.jobradar.service.CoverLetterService;
 import br.com.jobradar.service.GeminiService;
 import br.com.jobradar.service.InterviewQuestionsService;
+import br.com.jobradar.service.JarvisAssistantService;
 import br.com.jobradar.service.JobAggregatorService;
 import br.com.jobradar.service.MatchScoreService;
 import br.com.jobradar.service.SalaryEstimateService;
@@ -49,6 +50,7 @@ public class JobController {
     private final GeminiService geminiService;
     private final SalaryEstimateService salaryEstimateService;
     private final SalaryPredictionService salaryPredictionService;
+    private final JarvisAssistantService jarvisAssistantService;
     private final MatchScoreService matchScoreService;
     private final InterviewQuestionsService interviewQuestionsService;
 
@@ -854,5 +856,49 @@ public class JobController {
             }
             return ResponseEntity.ok(Map.<String, Object>of("questions", resultado.questions()));
         }).orElse(ResponseEntity.notFound().build());
+    }
+
+    public record CompatibilityScanRequest(String candidateProfile, Integer days, String feedbackContext) {}
+
+    /**
+     * Ação "🤖 Jarvis": compatibilidade do perfil salvo com vagas recentes.
+     * Pré-filtra por sobreposição de tags/senioridade (sem IA, sempre roda)
+     * e só chama o Gemini de verdade nas top vagas do pré-filtro — ver
+     * JarvisAssistantService pro porquê. 200 sempre, com available=false
+     * quando não há perfil, e errorMessage preenchido se a IA falhar em
+     * todas as tentativas (não depende do Gemini estar habilitado pra
+     * responder "sem dados" — só falha graciosamente se estiver desligado).
+     * POST /api/jobs/assistant/compatibility-scan
+     * Body: { "candidateProfile": "...", "days": 1, "feedbackContext": "..." }
+     */
+    @PostMapping("/assistant/compatibility-scan")
+    public Map<String, Object> assistantCompatibilityScan(@RequestBody(required = false) CompatibilityScanRequest req) {
+        String perfil = req != null ? req.candidateProfile() : null;
+        int dias = req != null && req.days() != null ? req.days() : 1;
+        String feedback = req != null ? req.feedbackContext() : null;
+
+        JarvisAssistantService.CompatibilityResult resultado = jarvisAssistantService.scanCompatibilidade(perfil, dias, feedback);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("available", resultado.available());
+        body.put("totalConsiderados", resultado.totalConsiderados());
+        body.put("totalAnalisadosPorIa", resultado.totalAnalisadosPorIa());
+        body.put("errorMessage", resultado.errorMessage());
+        body.put("hits", resultado.hits().stream().map(h -> {
+            Map<String, Object> hit = new HashMap<>();
+            Map<String, Object> jobDto = new HashMap<>();
+            jobDto.put("id", h.job().getId());
+            jobDto.put("title", h.job().getTitle());
+            jobDto.put("company", h.job().getCompany());
+            jobDto.put("url", h.job().getUrl());
+            jobDto.put("source", h.job().getSource());
+            hit.put("job", jobDto);
+            hit.put("score", h.score());
+            hit.put("pontosFortes", h.pontosFortes());
+            hit.put("pontosFaltando", h.pontosFaltando());
+            hit.put("resumo", h.resumo());
+            return hit;
+        }).toList());
+        return body;
     }
 }

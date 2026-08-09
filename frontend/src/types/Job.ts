@@ -62,6 +62,23 @@ export interface PersonalizedSalaryEstimate {
   inferredStack?: string[];
 }
 
+// POST /api/jobs/assistant/compatibility-scan — usado pelo painel 🤖 Jarvis
+export interface CompatibilityHit {
+  job: { id: number; title: string; company: string; url: string; source: string };
+  score: number;
+  pontosFortes: string[];
+  pontosFaltando: string[];
+  resumo: string;
+}
+
+export interface CompatibilityScanResult {
+  available: boolean;
+  totalConsiderados: number;
+  totalAnalisadosPorIa: number;
+  hits: CompatibilityHit[];
+  errorMessage: string | null;
+}
+
 // POST /api/jobs/{id}/match-score
 export interface MatchScoreResult {
   score: number;

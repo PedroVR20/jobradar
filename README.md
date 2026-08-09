@@ -394,6 +394,7 @@ escopo do Job Radar.
 | **Faixa salarial estimada** | Botão **💰 Salário estimado** em cada vaga (sempre visível, não depende da IA estar ativa) | **Não usa IA generativa** — usa um modelo de **regressão treinado de verdade** (Ridge, scikit-learn, offline) sobre as vagas com salário real já cadastradas no banco, prevendo a partir de senioridade + stack + modalidade + estado. Mostra a margem de erro típica (~43%) explicitamente, e tem um botão extra pra estimar com base no *seu* currículo salvo em vez dos dados da vaga. Ver [scripts/README.md](scripts/README.md) pra como foi treinado e como retreinar. |
 | **Detecção de duplicatas mais precisa** | Botão **🧩 Duplicatas** no cabeçalho, cada grupo confirmado pela IA leva o selo "🤖 confirmado por IA" | O endpoint `/api/jobs/duplicates` (mesma empresa + título parecido, já existia) agora pede uma segunda opinião ao Gemini pra descartar grupos que só parecem duplicata por palavra em comum mas são vagas de times/produtos diferentes. Limitado a 20 verificações por chamada (limite do free tier) — grupos além disso mantêm só o veredito por similaridade de palavras. |
 | **Classificação de senioridade/stack** | Selo **🤖** ao lado do badge de senioridade, nas vagas que passaram por ele | Quando o classificador por regex não decide (título ambíguo ou em outro idioma), uma chamada extra ao Gemini tenta resolver e também extrai tecnologias citadas no título pra completar as tags. Só roda nos casos que o regex não resolveu, não em toda vaga nova — o selo só aparece em vagas novas processadas depois que a IA foi ligada, não retroage nas antigas. |
+| **🤖 Jarvis** — assistente guiado | Botão **🤖 Jarvis** no cabeçalho, abre um painel lateral tipo chat | Assistente **guiado** (ações pré-definidas por palavra-chave, não é chat livre com function-calling) — hoje sabe "comparar meu perfil com vagas recentes" e "resumo rápido". A ação de compatibilidade filtra vagas do período por sobreposição de tags/senioridade **sem gastar IA** primeiro, e só chama o Gemini de verdade (`MatchScoreService`, reaproveitado) nas 5 mais promissoras — evita estourar a cota analisando dezenas de vagas de uma vez. Ver `JarvisAssistantService`. |
 
 **Descrição real da vaga (JobDescriptionService):** carta, compatibilidade e
 perguntas de entrevista buscam a página da própria vaga (Jsoup) e extraem o
@@ -504,6 +505,11 @@ POST  /api/jobs/{id}/match-score    → Compatibilidade do perfil do candidato c
                                        UI: menu 🤖 IA no card
 POST  /api/jobs/{id}/interview-questions → Perguntas prováveis de entrevista pra vaga. Mesmos códigos de erro do
                                        cover-letter.  Body opcional: { "candidateProfile": "..." }  UI: menu 🤖 IA no card
+POST  /api/jobs/assistant/compatibility-scan → Ação do Jarvis: filtra vagas dos últimos N dias por sobreposição de
+                                       tags/senioridade (sem IA) e roda compatibilidade de verdade só nas 5
+                                       melhores. Sempre 200 (available:false só sem perfil).
+                                       Body: { "candidateProfile": "...", "days": 1, "feedbackContext": "..." }
+                                       UI: botão 🤖 Jarvis no cabeçalho
 ```
 
 ---
@@ -527,7 +533,7 @@ job-radar/
 │       │                    SalaryExtractor, Aggregator, SalaryEstimateService/SalaryPredictionService (dado
 │       │                    real + modelo treinado, sem IA generativa), GeminiService (pool de keys) +
 │       │                    AiClassifier/AiDuplicateVerifier/CoverLetter/JobDescriptionService/MatchScore/
-│       │                    InterviewQuestions (IA opcional)
+│       │                    InterviewQuestions/JarvisAssistant (IA opcional)
 │       └── controller/   ← REST API (jobs, stats, metrics, duplicates)
 ├── scripts/               ← train_salary_model.py (treino offline do modelo de salário, ver scripts/README.md)
 └── frontend/             ← React 18 + TypeScript + Vite
@@ -537,7 +543,7 @@ job-radar/
         ├── components/   ← JobCard, FilterBar, StatsBar, ViewTabs, AddJobModal, MetricsModal,
         │                    AgendaModal, AgendaStatusBar, InterviewModal, SettingsModal,
         │                    DuplicatesModal, CoverLetterModal, SalaryEstimateModal, MatchScoreModal,
-        │                    InterviewQuestionsModal, AiFeedbackBox (IA opcional, exceto Salary)
+        │                    InterviewQuestionsModal, AiFeedbackBox, JarvisPanel (IA opcional, exceto Salary)
         ├── hooks/         ← useJobs, useAgenda (integração client-side), useSourceColors,
         │                    useAiStatus, useCandidateProfile, useAiFeedback
         ├── utils/         ← extractResumeText (PDF/DOCX → texto, 100% client-side)
