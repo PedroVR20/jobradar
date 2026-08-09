@@ -32,6 +32,11 @@ services:
       # se preenchida, o backend faz rodízio automático entre elas quando
       # uma bate no limite do free tier. Tem prioridade sobre GEMINI_API_KEY.
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
+      # Opcional — troca o modelo padrão. Cuidado: precisa de um default aqui
+      # mesmo (não ${GEMINI_MODEL:-} vazio) — o Compose resolve isso ANTES do
+      # Spring ver a variável, então uma string vazia "encontrada" pisa no
+      # default do application.yml em vez de deixar ele agir.
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
     depends_on:
       postgres:
         condition: service_healthy

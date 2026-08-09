@@ -356,16 +356,30 @@ sem o usuário perceber — só devolve erro se todas as keys da pool falharem.
 Configurações mostra "🔑 X de N keys disponíveis hoje".
 
 ⚠️ **Isso só ajuda de verdade se as keys forem de projetos Google Cloud
-diferentes.** Testamos com 9 keys geradas em sequência no AI Studio sem
-trocar de projeto entre uma e outra, e **todas** bateram no limite diário já
-na primeira chamada de cada — inclusive as que nunca tinham sido usadas
-antes, o que só se explica se estiverem compartilhando a mesma cota (mesmo
-projeto, ou possivelmente cota por conta Google — não confirmamos qual dos
-dois). Antes de contar com a pool, confira em
+diferentes** — confira em
 [aistudio.google.com/apikey](https://aistudio.google.com/apikey) se cada key
-aparece sob um projeto diferente; se todas caem no mesmo projeto, é preciso
-trocar explicitamente de projeto (seletor no topo da página) antes de gerar
-cada key nova.
+aparece sob um projeto diferente antes de contar com a pool; se todas caem no
+mesmo projeto, é preciso trocar explicitamente de projeto (seletor no topo
+da página) antes de gerar cada key nova. Duas coisas que aprendemos testando
+isso de verdade:
+
+1. **Keys geradas em sequência sem trocar de projeto compartilham a mesma
+   cota.** Um primeiro teste com 9 keys assim mostrou todas batendo no limite
+   diário já na primeira chamada de cada, inclusive as nunca usadas antes —
+   só se explica por cota compartilhada.
+2. **Projetos recém-criados podem não ter acesso ao modelo fixo mais antigo.**
+   Com `gemini-2.5-flash` fixo, keys de projetos novos devolviam 404 ("no
+   longer available to new users") mesmo o modelo aparecendo na lista —
+   por isso o padrão agora é `gemini-flash-latest` (um alias que o Google
+   mantém sempre apontando pro flash atual). Com projetos genuinamente
+   separados + esse alias, testamos 8 keys reais e 10 chamadas seguidas
+   funcionaram sem nenhuma bater em limite.
+
+Também vale saber: contas Google novas/gratuitas têm um teto de quantos
+projetos dá pra criar (por padrão baixo, algo entre 5 e 25 dependendo da
+conta) — bateu nisso tentando criar mais de 8 projetos numa conta. Dá pra
+pedir aumento desse limite no Google Cloud Console, mas isso já é fora do
+escopo do Job Radar.
 
 | Recurso | Onde aparece | O que faz |
 |---|---|---|
