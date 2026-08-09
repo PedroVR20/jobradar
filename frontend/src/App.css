@@ -1743,6 +1743,18 @@ a:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 .jarvis-header-title { font-size: 1.05rem; font-weight: 700; }
+.jarvis-header-actions { display: flex; align-items: center; gap: 0.4rem; }
+.jarvis-clear-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.jarvis-clear-btn:hover { color: var(--red); border-color: var(--red); }
 
 .jarvis-messages {
   flex: 1;
@@ -1842,8 +1854,19 @@ a:hover { text-decoration: underline; }
 }
 .jarvis-toggle-btn:hover { background: #2dd4bf33; }
 
+/* Com o Jarvis aberto, empurra o conteúdo principal em vez de deixar o
+   painel sobrepor os cards por cima — sem isso, a última coluna da grade
+   ficava escondida atrás da gaveta fixa. */
+.app--jarvis-open .app-main {
+  padding-right: 400px;
+  transition: padding-right 0.2s ease-out;
+}
+
 @media (max-width: 480px) {
   .jarvis-panel { width: 100vw; }
+  /* nesse tamanho o painel já cobre a tela toda, então não faz sentido
+     também encolher o conteúdo — ele já não é visível de qualquer jeito */
+  .app--jarvis-open .app-main { padding-right: clamp(1rem, 3vw, 3rem); }
 }
 
 /* Feedback de IA (👍/👎 + comentário) — reaproveitado em carta, match score

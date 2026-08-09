@@ -26,14 +26,35 @@ function scoreColor(score: number): string {
   return 'var(--red)';
 }
 
+// Histórico persistido no navegador — antes o painel perdia a conversa toda
+// vez que fechava e abria de novo (o componente desmontava e o estado ia
+// junto). Guarda só as últimas MAX_STORED mensagens pra não crescer sem limite.
+const STORAGE_KEY = 'jobradar:jarvis-history';
+const MAX_STORED = 40;
+
 let nextId = 1;
+
+function greeting(): Message {
+  return { id: nextId++, role: 'assistant', text: 'Oi! Eu sou o Jarvis 🤖 — posso comparar seu perfil salvo com as vagas mais recentes, ou te dar um resumo rápido do funil. O que você quer saber?' };
+}
+
+function loadInitialMessages(): Message[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [greeting()];
+    const parsed = JSON.parse(raw) as Message[];
+    if (!Array.isArray(parsed) || parsed.length === 0) return [greeting()];
+    nextId = Math.max(...parsed.map(m => m.id)) + 1;
+    return parsed;
+  } catch {
+    return [greeting()];
+  }
+}
 
 export function JarvisPanel({ onClose }: Props) {
   const { profile } = useCandidateProfile();
   const { buildContext } = useAiFeedback('match-score');
-  const [messages, setMessages] = useState<Message[]>([
-    { id: nextId++, role: 'assistant', text: 'Oi! Eu sou o Jarvis 🤖 — posso comparar seu perfil salvo com as vagas mais recentes, ou te dar um resumo rápido do funil. O que você quer saber?' },
-  ]);
+  const [messages, setMessages] = useState<Message[]>(loadInitialMessages);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -42,7 +63,16 @@ export function JarvisPanel({ onClose }: Props) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-MAX_STORED)));
+  }, [messages]);
+
   const addMessage = (m: Omit<Message, 'id'>) => setMessages(prev => [...prev, { ...m, id: nextId++ } as Message]);
+
+  const handleClear = () => {
+    const fresh = [greeting()];
+    setMessages(fresh);
+  };
 
   const runCompatibilityScan = async (days: number) => {
     addMessage({ role: 'assistant-loading' } as Omit<Message, 'id'>);
@@ -110,7 +140,10 @@ export function JarvisPanel({ onClose }: Props) {
     <div className="jarvis-panel">
         <div className="jarvis-header">
           <span className="jarvis-header-title">🤖 Jarvis</span>
-          <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
+          <div className="jarvis-header-actions">
+            <button className="jarvis-clear-btn" onClick={handleClear} title="Limpar conversa">🗑</button>
+            <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
+          </div>
         </div>
 
         <div className="jarvis-messages" ref={scrollRef}>

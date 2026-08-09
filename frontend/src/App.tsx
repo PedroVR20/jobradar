@@ -218,7 +218,7 @@ export default function App() {
   };
 
   return (
-    <div className="app">
+    <div className={`app ${showJarvis ? 'app--jarvis-open' : ''}`}>
       {/* Header */}
       <header className="app-header">
         <div className="header-inner header-inner--flex">
