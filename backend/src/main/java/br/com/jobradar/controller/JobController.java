@@ -491,12 +491,24 @@ public class JobController {
     }
 
     /**
-     * Dispara um fetch manual (útil para testar sem esperar o agendamento)
+     * Dispara um fetch manual (útil para testar sem esperar o agendamento).
+     * Como o fetch inicial agora roda em background ao subir o app (não
+     * bloqueia mais o Tomcat, ver JobAggregatorService), dá pra essa chamada
+     * chegar enquanto ele (ou o do cron de 4h) ainda está em andamento —
+     * nesse caso devolve status "already-running" em vez de rodar tudo de
+     * novo em paralelo à toa.
      * POST /api/jobs/fetch
      */
     @PostMapping("/fetch")
     public Map<String, Object> triggerFetch() {
         int novos = aggregatorService.fetchAllJobs();
+        if (novos == JobAggregatorService.FETCH_JA_EM_ANDAMENTO) {
+            return Map.of(
+                    "status", "already-running",
+                    "novasVagas", 0,
+                    "timestamp", LocalDateTime.now().toString()
+            );
+        }
         return Map.of(
                 "status", "ok",
                 "novasVagas", novos,

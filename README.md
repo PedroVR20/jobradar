@@ -17,7 +17,12 @@ Repositório: https://github.com/PedroVR20/jobradar
 docker-compose up --build
 ```
 
-Aguarda uns 2-3 minutos para o Maven baixar as dependências e compilar o backend.
+Aguarda uns 2-3 minutos na PRIMEIRA vez pro Maven baixar as dependências e
+compilar o backend. Depois de já buildado, o app fica de pé em segundos —
+o fetch inicial nas 7 fontes (pode levar ~3 minutos, o Nerdin sozinho passa
+de 1min) roda **em background** depois que o backend já está respondendo,
+não trava mais a inicialização. As vagas que já estavam salvas aparecem na
+hora; as novas vão entrando conforme cada fonte termina.
 
 | Serviço   | Endereço                   |
 |-----------|----------------------------|
@@ -479,8 +484,10 @@ PATCH /api/jobs/{id}/applied       → Marca como aplicada (e tira de "em andame
 PATCH /api/jobs/{id}/in-progress   → Marca como em processo seletivo ativo
 PATCH /api/jobs/{id}/status?value=X → Move pra um status específico: NOVA|VISTA|INTERESSADO|APLICADA|ANDAMENTO|RECUSADA
 POST  /api/jobs/manual              → Adiciona/atualiza vaga manual (title, company, url obrigatórios)
-POST  /api/jobs/fetch               → Dispara fetch manual (roda as 7 fontes de forma síncrona, pode levar
-                                       ~1min — o nginx do frontend tem 240s de timeout pra dar folga)
+POST  /api/jobs/fetch               → Dispara fetch manual (roda as 7 fontes, pode levar ~1min — o nginx do
+                                       frontend tem 240s de timeout pra dar folga). Se já tiver um fetch em
+                                       andamento (o automático ao subir o app, ou o do cron de 4h), devolve
+                                       { "status": "already-running" } em vez de rodar dois em paralelo.
 PATCH /api/jobs/{id}/pin            → Fixa/desfixa vaga no topo da lista (pinned ↔ unpinned)
 PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes": "..." }
 POST  /api/jobs/{id}/cover-letter   → Gera carta de apresentação via IA. 503 sem GEMINI_API_KEY, 429 se o free tier

@@ -2,10 +2,12 @@ package br.com.jobradar.service;
 
 import br.com.jobradar.model.Job;
 import br.com.jobradar.repository.JobRepository;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +19,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @RequiredArgsConstructor
@@ -66,13 +69,25 @@ public class JobAggregatorService {
     }
 
     /**
-     * Roda também ao subir a aplicação para já ter dados no dashboard
+     * Roda também ao subir a aplicação para já ter dados no dashboard.
+     *
+     * <p>Importante: NÃO usa {@code @PostConstruct} de propósito.
+     * {@code @PostConstruct} roda durante a inicialização do contexto Spring,
+     * ANTES do Tomcat abrir a porta 8080 pra escutar — como esse fetch inteiro
+     * leva ~3 minutos (o Nerdin sozinho passa de 1min), isso deixava a porta
+     * fechada esse tempo todo, e qualquer requisição nesse meio-tempo (ex: o
+     * nginx do frontend tentando carregar a página) recebia conexão recusada
+     * → 502. {@code @EventListener(ApplicationReadyEvent.class)} só dispara
+     * DEPOIS que o Tomcat já está aceitando conexões, e {@code @Async} garante
+     * que roda numa thread separada sem seat segurar mais nada — o app fica
+     * respondendo (com os dados que já tinha) enquanto isso roda por baixo.</p>
      */
     private static final List<String> FONTES_100_REMOTO = List.of("REMOTIVE", "ARBEITNOW", "WWR");
 
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
+    @Async
     public void fetchNaInicializacao() {
-        log.info("=== Fetch inicial ao subir a aplicação ===");
+        log.info("=== Fetch inicial ao subir a aplicação (em background — app já está respondendo) ===");
         classificarVagasAntigas();
         marcarModalidadeRemotaAntigas();
         fetchAllJobs();
@@ -141,56 +156,76 @@ public class JobAggregatorService {
         log.info("=== {} vagas antigas classificadas por senioridade ===", semSenioridade.size());
     }
 
+    // Trava simples pra evitar dois fetches rodando ao mesmo tempo — desde
+    // que o fetch inicial passou a rodar em background (ver
+    // fetchNaInicializacao), o app fica respondendo durante ele, e agora dá
+    // pra alguém clicar em "Buscar agora" (ou o cron de 4h disparar) enquanto
+    // o inicial ainda está em andamento. Sem essa trava, o Nerdin (o mais
+    // pesado) rodaria duas vezes ao mesmo tempo à toa.
+    private final AtomicBoolean fetchEmAndamento = new AtomicBoolean(false);
+
+    // Sentinela devolvida quando a chamada foi ignorada por já ter um fetch
+    // em andamento — distinto de "0 vagas novas" (que é um resultado válido).
+    public static final int FETCH_JA_EM_ANDAMENTO = -1;
+
     @Transactional
     public int fetchAllJobs() {
-        List<Job> allJobs = new ArrayList<>();
-        allJobs.addAll(remotiveService.fetchJobs());
-        allJobs.addAll(arbeitnowService.fetchJobs());
-        allJobs.addAll(workRemotelyService.fetchJobs());
-        allJobs.addAll(gupyService.fetchJobs());
-        allJobs.addAll(eurecaService.fetchJobs());
-        allJobs.addAll(querovagastechService.fetchJobs());
-        allJobs.addAll(nerdinService.fetchJobs());
+        if (!fetchEmAndamento.compareAndSet(false, true)) {
+            log.info("=== Fetch já em andamento, ignorando chamada concorrente ===");
+            return FETCH_JA_EM_ANDAMENTO;
+        }
+        try {
+            List<Job> allJobs = new ArrayList<>();
+            allJobs.addAll(remotiveService.fetchJobs());
+            allJobs.addAll(arbeitnowService.fetchJobs());
+            allJobs.addAll(workRemotelyService.fetchJobs());
+            allJobs.addAll(gupyService.fetchJobs());
+            allJobs.addAll(eurecaService.fetchJobs());
+            allJobs.addAll(querovagastechService.fetchJobs());
+            allJobs.addAll(nerdinService.fetchJobs());
 
-        int novos = 0;
-        int enriquecidas = 0;
-        int classificadasPorIa = 0;
-        for (Job job : allJobs) {
-            Optional<Job> existente = jobRepository.findByUrl(job.getUrl());
-            if (existente.isEmpty()) {
-                String seniority = seniorityClassifier.classify(job.getTitle(), job.getTags());
-                // regex não decidiu — só aí vale a pena gastar uma chamada de IA
-                // (título ambíguo ou em idioma que os padrões não cobrem)
-                if (SeniorityClassifier.NAO_INFORMADO.equals(seniority)) {
-                    AiClassifierService.Resultado ia = aiClassifierService.classificar(
-                            job.getTitle(), job.getCompany(), job.getTags());
-                    if (ia != null) {
-                        seniority = ia.seniority();
-                        if (!ia.stackTags().isEmpty()) {
-                            job.setTags(mergeTags(job.getTags(), ia.stackTags()));
+            int novos = 0;
+            int enriquecidas = 0;
+            int classificadasPorIa = 0;
+            for (Job job : allJobs) {
+                Optional<Job> existente = jobRepository.findByUrl(job.getUrl());
+                if (existente.isEmpty()) {
+                    String seniority = seniorityClassifier.classify(job.getTitle(), job.getTags());
+                    // regex não decidiu — só aí vale a pena gastar uma chamada de IA
+                    // (título ambíguo ou em idioma que os padrões não cobrem)
+                    if (SeniorityClassifier.NAO_INFORMADO.equals(seniority)) {
+                        AiClassifierService.Resultado ia = aiClassifierService.classificar(
+                                job.getTitle(), job.getCompany(), job.getTags());
+                        if (ia != null) {
+                            seniority = ia.seniority();
+                            if (!ia.stackTags().isEmpty()) {
+                                job.setTags(mergeTags(job.getTags(), ia.stackTags()));
+                            }
+                            job.setClassifiedByAi(true);
+                            classificadasPorIa++;
                         }
-                        job.setClassifiedByAi(true);
-                        classificadasPorIa++;
                     }
+                    job.setSeniority(seniority);
+                    if ("GUPY".equals(job.getSource()) && job.getSalary() == null) {
+                        job.setSalary(gupyService.fetchSalaryHint(job.getUrl()));
+                    }
+                    jobRepository.save(job);
+                    novos++;
+                } else if (enriquecer(existente.get(), job)) {
+                    jobRepository.save(existente.get());
+                    enriquecidas++;
                 }
-                job.setSeniority(seniority);
-                if ("GUPY".equals(job.getSource()) && job.getSalary() == null) {
-                    job.setSalary(gupyService.fetchSalaryHint(job.getUrl()));
-                }
-                jobRepository.save(job);
-                novos++;
-            } else if (enriquecer(existente.get(), job)) {
-                jobRepository.save(existente.get());
-                enriquecidas++;
             }
-        }
-        if (classificadasPorIa > 0) {
-            log.info("=== {} vagas ambíguas classificadas via IA (Gemini) ===", classificadasPorIa);
-        }
+            if (classificadasPorIa > 0) {
+                log.info("=== {} vagas ambíguas classificadas via IA (Gemini) ===", classificadasPorIa);
+            }
 
-        log.info("=== Fetch concluído: {} vagas totais, {} novas salvas, {} enriquecidas ===",
-                allJobs.size(), novos, enriquecidas);
-        return novos;
+            log.info("=== Fetch concluído: {} vagas totais, {} novas salvas, {} enriquecidas ===",
+                    allJobs.size(), novos, enriquecidas);
+            return novos;
+        } finally {
+            fetchEmAndamento.set(false);
+        }
     }
 
     // Junta as tags extraídas pela IA com as que a vaga já tinha, sem duplicar

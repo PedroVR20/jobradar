@@ -150,6 +150,11 @@ export function useJobs(filters: Filters) {
         );
       }
       const data = await res.json();
+      // já tinha um fetch em andamento (o automático ao subir o app, ou o
+      // agendado de 4h) — não rodou de novo em paralelo à toa, ver JobAggregatorService
+      if (data.status === 'already-running') {
+        throw new Error('Já tem uma busca em andamento (automática) — aguarde ela terminar e tente de novo.');
+      }
       await loadJobs();
       return data.novasVagas as number;
     } finally {
