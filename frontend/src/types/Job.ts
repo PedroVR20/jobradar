@@ -49,11 +49,17 @@ export interface AiStatus {
 // GET /api/jobs/{id}/salary-estimate — dado real do banco, não IA
 export interface SalaryEstimate {
   available: boolean;
-  sampleSize?: number;
-  min?: number;
-  max?: number;
-  median?: number;
-  formatted?: string;
+  predicted?: number;
+  modelInfo?: { nSamples: number; r2: number; maePercent: number };
+  similarJobs?: { sampleSize: number; min: number; max: number; median: number };
+}
+
+// POST /api/jobs/{id}/salary-estimate/personalized
+export interface PersonalizedSalaryEstimate {
+  available: boolean;
+  predicted?: number;
+  inferredSeniority?: string;
+  inferredStack?: string[];
 }
 
 // POST /api/jobs/{id}/match-score

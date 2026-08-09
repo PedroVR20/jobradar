@@ -9,6 +9,7 @@ import br.com.jobradar.service.InterviewQuestionsService;
 import br.com.jobradar.service.JobAggregatorService;
 import br.com.jobradar.service.MatchScoreService;
 import br.com.jobradar.service.SalaryEstimateService;
+import br.com.jobradar.service.SalaryPredictionService;
 import br.com.jobradar.service.SeniorityClassifier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -47,6 +48,7 @@ public class JobController {
     private final CoverLetterService coverLetterService;
     private final GeminiService geminiService;
     private final SalaryEstimateService salaryEstimateService;
+    private final SalaryPredictionService salaryPredictionService;
     private final MatchScoreService matchScoreService;
     private final InterviewQuestionsService interviewQuestionsService;
 
@@ -687,30 +689,100 @@ public class JobController {
     }
 
     /**
-     * Faixa salarial estimada com base em vagas parecidas (mesma senioridade
-     * + tags em comum) já cadastradas no banco — dado real, não chute de IA.
-     * Não depende do Gemini estar configurado. 200 com available=false
-     * quando não há amostra suficiente (nunca erro, "sem dados" é normal).
+     * Faixa salarial estimada — dado real do banco, nunca um chute de IA.
+     * Combina duas fontes, nenhuma depende do Gemini estar configurado:
+     * {@code predicted} vem de um modelo (regressão Ridge) treinado offline
+     * sobre as vagas com salário do banco, sempre disponível quando o
+     * modelo carregou (ver SalaryPredictionService — erro médio ~43%,
+     * exposto em {@code modelInfo} pra não esconder a incerteza);
+     * {@code similarJobs} é a mediana das vagas parecidas (mesma senioridade
+     * + tag em comum), disponível só com amostra mínima (>=3).
      * GET /api/jobs/{id}/salary-estimate
      */
     @GetMapping("/{id}/salary-estimate")
     public ResponseEntity<Map<String, Object>> estimarSalario(@PathVariable Long id) {
         return jobRepository.findById(id).map(job -> {
-            Optional<SalaryEstimateService.SalaryEstimate> estimativa = salaryEstimateService.estimate(job);
             Map<String, Object> body = new HashMap<>();
-            if (estimativa.isEmpty()) {
+            boolean anyAvailable = false;
+
+            Optional<Long> predicted = salaryPredictionService.predict(
+                    job.getSeniority(), tagList(job.getTags()), job.getWorkplaceType(), job.getState());
+            if (predicted.isPresent()) {
+                body.put("predicted", predicted.get());
+                SalaryPredictionService.ModelInfo info = salaryPredictionService.getModelInfo();
+                body.put("modelInfo", Map.of(
+                        "nSamples", info.nSamples(), "r2", info.r2(), "maePercent", info.maePercent()));
+                anyAvailable = true;
+            }
+
+            Optional<SalaryEstimateService.SalaryEstimate> estimativa = salaryEstimateService.estimate(job);
+            if (estimativa.isPresent()) {
+                SalaryEstimateService.SalaryEstimate e = estimativa.get();
+                Map<String, Object> similar = new HashMap<>();
+                similar.put("sampleSize", e.sampleSize());
+                similar.put("min", e.min());
+                similar.put("max", e.max());
+                similar.put("median", e.median());
+                body.put("similarJobs", similar);
+                anyAvailable = true;
+            }
+
+            body.put("available", anyAvailable);
+            return ResponseEntity.ok(body);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    private List<String> tagList(String tags) {
+        return tags == null || tags.isBlank() ? List.of() : Arrays.asList(tags.split(","));
+    }
+
+    /**
+     * Estimativa personalizada: usa a senioridade/stack extraídas do
+     * currículo/perfil salvo pelo candidato (nunca persistido — vem no
+     * corpo do request) em vez dos dados da vaga, mantendo modalidade e
+     * estado da vaga (isso não muda com quem se candidata). Sempre 200 —
+     * available=false só se o modelo não tiver carregado ou o perfil vier
+     * vazio, nunca erro.
+     * POST /api/jobs/{id}/salary-estimate/personalized  Body: { "candidateProfile": "..." }
+     */
+    @PostMapping("/{id}/salary-estimate/personalized")
+    public ResponseEntity<Map<String, Object>> estimarSalarioPersonalizado(
+            @PathVariable Long id, @RequestBody(required = false) CandidateProfileRequest req) {
+        return jobRepository.findById(id).map(job -> {
+            String perfil = req != null ? req.candidateProfile() : null;
+            Map<String, Object> body = new HashMap<>();
+            if (perfil == null || perfil.isBlank() || !salaryPredictionService.isLoaded()) {
                 body.put("available", false);
                 return ResponseEntity.ok(body);
             }
-            SalaryEstimateService.SalaryEstimate e = estimativa.get();
+
+            Set<String> stackDoCurriculo = salaryPredictionService.extractTagsFromText(perfil);
+            String senioridadeInferida = seniorityClassifier.classify(perfil, String.join(",", stackDoCurriculo));
+
+            Optional<Long> predicted = salaryPredictionService.predict(
+                    senioridadeInferida, stackDoCurriculo, job.getWorkplaceType(), job.getState());
+            if (predicted.isEmpty()) {
+                body.put("available", false);
+                return ResponseEntity.ok(body);
+            }
             body.put("available", true);
-            body.put("sampleSize", e.sampleSize());
-            body.put("min", e.min());
-            body.put("max", e.max());
-            body.put("median", e.median());
-            body.put("formatted", e.formatted());
+            body.put("predicted", predicted.get());
+            body.put("inferredSeniority", senioridadeInferida);
+            body.put("inferredStack", stackDoCurriculo);
             return ResponseEntity.ok(body);
         }).orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Exporta as vagas com salário parseável e limpo (mesma lógica do
+     * salary-estimate) pra treinar um modelo real fora do backend — uso
+     * interno/manutenção, não é chamado pelo frontend. Ver
+     * scripts/train_salary_model.py e SalaryPredictionService.
+     * GET /api/jobs/admin/salary-training-data
+     */
+    @GetMapping("/admin/salary-training-data")
+    public List<SalaryEstimateService.TrainingRow> exportSalaryTrainingData() {
+        return salaryEstimateService.exportTrainingData();
     }
 
     public record CandidateProfileRequest(String candidateProfile, String feedbackContext) {}

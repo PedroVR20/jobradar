@@ -1,16 +1,25 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Job, SalaryEstimate } from '../types/Job';
+import { Job, PersonalizedSalaryEstimate, SalaryEstimate } from '../types/Job';
+import { useCandidateProfile } from '../hooks/useCandidateProfile';
 
 interface Props {
   job: Job;
   onClose: () => void;
 }
 
+function fmt(n: number | undefined): string {
+  return n !== undefined ? `R$ ${n.toLocaleString('pt-BR')}` : '—';
+}
+
 export function SalaryEstimateModal({ job, onClose }: Props) {
+  const { profile } = useCandidateProfile();
   const [estimate, setEstimate] = useState<SalaryEstimate | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const [personalized, setPersonalized] = useState<PersonalizedSalaryEstimate | null>(null);
+  const [personalizing, setPersonalizing] = useState(false);
 
   useEffect(() => {
     fetch(`/api/jobs/${job.id}/salary-estimate`)
@@ -19,6 +28,23 @@ export function SalaryEstimateModal({ job, onClose }: Props) {
       .catch(() => setError('Erro ao buscar a estimativa. Tente de novo.'))
       .finally(() => setLoading(false));
   }, [job.id]);
+
+  const handlePersonalize = async () => {
+    setPersonalizing(true);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/salary-estimate/personalized`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidateProfile: profile }),
+      });
+      const data = await res.json();
+      setPersonalized(data as PersonalizedSalaryEstimate);
+    } catch {
+      // silencioso — é um extra opcional, não trava o resto do modal
+    } finally {
+      setPersonalizing(false);
+    }
+  };
 
   return createPortal(
     <div className="modal-overlay" onClick={onClose}>
@@ -30,8 +56,8 @@ export function SalaryEstimateModal({ job, onClose }: Props) {
         </div>
 
         <p className="agenda-hint">
-          Baseado em outras vagas de <strong>{job.seniority !== 'NAO_INFORMADO' ? job.seniority : 'nível parecido'}</strong> com
-          tecnologias em comum já cadastradas no Job Radar — dado real do nosso banco, não uma estimativa da IA.
+          Estimativa por um modelo treinado com vagas reais do nosso banco (não é IA generativa —
+          é regressão estatística sobre senioridade, stack, modalidade e estado). Nunca é um chute.
         </p>
 
         {loading ? (
@@ -40,24 +66,67 @@ export function SalaryEstimateModal({ job, onClose }: Props) {
           <p className="agenda-error">{error}</p>
         ) : !estimate?.available ? (
           <p className="agenda-hint">
-            Ainda não temos vagas parecidas suficientes (com salário em R$ informado) pra estimar uma faixa
-            confiável pra essa combinação de senioridade + tecnologias.
+            Não foi possível estimar pra essa vaga (modelo indisponível ou dados insuficientes).
           </p>
         ) : (
           <div className="salary-result">
-            <div className="salary-range">
-              <span className="salary-range-value">R$ {estimate.min?.toLocaleString('pt-BR')}</span>
-              <span className="salary-range-sep">–</span>
-              <span className="salary-range-value">R$ {estimate.max?.toLocaleString('pt-BR')}</span>
+            {estimate.predicted !== undefined && (
+              <>
+                <div className="salary-range">
+                  <span className="salary-range-value">{fmt(estimate.predicted)}</span>
+                  <span className="salary-median-label">/mês</span>
+                </div>
+                {estimate.modelInfo && (
+                  <p className="agenda-hint salary-sample">
+                    ⚠️ Margem de erro típica de ~{estimate.modelInfo.maePercent}% (modelo treinado com{' '}
+                    {estimate.modelInfo.nSamples} vagas do nosso banco) — use como ponto de partida pra
+                    negociação, não como número final.
+                  </p>
+                )}
+              </>
+            )}
+
+            {estimate.similarJobs && (
+              <div className="salary-similar">
+                <span className="salary-similar-label">Vagas parecidas no banco:</span>
+                <span>
+                  {fmt(estimate.similarJobs.min)} – {fmt(estimate.similarJobs.max)} (mediana{' '}
+                  {fmt(estimate.similarJobs.median)}, {estimate.similarJobs.sampleSize} vagas)
+                </span>
+              </div>
+            )}
+
+            <div className="salary-personalized">
+              {!personalized ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={handlePersonalize}
+                  disabled={personalizing || !profile}
+                  title={!profile ? 'Salve seu currículo em ⚙️ Configurações primeiro' : undefined}
+                >
+                  {personalizing ? 'Calculando...' : '🎯 Baseado no meu perfil salvo'}
+                </button>
+              ) : personalized.available ? (
+                <div className="salary-personalized-result">
+                  <span className="salary-personalized-label">
+                    Baseado no seu perfil ({personalized.inferredSeniority}
+                    {personalized.inferredStack && personalized.inferredStack.length > 0
+                      ? `, ${personalized.inferredStack.slice(0, 5).join(', ')}`
+                      : ''}
+                    ):
+                  </span>
+                  <span className="salary-range-value salary-range-value--small">{fmt(personalized.predicted)}/mês</span>
+                </div>
+              ) : (
+                <p className="agenda-hint">Não consegui identificar stack/senioridade suficiente no seu perfil salvo.</p>
+              )}
+              {!profile && !personalized && (
+                <p className="agenda-hint cover-letter-profile-hint">
+                  💡 Salve seu currículo em ⚙️ Configurações pra ver uma estimativa baseada na sua própria stack.
+                </p>
+              )}
             </div>
-            <div className="salary-median">
-              Mediana: <strong>R$ {estimate.median?.toLocaleString('pt-BR')}</strong>
-            </div>
-            <p className="agenda-hint salary-sample">
-              Baseado em {estimate.sampleSize} vaga{estimate.sampleSize === 1 ? '' : 's'} parecida
-              {estimate.sampleSize === 1 ? '' : 's'} — amostra pequena vira estimativa menos confiável, use como
-              referência, não como número final.
-            </p>
           </div>
         )}
 

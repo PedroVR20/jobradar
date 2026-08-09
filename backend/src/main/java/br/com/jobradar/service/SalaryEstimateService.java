@@ -135,4 +135,22 @@ public class SalaryEstimateService {
         if (n % 2 == 1) return sorted.get(n / 2);
         return Math.round((sorted.get(n / 2 - 1) + sorted.get(n / 2)) / 2.0);
     }
+
+    // Uma linha limpa (já com salário parseado e tags filtradas de ruído)
+    // pra treinar um modelo real fora do backend — ver /admin/salary-training-data.
+    public record TrainingRow(String seniority, List<String> tags, String workplaceType, String state, long salaryMonthly) {}
+
+    public List<TrainingRow> exportTrainingData() {
+        return jobRepository.findAll().stream()
+                .map(j -> {
+                    if (j.getSeniority() == null) return null;
+                    Long salary = parseMonthlyBRL(j.getSalary());
+                    if (salary == null) return null;
+                    List<String> tags = new ArrayList<>(tagSet(j.getTags()));
+                    if (tags.isEmpty()) return null;
+                    return new TrainingRow(j.getSeniority(), tags, j.getWorkplaceType(), j.getState(), salary);
+                })
+                .filter(Objects::nonNull)
+                .toList();
+    }
 }

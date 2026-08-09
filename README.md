@@ -386,7 +386,7 @@ escopo do Job Radar.
 | **Carta de apresentação** | Menu **🤖 IA** em cada vaga → "✉️ Gerar carta de apresentação", abre um modal próprio com campo de contexto extra opcional e botão de copiar | `POST /api/jobs/{id}/cover-letter` gera uma carta a partir do que a vaga tem salva (título, empresa, senioridade, modalidade, local, tags, salário, suas notas) **mais a descrição real da vaga**, buscada na hora na própria página dela (best effort — nem toda fonte deixa, ver JobDescriptionService abaixo). A IA é instruída a não inventar histórico profissional que você não informou. |
 | **Compatibilidade com seu perfil** | Menu **🤖 IA** → "🎯 Compatibilidade com meu perfil" | Compara seu currículo/perfil (o que você salvou em Configurações, ou cola na hora) com os requisitos reais da vaga e devolve uma nota 0-100% honesta, pontos fortes e pontos a desenvolver — a IA é instruída a não inflar a nota. |
 | **Perguntas prováveis de entrevista** | Menu **🤖 IA** → "❓ Perguntas prováveis de entrevista" | Gera de 6 a 8 perguntas técnicas + comportamentais específicas da vaga/stack (não genéricas tipo "fale sobre você"), considerando seu perfil salvo quando disponível. |
-| **Faixa salarial estimada** | Botão **💰 Salário estimado** em cada vaga (sempre visível, não depende da IA estar ativa) | **Não usa IA** — calcula estatística real (mediana, min, max) a partir de outras vagas parecidas (mesma senioridade + tecnologias em comum) já cadastradas no banco. Preferimos "sem dados suficientes" a um número inventado por um modelo — salário é decisão de negociação de verdade. |
+| **Faixa salarial estimada** | Botão **💰 Salário estimado** em cada vaga (sempre visível, não depende da IA estar ativa) | **Não usa IA generativa** — usa um modelo de **regressão treinado de verdade** (Ridge, scikit-learn, offline) sobre as vagas com salário real já cadastradas no banco, prevendo a partir de senioridade + stack + modalidade + estado. Mostra a margem de erro típica (~43%) explicitamente, e tem um botão extra pra estimar com base no *seu* currículo salvo em vez dos dados da vaga. Ver [scripts/README.md](scripts/README.md) pra como foi treinado e como retreinar. |
 | **Detecção de duplicatas mais precisa** | Botão **🧩 Duplicatas** no cabeçalho, cada grupo confirmado pela IA leva o selo "🤖 confirmado por IA" | O endpoint `/api/jobs/duplicates` (mesma empresa + título parecido, já existia) agora pede uma segunda opinião ao Gemini pra descartar grupos que só parecem duplicata por palavra em comum mas são vagas de times/produtos diferentes. Limitado a 20 verificações por chamada (limite do free tier) — grupos além disso mantêm só o veredito por similaridade de palavras. |
 | **Classificação de senioridade/stack** | Selo **🤖** ao lado do badge de senioridade, nas vagas que passaram por ele | Quando o classificador por regex não decide (título ambíguo ou em outro idioma), uma chamada extra ao Gemini tenta resolver e também extrai tecnologias citadas no título pra completar as tags. Só roda nos casos que o regex não resolveu, não em toda vaga nova — o selo só aparece em vagas novas processadas depois que a IA foi ligada, não retroage nas antigas. |
 
@@ -485,9 +485,12 @@ PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes
 POST  /api/jobs/{id}/cover-letter   → Gera carta de apresentação via IA. 503 sem GEMINI_API_KEY, 429 se o free tier
                                        estourou (mensagem diz se foi por minuto ou por dia), 502 pra outras falhas do
                                        Gemini.  Body opcional: { "extraContext": "..." }  UI: menu 🤖 IA no card
-GET  /api/jobs/{id}/salary-estimate → Faixa salarial estimada por dados reais do banco (não IA). Sempre 200; body
-                                       tem available:false quando não há amostra suficiente.  UI: botão 💰 Salário
-                                       estimado no card (não depende da IA estar ativa)
+GET  /api/jobs/{id}/salary-estimate → Faixa salarial: { predicted, modelInfo, similarJobs } — predicted vem do
+                                       modelo treinado (Ridge, sempre disponível se o modelo carregou), similarJobs
+                                       é a mediana de vagas parecidas (exige amostra mínima). Não usa IA generativa,
+                                       sempre 200.  UI: botão 💰 Salário estimado no card
+POST /api/jobs/{id}/salary-estimate/personalized → Mesma estimativa, mas usando a senioridade/stack extraídas do
+                                       perfil do candidato em vez dos dados da vaga.  Body: { "candidateProfile": "..." }
 POST  /api/jobs/{id}/match-score    → Compatibilidade do perfil do candidato com a vaga (0-100 + pontos fortes/a
                                        desenvolver). Mesmos códigos de erro do cover-letter.  Body: { "candidateProfile": "..." }
                                        UI: menu 🤖 IA no card
@@ -511,11 +514,14 @@ job-radar/
 │   └── src/main/java/br/com/jobradar/
 │       ├── model/        ← Entidade Job
 │       ├── repository/   ← JPA Repository
+│       ├── resources/    ← application.yml, salary_model.json (modelo de salário treinado, ver scripts/)
 │       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, Nerdin, SeniorityClassifier,
-│       │                    SalaryExtractor, Aggregator, SalaryEstimateService (dado real, sem IA),
-│       │                    GeminiService (pool de keys) + AiClassifier/AiDuplicateVerifier/CoverLetter/
-│       │                    JobDescriptionService/MatchScore/InterviewQuestions (IA opcional)
+│       │                    SalaryExtractor, Aggregator, SalaryEstimateService/SalaryPredictionService (dado
+│       │                    real + modelo treinado, sem IA generativa), GeminiService (pool de keys) +
+│       │                    AiClassifier/AiDuplicateVerifier/CoverLetter/JobDescriptionService/MatchScore/
+│       │                    InterviewQuestions (IA opcional)
 │       └── controller/   ← REST API (jobs, stats, metrics, duplicates)
+├── scripts/               ← train_salary_model.py (treino offline do modelo de salário, ver scripts/README.md)
 └── frontend/             ← React 18 + TypeScript + Vite
     ├── Dockerfile
     ├── nginx.conf

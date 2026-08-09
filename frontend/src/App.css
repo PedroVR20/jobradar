@@ -1639,11 +1639,39 @@ a:hover { text-decoration: underline; }
   padding: 1.25rem;
   text-align: center;
 }
-.salary-range { display: flex; align-items: center; gap: 0.5rem; }
-.salary-range-value { font-size: 1.3rem; font-weight: 800; color: var(--green); }
+.salary-range { display: flex; align-items: baseline; gap: 0.4rem; }
+.salary-range-value { font-size: 1.6rem; font-weight: 800; color: var(--green); }
+.salary-range-value--small { font-size: 1.05rem; }
+.salary-median-label { font-size: 0.85rem; color: var(--text-muted); }
 .salary-range-sep { color: var(--text-muted); }
 .salary-median { font-size: 0.85rem; color: var(--text-muted); }
 .salary-sample { margin-top: 0.4rem; }
+
+.salary-similar {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  width: 100%;
+}
+.salary-similar-label { font-weight: 600; color: var(--text); }
+
+.salary-personalized {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+.salary-personalized-result { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.salary-personalized-label { font-size: 0.78rem; color: var(--text-muted); }
 
 /* Match score modal */
 .match-score-modal { max-width: 520px; }
