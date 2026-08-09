@@ -398,6 +398,17 @@ campos que a vaga já tinha). Perfil de candidato usado em compatibilidade e
 perguntas nunca é persistido no backend — só chega junto do request que o
 usa, vindo do que o frontend já tem salvo em `localStorage`.
 
+**"Treinar" a IA com feedback (sem fine-tuning de verdade):** depois de
+gerar uma carta, compatibilidade ou lista de perguntas, aparece uma caixa
+"👍/👎 + o que você concorda/discorda?" — o comentário é salvo no
+`localStorage` (até 8 mais recentes por recurso) e volta automaticamente
+como referência de estilo na próxima geração desse mesmo tipo, sem precisar
+colar de novo. Isso não é fine-tuning real (o modelo por trás continua o
+mesmo, sem pesos ajustados) — é o modelo lendo seu feedback anterior como
+parte do prompt, o que na prática funciona bem pra calibrar tom/estilo sem
+nenhuma infraestrutura de treino. Também fica só no navegador, nunca é
+persistido no backend.
+
 ---
 
 ## 🔗 Integração com Agenda Pessoal
@@ -512,9 +523,9 @@ job-radar/
         ├── components/   ← JobCard, FilterBar, StatsBar, ViewTabs, AddJobModal, MetricsModal,
         │                    AgendaModal, AgendaStatusBar, InterviewModal, SettingsModal,
         │                    DuplicatesModal, CoverLetterModal, SalaryEstimateModal, MatchScoreModal,
-        │                    InterviewQuestionsModal (IA opcional, exceto Salary)
+        │                    InterviewQuestionsModal, AiFeedbackBox (IA opcional, exceto Salary)
         ├── hooks/         ← useJobs, useAgenda (integração client-side), useSourceColors,
-        │                    useAiStatus, useCandidateProfile
+        │                    useAiStatus, useCandidateProfile, useAiFeedback
         ├── utils/         ← extractResumeText (PDF/DOCX → texto, 100% client-side)
         └── types/        ← Job, Stats, Filters, Metrics
 ```

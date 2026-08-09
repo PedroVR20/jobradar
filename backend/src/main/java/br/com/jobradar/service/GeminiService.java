@@ -293,4 +293,25 @@ public class GeminiService {
         }
         return trimmed;
     }
+
+    /**
+     * Monta o bloco de "feedback de gerações anteriores" que CoverLetter/
+     * MatchScore/InterviewQuestions inserem no prompt quando o usuário já
+     * avaliou (👍/👎 + comentário) resultados passados desse mesmo recurso —
+     * histórico mantido só no localStorage do frontend (useAiFeedback),
+     * nunca persistido aqui. É a forma prática de "aprender" preferência do
+     * usuário sem fine-tuning: o modelo lê os comentários como instrução de
+     * estilo pra essa geração. Devolve string vazia (não null) quando não há
+     * feedback, pra poder ser sempre interpolada no prompt sem checagem extra.
+     */
+    public static String feedbackSection(String feedbackContext) {
+        if (feedbackContext == null || feedbackContext.isBlank()) return "";
+        return """
+
+                Feedback do usuário sobre gerações anteriores desse tipo — leve em conta
+                pra ajustar tom/estilo/abordagem desta vez, sem forçar o que não se
+                aplicar a esta vaga específica:
+                %s
+                """.formatted(feedbackContext);
+    }
 }

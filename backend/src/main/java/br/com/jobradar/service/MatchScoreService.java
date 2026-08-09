@@ -33,7 +33,7 @@ public class MatchScoreService {
         }
     }
 
-    public MatchOutcome calcular(Job job, String perfilCandidato) {
+    public MatchOutcome calcular(Job job, String perfilCandidato, String feedbackContext) {
         if (perfilCandidato == null || perfilCandidato.isBlank()) {
             return new MatchOutcome(null,
                     "Salve seu perfil/currículo em ⚙️ Configurações primeiro (ou cole na hora), pra IA ter o que comparar.",
@@ -61,11 +61,12 @@ public class MatchScoreService {
 
                 Perfil do candidato:
                 %s
+                %s
 
                 Devolva APENAS um JSON válido, sem markdown e sem texto fora do JSON,
                 no formato exato:
                 {"score": 0-100, "pontosFortes": ["...", "..."], "pontosFaltando": ["...", "..."], "resumo": "1-2 frases"}
-                """.formatted(contexto, perfilCandidato);
+                """.formatted(contexto, perfilCandidato, GeminiService.feedbackSection(feedbackContext));
 
         GeminiService.GeminiResult resultado = geminiService.generate(prompt);
         if (!resultado.ok()) {

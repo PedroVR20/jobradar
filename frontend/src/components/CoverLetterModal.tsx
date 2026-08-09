@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Job } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
+import { useAiFeedback } from '../hooks/useAiFeedback';
+import { AiFeedbackBox } from './AiFeedbackBox';
 
 interface Props {
   job: Job;
@@ -10,6 +12,7 @@ interface Props {
 
 export function CoverLetterModal({ job, onClose }: Props) {
   const { profile } = useCandidateProfile();
+  const { buildContext } = useAiFeedback('cover-letter');
   // Pré-preenche com o perfil salvo em Configurações (se houver) — o usuário
   // pode editar/completar livremente pra essa vaga específica; a edição aqui
   // não altera o perfil salvo, só afeta essa geração.
@@ -27,7 +30,10 @@ export function CoverLetterModal({ job, onClose }: Props) {
       const res = await fetch(`/api/jobs/${job.id}/cover-letter`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ extraContext: extraContext.trim() || undefined }),
+        body: JSON.stringify({
+          extraContext: extraContext.trim() || undefined,
+          feedbackContext: buildContext() || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -92,6 +98,7 @@ export function CoverLetterModal({ job, onClose }: Props) {
         {letter && (
           <div className="cover-letter-result">
             <textarea className="cover-letter-textarea" value={letter} readOnly rows={10} />
+            <AiFeedbackBox featureKey="cover-letter" label="Essa carta ficou boa?" />
           </div>
         )}
 

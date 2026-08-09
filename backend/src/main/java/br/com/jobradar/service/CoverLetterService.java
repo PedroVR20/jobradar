@@ -15,7 +15,11 @@ import java.util.stream.Stream;
  * deixa, ver JobDescriptionService) e o currículo/perfil do candidato quando
  * o usuário salvou um em Configurações (enviado pelo frontend, nunca
  * persistido no backend). O campo extraContext deixa colar mais detalhes
- * pontuais pra essa vaga específica, por cima disso tudo.
+ * pontuais pra essa vaga específica, por cima disso tudo, e feedbackContext
+ * traz o histórico de avaliações (👍/👎 + comentário) que o usuário deu em
+ * cartas anteriores — também mantido só no frontend (ver useAiFeedback),
+ * usado como referência de estilo pra "aprender" a preferência do usuário
+ * sem precisar de fine-tuning de verdade.
  */
 @Service
 @RequiredArgsConstructor
@@ -24,7 +28,7 @@ public class CoverLetterService {
     private final GeminiService geminiService;
     private final JobDescriptionService jobDescriptionService;
 
-    public GeminiService.GeminiResult gerar(Job job, String extraContext) {
+    public GeminiService.GeminiResult gerar(Job job, String extraContext, String feedbackContext) {
         StringBuilder contexto = new StringBuilder();
         contexto.append("Vaga: ").append(job.getTitle()).append("\n");
         contexto.append("Empresa: ").append(job.getCompany()).append("\n");
@@ -69,11 +73,11 @@ public class CoverLetterService {
                 candidato, mantenha o texto focado no interesse genuíno pela
                 vaga/empresa/stack e peça a oportunidade de uma conversa, sem inventar
                 trajetória profissional.
-
+                %s
                 %s
 
                 Devolva só o texto da carta, sem markdown, sem título, sem aspas ao redor.
-                """.formatted(contexto);
+                """.formatted(GeminiService.feedbackSection(feedbackContext), contexto);
 
         return geminiService.generate(prompt);
     }

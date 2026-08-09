@@ -1685,6 +1685,73 @@ a:hover { text-decoration: underline; }
 }
 .interview-questions-list li { font-size: 0.85rem; line-height: 1.5; }
 
+/* Feedback de IA (👍/👎 + comentário) — reaproveitado em carta, match score
+   e perguntas de entrevista */
+.ai-feedback-box {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.ai-feedback-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.ai-feedback-label { font-size: 0.8rem; color: var(--text-muted); }
+.ai-feedback-rate { display: flex; gap: 0.4rem; }
+.ai-feedback-btn {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 1rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.ai-feedback-btn:hover { border-color: var(--text-muted); }
+.ai-feedback-btn--active { border-color: var(--accent); background: #6366f122; }
+.ai-feedback-form { display: flex; flex-direction: column; gap: 0.5rem; }
+.ai-feedback-save { align-self: flex-end; font-size: 0.78rem; padding: 5px 12px; }
+.ai-feedback-saved { font-size: 0.78rem; color: var(--green); margin: 0; }
+
+.ai-feedback-history { margin-top: -0.2rem; }
+.ai-feedback-list {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ai-feedback-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 0.78rem;
+}
+.ai-feedback-item-comment { flex: 1; color: var(--text-muted); }
+.ai-feedback-item-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 2px 4px;
+}
+.ai-feedback-item-remove:hover { color: var(--red); }
+.ai-feedback-clear {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-top: 2px;
+}
+.ai-feedback-clear:hover { color: var(--red); }
+
 /* Duplicates modal */
 .duplicates-modal { max-width: 620px; }
 .duplicates-list { display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; max-height: 55vh; overflow-y: auto; }

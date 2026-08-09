@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Job, MatchScoreResult } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
+import { useAiFeedback } from '../hooks/useAiFeedback';
+import { AiFeedbackBox } from './AiFeedbackBox';
 
 interface Props {
   job: Job;
@@ -16,6 +18,7 @@ function scoreColor(score: number): string {
 
 export function MatchScoreModal({ job, onClose }: Props) {
   const { profile } = useCandidateProfile();
+  const { buildContext } = useAiFeedback('match-score');
   const [perfilTexto, setPerfilTexto] = useState(profile);
   const [result, setResult] = useState<MatchScoreResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -28,7 +31,7 @@ export function MatchScoreModal({ job, onClose }: Props) {
       const res = await fetch(`/api/jobs/${job.id}/match-score`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ candidateProfile: perfilTexto }),
+        body: JSON.stringify({ candidateProfile: perfilTexto, feedbackContext: buildContext() || undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -102,6 +105,8 @@ export function MatchScoreModal({ job, onClose }: Props) {
                 </ul>
               </div>
             )}
+
+            <AiFeedbackBox featureKey="match-score" label="Essa análise ficou boa?" />
           </div>
         )}
 

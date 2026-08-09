@@ -650,16 +650,22 @@ public class JobController {
         }).orElse(ResponseEntity.notFound().build());
     }
 
-    public record CoverLetterRequest(String extraContext) {}
+    // feedbackContext: histórico de avaliações (👍/👎 + comentário) que o
+    // usuário deu em gerações anteriores desse mesmo recurso — mantido só no
+    // localStorage do frontend (ver useAiFeedback), chega aqui formatado como
+    // texto pronto e nunca é persistido no backend, igual ao perfil do candidato.
+    public record CoverLetterRequest(String extraContext, String feedbackContext) {}
 
     /**
      * Gera uma carta de apresentação personalizada pra vaga via Gemini —
      * usa os campos que o Job Radar já tem (não a descrição completa, que
      * não é armazenada) mais qualquer contexto extra que o usuário quiser
-     * colar no corpo da requisição. 503 se a IA não estiver configurada
-     * (sem GEMINI_API_KEY), 429 se o free tier estourou (por minuto ou por
-     * dia — a mensagem diz qual), 502 pra qualquer outra falha do Gemini.
-     * POST /api/jobs/{id}/cover-letter  Body (opcional): { "extraContext": "..." }
+     * colar no corpo da requisição, mais o histórico de feedback que o
+     * usuário deu em cartas anteriores (se houver). 503 se a IA não estiver
+     * configurada (sem GEMINI_API_KEY), 429 se o free tier estourou (por
+     * minuto ou por dia — a mensagem diz qual), 502 pra qualquer outra falha
+     * do Gemini.
+     * POST /api/jobs/{id}/cover-letter  Body (opcional): { "extraContext": "...", "feedbackContext": "..." }
      */
     @PostMapping("/{id}/cover-letter")
     public ResponseEntity<Map<String, Object>> gerarCartaApresentacao(
@@ -670,7 +676,8 @@ public class JobController {
         }
         return jobRepository.findById(id).map(job -> {
             String extraContext = req != null ? req.extraContext() : null;
-            GeminiService.GeminiResult resultado = coverLetterService.gerar(job, extraContext);
+            String feedback = req != null ? req.feedbackContext() : null;
+            GeminiService.GeminiResult resultado = coverLetterService.gerar(job, extraContext, feedback);
             if (!resultado.ok()) {
                 return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
                         .body(Map.<String, Object>of("error", resultado.errorMessage()));
@@ -706,13 +713,14 @@ public class JobController {
         }).orElse(ResponseEntity.notFound().build());
     }
 
-    public record CandidateProfileRequest(String candidateProfile) {}
+    public record CandidateProfileRequest(String candidateProfile, String feedbackContext) {}
 
     /**
      * Compatibilidade entre o perfil/currículo do candidato (enviado pelo
-     * frontend — nunca persistido no backend) e a vaga. 503 sem IA
-     * configurada, 429 em rate limit, 502 pra outras falhas.
-     * POST /api/jobs/{id}/match-score  Body: { "candidateProfile": "..." }
+     * frontend — nunca persistido no backend) e a vaga, considerando também
+     * o histórico de feedback do usuário sobre análises anteriores, se
+     * houver. 503 sem IA configurada, 429 em rate limit, 502 pra outras falhas.
+     * POST /api/jobs/{id}/match-score  Body: { "candidateProfile": "...", "feedbackContext": "..." }
      */
     @PostMapping("/{id}/match-score")
     public ResponseEntity<Map<String, Object>> calcularCompatibilidade(
@@ -723,7 +731,8 @@ public class JobController {
         }
         return jobRepository.findById(id).map(job -> {
             String perfil = req != null ? req.candidateProfile() : null;
-            MatchScoreService.MatchOutcome resultado = matchScoreService.calcular(job, perfil);
+            String feedback = req != null ? req.feedbackContext() : null;
+            MatchScoreService.MatchOutcome resultado = matchScoreService.calcular(job, perfil, feedback);
             if (!resultado.ok()) {
                 return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
                         .body(Map.<String, Object>of("error", resultado.errorMessage()));
@@ -742,7 +751,7 @@ public class JobController {
      * Perguntas prováveis de entrevista pra vaga, opcionalmente ajustadas ao
      * perfil do candidato (mesma regra de privacidade do match-score — só
      * chega no backend se o frontend mandar nesse request específico).
-     * POST /api/jobs/{id}/interview-questions  Body opcional: { "candidateProfile": "..." }
+     * POST /api/jobs/{id}/interview-questions  Body opcional: { "candidateProfile": "...", "feedbackContext": "..." }
      */
     @PostMapping("/{id}/interview-questions")
     public ResponseEntity<Map<String, Object>> gerarPerguntasEntrevista(
@@ -753,7 +762,8 @@ public class JobController {
         }
         return jobRepository.findById(id).map(job -> {
             String perfil = req != null ? req.candidateProfile() : null;
-            InterviewQuestionsService.QuestionsOutcome resultado = interviewQuestionsService.gerar(job, perfil);
+            String feedback = req != null ? req.feedbackContext() : null;
+            InterviewQuestionsService.QuestionsOutcome resultado = interviewQuestionsService.gerar(job, perfil, feedback);
             if (!resultado.ok()) {
                 return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
                         .body(Map.<String, Object>of("error", resultado.errorMessage()));

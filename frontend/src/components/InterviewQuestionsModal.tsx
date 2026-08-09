@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Job } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
+import { useAiFeedback } from '../hooks/useAiFeedback';
+import { AiFeedbackBox } from './AiFeedbackBox';
 
 interface Props {
   job: Job;
@@ -10,6 +12,7 @@ interface Props {
 
 export function InterviewQuestionsModal({ job, onClose }: Props) {
   const { profile } = useCandidateProfile();
+  const { buildContext } = useAiFeedback('interview-questions');
   const [questions, setQuestions] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -21,7 +24,7 @@ export function InterviewQuestionsModal({ job, onClose }: Props) {
       const res = await fetch(`/api/jobs/${job.id}/interview-questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ candidateProfile: profile || undefined }),
+        body: JSON.stringify({ candidateProfile: profile || undefined, feedbackContext: buildContext() || undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -60,9 +63,12 @@ export function InterviewQuestionsModal({ job, onClose }: Props) {
         {error && <p className="agenda-error">{error}</p>}
 
         {questions && (
-          <ol className="interview-questions-list">
-            {questions.map((q, i) => <li key={i}>{q}</li>)}
-          </ol>
+          <>
+            <ol className="interview-questions-list">
+              {questions.map((q, i) => <li key={i}>{q}</li>)}
+            </ol>
+            <AiFeedbackBox featureKey="interview-questions" label="Essas perguntas ficaram boas?" />
+          </>
         )}
 
         <div className="modal-actions">

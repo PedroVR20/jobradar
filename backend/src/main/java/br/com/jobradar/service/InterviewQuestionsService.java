@@ -31,7 +31,7 @@ public class InterviewQuestionsService {
         }
     }
 
-    public QuestionsOutcome gerar(Job job, String perfilCandidato) {
+    public QuestionsOutcome gerar(Job job, String perfilCandidato, String feedbackContext) {
         StringBuilder contexto = new StringBuilder();
         contexto.append("Vaga: ").append(job.getTitle()).append(" @ ").append(job.getCompany()).append("\n");
         if (job.getSeniority() != null) contexto.append("Nível: ").append(job.getSeniority()).append("\n");
@@ -55,10 +55,11 @@ public class InterviewQuestionsService {
                 que um entrevistador dessa vaga específica realmente faria.
 
                 %s
+                %s
 
                 Devolva APENAS um JSON válido, sem markdown e sem texto fora do JSON,
                 no formato exato: {"perguntas": ["...", "..."]}
-                """.formatted(temPerfil ? " e no perfil do candidato" : "", contexto);
+                """.formatted(temPerfil ? " e no perfil do candidato" : "", contexto, GeminiService.feedbackSection(feedbackContext));
 
         GeminiService.GeminiResult resultado = geminiService.generate(prompt);
         if (!resultado.ok()) {
