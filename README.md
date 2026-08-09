@@ -479,7 +479,8 @@ PATCH /api/jobs/{id}/applied       → Marca como aplicada (e tira de "em andame
 PATCH /api/jobs/{id}/in-progress   → Marca como em processo seletivo ativo
 PATCH /api/jobs/{id}/status?value=X → Move pra um status específico: NOVA|VISTA|INTERESSADO|APLICADA|ANDAMENTO|RECUSADA
 POST  /api/jobs/manual              → Adiciona/atualiza vaga manual (title, company, url obrigatórios)
-POST  /api/jobs/fetch               → Dispara fetch manual
+POST  /api/jobs/fetch               → Dispara fetch manual (roda as 7 fontes de forma síncrona, pode levar
+                                       ~1min — o nginx do frontend tem 240s de timeout pra dar folga)
 PATCH /api/jobs/{id}/pin            → Fixa/desfixa vaga no topo da lista (pinned ↔ unpinned)
 PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes": "..." }
 POST  /api/jobs/{id}/cover-letter   → Gera carta de apresentação via IA. 503 sem GEMINI_API_KEY, 429 se o free tier

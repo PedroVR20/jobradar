@@ -151,8 +151,12 @@ export default function App() {
   const hasMore = visibleCount < jobs.length;
 
   const handleFetch = async () => {
-    const novas = await triggerFetch();
-    showToast(novas > 0 ? `🎯 ${novas} novas vagas encontradas!` : '✅ Nenhuma vaga nova no momento');
+    try {
+      const novas = await triggerFetch();
+      showToast(novas > 0 ? `🎯 ${novas} novas vagas encontradas!` : '✅ Nenhuma vaga nova no momento');
+    } catch (e) {
+      showToast(`⚠️ ${e instanceof Error ? e.message : 'Erro ao buscar vagas.'}`, 8000);
+    }
   };
 
   const handleApplied = async (id: number) => {

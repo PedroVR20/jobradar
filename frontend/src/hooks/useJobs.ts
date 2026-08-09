@@ -133,10 +133,22 @@ export function useJobs(filters: Filters) {
     return job;
   };
 
+  // Busca manual roda as 7 fontes de forma síncrona no backend (pode passar
+  // de 1 minuto, o Nerdin sozinho já levou mais de 1min30 em teste) — se o
+  // proxy nginx cortar antes disso (504), a resposta vem como HTML de erro,
+  // não JSON. Sem checar res.ok antes de res.json(), isso vira uma exceção
+  // não tratada ("Unexpected token '<'") sem nenhum aviso pro usuário.
   const triggerFetch = async () => {
     setFetching(true);
     try {
       const res = await fetch(`${API}/fetch`, { method: 'POST' });
+      if (!res.ok) {
+        throw new Error(
+          res.status === 504
+            ? 'A busca demorou demais e o servidor cortou a conexão antes de terminar — mas ela pode ter concluído em segundo plano, tente recarregar a página em instantes.'
+            : `Erro ao buscar vagas (status ${res.status}). Tente de novo.`
+        );
+      }
       const data = await res.json();
       await loadJobs();
       return data.novasVagas as number;
