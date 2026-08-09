@@ -16,6 +16,22 @@ spring:
 server:
   port: 8080
 
+gemini:
+  # Vazio por padrão — recursos de IA ficam desativados sem uma key.
+  # Grátis em https://aistudio.google.com/apikey
+  api-key: ${GEMINI_API_KEY:}
+  # Opcional: várias keys separadas por vírgula (de projetos Google Cloud
+  # diferentes, senão compartilham a mesma cota) — se preenchida, tem
+  # prioridade sobre api-key e o backend faz rodízio automático entre elas
+  # quando uma bate no limite do free tier. Ver GeminiService.
+  api-keys: ${GEMINI_API_KEYS:}
+  # "gemini-2.5-flash" fixo dava 404 ("no longer available to new users") em
+  # projetos Google Cloud criados recentemente, mesmo aparecendo na lista de
+  # modelos — o alias "-latest" evita ficar preso a uma versão específica que
+  # pode ser descontinuada; testado e funcionando tanto em projetos antigos
+  # quanto novos (resolveu pra gemini-3.6-flash nos dois em ago/2026).
+  model: ${GEMINI_MODEL:gemini-flash-latest}
+
 logging:
   level:
     br.com.jobradar: INFO

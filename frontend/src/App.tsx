@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useJobs } from './hooks/useJobs';
 import { AgendaTaskStatus, useAgenda } from './hooks/useAgenda';
+import { useAiStatus } from './hooks/useAiStatus';
 import { StatsBar } from './components/StatsBar';
 import { FilterBar } from './components/FilterBar';
 import { ViewTabs } from './components/ViewTabs';
@@ -8,6 +9,8 @@ import { JobCard } from './components/JobCard';
 import { AddJobModal } from './components/AddJobModal';
 import { AgendaStatusBar } from './components/AgendaStatusBar';
 import { MetricsModal } from './components/MetricsModal';
+import { SettingsModal } from './components/SettingsModal';
+import { DuplicatesModal } from './components/DuplicatesModal';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
 import './App.css';
 
@@ -50,6 +53,7 @@ const defaultFilters: Filters = {
 };
 
 const PAGE_SIZE = 30;
+const LAST_VISIT_KEY = 'jobradar:last-visit';
 
 export default function App() {
   const [filters, setFilters] = useState<Filters>(defaultFilters);
@@ -57,17 +61,45 @@ export default function App() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showDuplicates, setShowDuplicates] = useState(false);
 
   const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
   const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
+  const aiStatus = useAiStatus();
   const [syncingAgenda, setSyncingAgenda] = useState(false);
   const reconciledRef = useRef(false);
 
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, durationMs = 3000) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), durationMs);
   };
+
+  // Avisa quantas vagas novas chegaram desde a última vez que o app foi aberto
+  // (não uma janela fixa tipo "últimas 4h" — se você ficar 2 dias sem abrir,
+  // mostra tudo que chegou nesses 2 dias). Manda só os minutos decorridos pro
+  // backend calcular "agora - X" com o próprio relógio dele, evitando qualquer
+  // descompasso de fuso entre o navegador e o servidor.
+  useEffect(() => {
+    const lastVisit = localStorage.getItem(LAST_VISIT_KEY);
+    const now = Date.now();
+    if (lastVisit) {
+      const minutesAgo = Math.floor((now - Number(lastVisit)) / 60000);
+      if (minutesAgo > 0) {
+        fetch(`/api/jobs/new-since?minutesAgo=${minutesAgo}`)
+          .then(r => r.json())
+          .then(data => {
+            const count = data.count as number;
+            if (count > 0) {
+              showToast(`🔔 ${count} vaga${count === 1 ? '' : 's'} nova${count === 1 ? '' : 's'} desde sua última visita!`, 6000);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+    localStorage.setItem(LAST_VISIT_KEY, String(now));
+  }, []);
 
   const syncAgendaForStatus = (id: number, status: JobStatus) => {
     const agendaStatus = agendaStatusFor[status];
@@ -119,8 +151,12 @@ export default function App() {
   const hasMore = visibleCount < jobs.length;
 
   const handleFetch = async () => {
-    const novas = await triggerFetch();
-    showToast(novas > 0 ? `🎯 ${novas} novas vagas encontradas!` : '✅ Nenhuma vaga nova no momento');
+    try {
+      const novas = await triggerFetch();
+      showToast(novas > 0 ? `🎯 ${novas} novas vagas encontradas!` : '✅ Nenhuma vaga nova no momento');
+    } catch (e) {
+      showToast(`⚠️ ${e instanceof Error ? e.message : 'Erro ao buscar vagas.'}`, 8000);
+    }
   };
 
   const handleApplied = async (id: number) => {
@@ -186,12 +222,18 @@ export default function App() {
         <div className="header-inner header-inner--flex">
           <div>
             <h1 className="app-title">🎯 Job Radar</h1>
-            <p className="app-subtitle">Vagas de programação remotas na Europa + vagas no Brasil (Gupy) · Atualizado diariamente às 08:00</p>
+            <p className="app-subtitle">Vagas de programação remotas na Europa + vagas no Brasil (Gupy) · Atualizado a cada 4 horas</p>
           </div>
           <div className="header-actions">
             <AgendaStatusBar syncing={syncingAgenda} onSync={handleAgendaSync} />
             <button className="btn btn-ghost" onClick={() => setShowMetrics(true)}>
               📊 Métricas
+            </button>
+            <button className="btn btn-ghost" onClick={() => setShowDuplicates(true)}>
+              🧩 Duplicatas
+            </button>
+            <button className="btn btn-ghost" onClick={() => setShowSettings(true)}>
+              ⚙️ Configurações
             </button>
             <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>
               ➕ Adicionar vaga
@@ -206,6 +248,22 @@ export default function App() {
 
       {showMetrics && (
         <MetricsModal onClose={() => setShowMetrics(false)} />
+      )}
+
+      {showDuplicates && (
+        <DuplicatesModal
+          onClose={() => setShowDuplicates(false)}
+          onReject={id => handleSetStatus(id, 'RECUSADA')}
+        />
+      )}
+
+      {showSettings && (
+        <SettingsModal
+          aiStatus={{ enabled: aiStatus.enabled, model: aiStatus.model, requestsToday: aiStatus.requestsToday, keyPool: aiStatus.keyPool }}
+          aiLoading={aiStatus.loading}
+          onRefreshAiStatus={aiStatus.refresh}
+          onClose={() => setShowSettings(false)}
+        />
       )}
 
       <main className="app-main">
@@ -271,6 +329,7 @@ export default function App() {
                   onTogglePin={togglePin}
                   onUpdateNotes={updateNotes}
                   onToast={showToast}
+                  aiEnabled={aiStatus.enabled}
                 />
               ))}
             </div>

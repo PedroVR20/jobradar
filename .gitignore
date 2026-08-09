@@ -19,3 +19,9 @@ Thumbs.db
 # Env / secrets
 .env
 .env.local
+
+# Dados/saída do treino do modelo de salário — regeneráveis a qualquer
+# momento (ver scripts/README.md); a cópia que importa de verdade é
+# backend/src/main/resources/salary_model.json, essa sim é versionada.
+scripts/training_data.json
+scripts/salary_model.json

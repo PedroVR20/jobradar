@@ -2,7 +2,7 @@
 
 ## O que é
 
-**Job Radar** é um dashboard pessoal fullstack que monitora vagas de programação remotas na Europa e Brasil de forma centralizada e automatizada. Ele agrega vagas de múltiplas fontes (Remotive, Arbeitnow, We Work Remotely, Gupy, Eureca) com buscas automáticas diárias às 8h BRT, classificação inteligente de senioridade, extração de salários e interface rica de filtros, abas e anotações pessoais.
+**Job Radar** é um dashboard pessoal fullstack que monitora vagas de programação remotas na Europa e Brasil de forma centralizada e automatizada. Ele agrega vagas de múltiplas fontes (Remotive, Arbeitnow, We Work Remotely, Gupy, Eureca, QueroVagasTech) com buscas automáticas a cada 4h BRT, classificação inteligente de senioridade, extração de salários e interface rica de filtros, abas e anotações pessoais.
 
 ## Stack Técnico
 
@@ -45,7 +45,7 @@ jobradar/
 │       │   ├── WorkRemotelyService     Parser RSS de We Work Remotely
 │       │   ├── GupyService             Scraper da API pública Gupy
 │       │   ├── EurecaService           Scraper da API não-documentada Eureca
-│       │   ├── JobAggregatorService    Orquestração e fetch diário (cron 08:00 BRT)
+│       │   ├── JobAggregatorService    Orquestração e fetch periódico (cron a cada 4h BRT)
 │       │   ├── SeniorityClassifier     Classifica senioridade por regex (ESTAGIO, JUNIOR, PLENO, SENIOR)
 │       │   └── SalaryExtractor         Extrai salários do texto das vagas
 │       └── controller/         REST API endpoints (/api/jobs/*)
@@ -76,8 +76,8 @@ jobradar/
 
 ## 🔄 Como Funciona (Fluxo de Dados)
 
-1. **Orquestração Diária**
-   - `JobAggregatorService` executa via cron `@Scheduled(cron = "0 0 8 * * *")` às 08:00 BRT
+1. **Orquestração Periódica**
+   - `JobAggregatorService` executa via cron `@Scheduled(cron = "0 0 */4 * * *")` a cada 4h BRT (00h, 04h, 08h, 12h, 16h, 20h)
    - Método `fetch()` dispara todos os scrapers em paralelo
 
 2. **Coleta de Vagas**
@@ -287,7 +287,7 @@ Marcar vaga como recusada/congelada tira ela do fluxo ativo sem apagar na hora:
 - Fica visível em **"Recusadas"** por **7 dias** a partir da marcação (não da publicação)
 - Card mostra contagem regressiva: 🗑 **"Some em Xd"**
 - Botão **"↩ Reativar vaga"** cancela exclusão
-- Limpeza automática roda no fetch diário (08:00) e ao subir backend
+- Limpeza automática roda a cada fetch periódico (4h) e ao subir backend
 
 **Para customizar prazo de 7 dias:**
 1. Edite `DIAS_PARA_EXCLUIR_RECUSADAS` em `JobAggregatorService.java`
@@ -306,23 +306,27 @@ Senioridade classificada automaticamente pelo título. Se colar URL que já exis
 
 ## ⚙️ Customizações
 
-### Horário do Fetch Automático
+### Frequência do Fetch Automático
 
 Em `backend/src/main/java/br/com/jobradar/service/JobAggregatorService.java`:
 
 ```java
-@Scheduled(cron = "0 0 8 * * *", zone = "America/Sao_Paulo")
-public void fetch() {
+@Scheduled(cron = "0 0 */4 * * *", zone = "America/Sao_Paulo")
+public void fetchPeriodico() {
     // ...
 }
 ```
 
+Hoje roda a cada 4h (00h, 04h, 08h, 12h, 16h, 20h BRT) — trocado de "uma vez
+por dia às 08:00" pra reduzir o atraso em vagas postadas durante o dia.
+
 Formato cron: `segundos minutos horas * * *`
 
 Exemplos:
-- `"0 0 8 * * *"` → 08:00 BRT
-- `"0 30 9 * * *"` → 09:30 BRT
-- `"0 0 0 * * *"` → Meia-noite BRT
+- `"0 0 */4 * * *"` → a cada 4h (00h, 04h, 08h, 12h, 16h, 20h BRT)
+- `"0 0 */2 * * *"` → a cada 2h
+- `"0 0 8 * * *"` → uma vez por dia, 08:00 BRT
+- `"0 30 9 * * *"` → uma vez por dia, 09:30 BRT
 
 ### Termos de Busca da Gupy
 

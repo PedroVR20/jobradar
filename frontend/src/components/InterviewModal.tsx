@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Job } from '../types/Job';
 import { useAgenda } from '../hooks/useAgenda';
 
@@ -68,7 +69,7 @@ export function InterviewModal({ job, onClose, onSuccess }: Props) {
     }
   };
 
-  return (
+  return createPortal(
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal agenda-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
@@ -160,6 +161,7 @@ export function InterviewModal({ job, onClose, onSuccess }: Props) {
           </form>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

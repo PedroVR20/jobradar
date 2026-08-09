@@ -18,6 +18,8 @@ public interface JobRepository extends JpaRepository<Job, Long> {
 
     List<Job> findByFetchedAtAfter(LocalDateTime dateTime);
 
+    long countByFetchedAtAfter(LocalDateTime dateTime);
+
     List<Job> findBySource(String source);
 
     List<Job> findByAppliedTrue();

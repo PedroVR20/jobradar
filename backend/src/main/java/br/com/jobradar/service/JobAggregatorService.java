@@ -12,8 +12,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -27,15 +30,19 @@ public class JobAggregatorService {
     private final GupyService gupyService;
     private final EurecaService eurecaService;
     private final QuerovagastechService querovagastechService;
+    private final NerdinService nerdinService;
     private final SeniorityClassifier seniorityClassifier;
+    private final AiClassifierService aiClassifierService;
 
     /**
-     * Roda automaticamente todo dia às 08:00 BRT
+     * Roda automaticamente a cada 4 horas (00h, 04h, 08h, 12h, 16h, 20h BRT)
+     * — antes era só uma vez por dia às 08:00, mas isso deixava vagas postadas
+     * à tarde até ~16h atrasadas em relação a quem busca com mais frequência.
      */
-    @Scheduled(cron = "0 0 8 * * *", zone = "America/Sao_Paulo")
+    @Scheduled(cron = "0 0 */4 * * *", zone = "America/Sao_Paulo")
     @Transactional
-    public void fetchDiario() {
-        log.info("=== Fetch diário iniciado ===");
+    public void fetchPeriodico() {
+        log.info("=== Fetch periódico iniciado ===");
         fetchAllJobs();
         limparVagasRecusadasAntigas();
     }
@@ -143,13 +150,30 @@ public class JobAggregatorService {
         allJobs.addAll(gupyService.fetchJobs());
         allJobs.addAll(eurecaService.fetchJobs());
         allJobs.addAll(querovagastechService.fetchJobs());
+        allJobs.addAll(nerdinService.fetchJobs());
 
         int novos = 0;
         int enriquecidas = 0;
+        int classificadasPorIa = 0;
         for (Job job : allJobs) {
             Optional<Job> existente = jobRepository.findByUrl(job.getUrl());
             if (existente.isEmpty()) {
-                job.setSeniority(seniorityClassifier.classify(job.getTitle(), job.getTags()));
+                String seniority = seniorityClassifier.classify(job.getTitle(), job.getTags());
+                // regex não decidiu — só aí vale a pena gastar uma chamada de IA
+                // (título ambíguo ou em idioma que os padrões não cobrem)
+                if (SeniorityClassifier.NAO_INFORMADO.equals(seniority)) {
+                    AiClassifierService.Resultado ia = aiClassifierService.classificar(
+                            job.getTitle(), job.getCompany(), job.getTags());
+                    if (ia != null) {
+                        seniority = ia.seniority();
+                        if (!ia.stackTags().isEmpty()) {
+                            job.setTags(mergeTags(job.getTags(), ia.stackTags()));
+                        }
+                        job.setClassifiedByAi(true);
+                        classificadasPorIa++;
+                    }
+                }
+                job.setSeniority(seniority);
                 if ("GUPY".equals(job.getSource()) && job.getSalary() == null) {
                     job.setSalary(gupyService.fetchSalaryHint(job.getUrl()));
                 }
@@ -160,10 +184,26 @@ public class JobAggregatorService {
                 enriquecidas++;
             }
         }
+        if (classificadasPorIa > 0) {
+            log.info("=== {} vagas ambíguas classificadas via IA (Gemini) ===", classificadasPorIa);
+        }
 
         log.info("=== Fetch concluído: {} vagas totais, {} novas salvas, {} enriquecidas ===",
                 allJobs.size(), novos, enriquecidas);
         return novos;
+    }
+
+    // Junta as tags extraídas pela IA com as que a vaga já tinha, sem duplicar
+    // (LinkedHashSet preserva a ordem original e ignora repetições).
+    private String mergeTags(String tagsAtuais, List<String> novasTags) {
+        Set<String> merged = new LinkedHashSet<>();
+        if (tagsAtuais != null && !tagsAtuais.isBlank()) {
+            merged.addAll(Arrays.asList(tagsAtuais.split(",")));
+        }
+        for (String t : novasTags) {
+            if (t != null && !t.isBlank()) merged.add(t.trim());
+        }
+        return String.join(",", merged);
     }
 
     /**

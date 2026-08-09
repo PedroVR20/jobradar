@@ -94,4 +94,9 @@ public class Job {
     // Anotações pessoais do usuário sobre essa vaga
     @Column(columnDefinition = "TEXT")
     private String notes;
+
+    // true = a senioridade/stack dessa vaga foram resolvidos pela IA (Gemini)
+    // porque o regex (SeniorityClassifier) não conseguiu decidir pelo título —
+    // usado só pra transparência visual no card (badge "🤖"), não afeta lógica.
+    private Boolean classifiedByAi;
 }

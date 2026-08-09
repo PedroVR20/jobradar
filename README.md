@@ -3,9 +3,9 @@
 Dashboard pessoal para monitorar vagas de programação remotas na Europa **e**
 vagas no Brasil — empresas grandes como Itaú, Stone, Localiza, Boticário,
 TIM, Bradesco, Stellantis e Natura, entre centenas de outras, agregadas de
-6 fontes (Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech) num único
-funil de candidatura, com integração opcional a uma Agenda Pessoal.
-Busca automaticamente todo dia às **08:00 BRT** e guarda tudo no banco.
+7 fontes (Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, Nerdin)
+num único funil de candidatura, com integração opcional a uma Agenda Pessoal.
+Busca automaticamente **a cada 4 horas** e guarda tudo no banco.
 
 Repositório: https://github.com/PedroVR20/jobradar
 
@@ -81,6 +81,7 @@ npm run dev
 | **Gupy**               | Vagas de tecnologia em empresas brasileiras (Itaú, Stone, Localiza, Boticário, TIM e centenas de outras) — remoto, híbrido e presencial | ✅ |
 | **Eureca**             | Programas de estágio/trainee em grandes empresas (Bradesco, Stellantis, Natura, Sephora, Equinor, SLC Agrícola e outras) | ✅ |
 | **QueroVagasTech**     | Agregador BR com InfoJobs, Stone (Vagas.com), Solides, Thoughtworks, Totvs, RedHat, Accenture e outras fontes corporativas — fontes Gupy já cobertas são ignoradas para não duplicar | ✅ |
+| **Nerdin**              | Vagas de TI (nerdin.com.br) — foco em desenvolvimento, dados, infra, DevOps, IA | ✅ |
 
 **Sobre a fonte Gupy:** usa a API pública do portal de busca de vagas da
 Gupy (`portal.gupy.io/job-search`), o mesmo ATS usado por milhares de
@@ -107,6 +108,28 @@ backend as fontes `GupyPortalTecnologia` e `GupyExample` (já cobertas
 pelo `GupyService`). Salary vem estruturado (`min`/`max`/`currency`/`period`)
 e é formatado automaticamente como "R$ X – Y/mês". Adicionou ~611 vagas
 novas no primeiro fetch, principalmente do InfoJobs.
+
+**Sobre a fonte Nerdin:** diferente das outras fontes BR, o Nerdin **não
+tem API pública nem interna descoberta** — é scraping direto do HTML da
+listagem paginada (`nerdin.com.br/vagas.php?pagina=N`), via `NerdinService`
+usando Jsoup. As classes CSS dos cards (`.vaga-card`, `.vaga-titulo`,
+`.vaga-empresa-nome`...) são as mesmas que o JS do próprio site usa pra
+favoritar vagas, então tendem a ser relativamente estáveis, mas ainda é
+HTML — pode quebrar se o site for redesenhado (fica isolado, como as
+outras fontes, sem afetar o resto se parar de funcionar). `robots.txt`
+permite (`Allow: /`, sem disallow pra `/vagas.php`).
+
+Cada vaga individual tem um JSON-LD `JobPosting` (schema.org) bem completo
+na página de detalhe — inclusive prazo de inscrição — mas isso exigiria
+uma requisição HTTP extra por vaga (~700 no catálogo inteiro), então por
+ora só a listagem é usada: dá título, empresa, salário, modalidade, data
+de publicação e tags, sem esse custo. **Sem prazo de inscrição** por
+enquanto (mesma limitação de Remotive/Arbeitnow/WWR).
+
+O Nerdin também não parece filtrar a listagem só pra vagas ativas —
+algumas datadas de anos atrás apareceram misturadas nos testes. Por isso,
+qualquer vaga "publicada" há mais de 90 dias é descartada no parsing, pra
+não mostrar vaga morta como se fosse oportunidade nova.
 
 > LinkedIn **não foi incluído**: bloqueia scraping ativamente e não oferece
 > API pública de vagas. Se quiser acompanhar uma vaga específica achada no
@@ -272,7 +295,7 @@ O card mostra uma contagem regressiva (🗑 "Some em Xd") avisando quantos
 dias faltam. Se você mudar de ideia, o botão "↩ Reativar vaga" volta ela
 pra "Aplicadas" e cancela a exclusão.
 
-A limpeza roda automaticamente no fetch diário (08:00) e também ao subir o
+A limpeza roda automaticamente a cada fetch periódico (a cada 4h) e também ao subir o
 backend (`JobAggregatorService.limparVagasRecusadasAntigas`). Pra mudar o
 prazo, edite `DIAS_PARA_EXCLUIR_RECUSADAS` nesse arquivo **e** em
 `frontend/src/types/Job.ts` (`DIAS_PARA_EXCLUIR_RECUSADAS`) — os dois
@@ -290,6 +313,101 @@ preencha título, empresa e link (obrigatórios) mais os campos opcionais
 A senioridade é classificada automaticamente pelo título, igual às vagas
 buscadas automaticamente. Se colar uma URL que já existe no banco, atualiza
 a vaga existente em vez de duplicar.
+
+---
+
+## 🤖 Recursos de IA (Gemini — opcional)
+
+Totalmente opcional: sem uma `GEMINI_API_KEY` configurada, o resto do app
+funciona normal, só esses três recursos ficam desativados (e escondidos da
+UI). Key grátis em **https://aistudio.google.com/apikey** — copie
+`.env.example` pra `.env` e preencha `GEMINI_API_KEY=`.
+
+**Como saber se está ativa:** botão **⚙️ Configurações** no cabeçalho abre um
+painel dedicado com o status (🟢 IA ativa/desativada, modelo em uso) e o que
+cada um dos 3 recursos faz — sem isso, não dava pra saber olhando a tela
+principal que a integração existe.
+
+**Perfil salvo (currículo/stack):** o mesmo painel de Configurações tem uma
+área pra enviar seu currículo em **PDF ou DOCX** (arrastar ou clicar) — o
+texto é extraído **inteiramente no navegador** (`pdfjs-dist`/`mammoth`, nada é
+enviado ao backend nem a lugar nenhum) e salvo no `localStorage`. Tem também
+um modo "colar manualmente" pra quem preferir digitar em vez de enviar
+arquivo, e um "Ver/editar texto" pra corrigir a extração se ela sair um pouco
+torta (comum em PDFs com layout em colunas). Esse texto pré-preenche
+automaticamente o "Contexto adicional" toda vez que você abre **🤖 Gerar
+carta** em qualquer vaga — edita à vontade por vaga sem afetar o perfil
+salvo. As libs de leitura de arquivo (~1MB) só são baixadas na hora que você
+realmente usa o upload, não pesam no carregamento normal do app.
+
+**Limite de requisições (free tier):** o Gemini grátis tem cota por **minuto
+e** por **dia**, ambas bem apertadas. Configurações mostra um contador
+aproximado de quantas chamadas o backend já fez hoje (reseta se ele
+reiniciar — não é a contagem oficial do Google, só um sinal). Se o limite
+estourar, a mensagem de erro já diz qual dos dois foi: "espera uns 20-30s"
+(por minuto) ou "só volta amanhã" (diário) — bem diferente do que fazer em
+cada caso, por isso a distinção.
+
+**Pool de várias keys (opcional):** em vez de `GEMINI_API_KEY` (uma key),
+dá pra configurar `GEMINI_API_KEYS` no `.env` com várias separadas por
+vírgula. O backend testa isso sozinho: numa mesma chamada, se uma key bater
+em rate limit (por minuto ou diário), ele tenta a próxima automaticamente,
+sem o usuário perceber — só devolve erro se todas as keys da pool falharem.
+Configurações mostra "🔑 X de N keys disponíveis hoje".
+
+⚠️ **Isso só ajuda de verdade se as keys forem de projetos Google Cloud
+diferentes** — confira em
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey) se cada key
+aparece sob um projeto diferente antes de contar com a pool; se todas caem no
+mesmo projeto, é preciso trocar explicitamente de projeto (seletor no topo
+da página) antes de gerar cada key nova. Duas coisas que aprendemos testando
+isso de verdade:
+
+1. **Keys geradas em sequência sem trocar de projeto compartilham a mesma
+   cota.** Um primeiro teste com 9 keys assim mostrou todas batendo no limite
+   diário já na primeira chamada de cada, inclusive as nunca usadas antes —
+   só se explica por cota compartilhada.
+2. **Projetos recém-criados podem não ter acesso ao modelo fixo mais antigo.**
+   Com `gemini-2.5-flash` fixo, keys de projetos novos devolviam 404 ("no
+   longer available to new users") mesmo o modelo aparecendo na lista —
+   por isso o padrão agora é `gemini-flash-latest` (um alias que o Google
+   mantém sempre apontando pro flash atual). Com projetos genuinamente
+   separados + esse alias, testamos 8 keys reais e 10 chamadas seguidas
+   funcionaram sem nenhuma bater em limite.
+
+Também vale saber: contas Google novas/gratuitas têm um teto de quantos
+projetos dá pra criar (por padrão baixo, algo entre 5 e 25 dependendo da
+conta) — bateu nisso tentando criar mais de 8 projetos numa conta. Dá pra
+pedir aumento desse limite no Google Cloud Console, mas isso já é fora do
+escopo do Job Radar.
+
+| Recurso | Onde aparece | O que faz |
+|---|---|---|
+| **Carta de apresentação** | Menu **🤖 IA** em cada vaga → "✉️ Gerar carta de apresentação", abre um modal próprio com campo de contexto extra opcional e botão de copiar | `POST /api/jobs/{id}/cover-letter` gera uma carta a partir do que a vaga tem salva (título, empresa, senioridade, modalidade, local, tags, salário, suas notas) **mais a descrição real da vaga**, buscada na hora na própria página dela (best effort — nem toda fonte deixa, ver JobDescriptionService abaixo). A IA é instruída a não inventar histórico profissional que você não informou. |
+| **Compatibilidade com seu perfil** | Menu **🤖 IA** → "🎯 Compatibilidade com meu perfil" | Compara seu currículo/perfil (o que você salvou em Configurações, ou cola na hora) com os requisitos reais da vaga e devolve uma nota 0-100% honesta, pontos fortes e pontos a desenvolver — a IA é instruída a não inflar a nota. |
+| **Perguntas prováveis de entrevista** | Menu **🤖 IA** → "❓ Perguntas prováveis de entrevista" | Gera de 6 a 8 perguntas técnicas + comportamentais específicas da vaga/stack (não genéricas tipo "fale sobre você"), considerando seu perfil salvo quando disponível. |
+| **Faixa salarial estimada** | Botão **💰 Salário estimado** em cada vaga (sempre visível, não depende da IA estar ativa) | **Não usa IA generativa** — usa um modelo de **regressão treinado de verdade** (Ridge, scikit-learn, offline) sobre as vagas com salário real já cadastradas no banco, prevendo a partir de senioridade + stack + modalidade + estado. Mostra a margem de erro típica (~43%) explicitamente, e tem um botão extra pra estimar com base no *seu* currículo salvo em vez dos dados da vaga. Ver [scripts/README.md](scripts/README.md) pra como foi treinado e como retreinar. |
+| **Detecção de duplicatas mais precisa** | Botão **🧩 Duplicatas** no cabeçalho, cada grupo confirmado pela IA leva o selo "🤖 confirmado por IA" | O endpoint `/api/jobs/duplicates` (mesma empresa + título parecido, já existia) agora pede uma segunda opinião ao Gemini pra descartar grupos que só parecem duplicata por palavra em comum mas são vagas de times/produtos diferentes. Limitado a 20 verificações por chamada (limite do free tier) — grupos além disso mantêm só o veredito por similaridade de palavras. |
+| **Classificação de senioridade/stack** | Selo **🤖** ao lado do badge de senioridade, nas vagas que passaram por ele | Quando o classificador por regex não decide (título ambíguo ou em outro idioma), uma chamada extra ao Gemini tenta resolver e também extrai tecnologias citadas no título pra completar as tags. Só roda nos casos que o regex não resolveu, não em toda vaga nova — o selo só aparece em vagas novas processadas depois que a IA foi ligada, não retroage nas antigas. |
+
+**Descrição real da vaga (JobDescriptionService):** carta, compatibilidade e
+perguntas de entrevista buscam a página da própria vaga (Jsoup) e extraem o
+texto principal na hora, sem guardar nada no banco — best effort, nem todo
+site deixa (SPAs renderizados em JS ficam sem texto, cai de volta pros
+campos que a vaga já tinha). Perfil de candidato usado em compatibilidade e
+perguntas nunca é persistido no backend — só chega junto do request que o
+usa, vindo do que o frontend já tem salvo em `localStorage`.
+
+**"Treinar" a IA com feedback (sem fine-tuning de verdade):** depois de
+gerar uma carta, compatibilidade ou lista de perguntas, aparece uma caixa
+"👍/👎 + o que você concorda/discorda?" — o comentário é salvo no
+`localStorage` (até 8 mais recentes por recurso) e volta automaticamente
+como referência de estilo na próxima geração desse mesmo tipo, sem precisar
+colar de novo. Isso não é fine-tuning real (o modelo por trás continua o
+mesmo, sem pesos ajustados) — é o modelo lendo seu feedback anterior como
+parte do prompt, o que na prática funciona bem pra calibrar tom/estilo sem
+nenhuma infraestrutura de treino. Também fica só no navegador, nunca é
+persistido no backend.
 
 ---
 
@@ -354,15 +472,31 @@ GET  /api/jobs/states              → Lista de estados presentes no banco (popu
 GET  /api/jobs/sources             → Lista de fontes presentes no banco, oficiais + personalizadas (popula o filtro de fonte)
 GET  /api/jobs/stats               → Estatísticas gerais (inclui porSenioridade, porFonte, interessadas, emAndamento, recusadas)
 GET  /api/jobs/metrics              → Funil de candidatura, taxa de resposta, aplicações/semana, tempo médio de resposta
-GET  /api/jobs/duplicates          → Detecta possíveis vagas duplicadas entre fontes (mesma empresa + título similar + mesma senioridade) — sem UI própria hoje, endpoint disponível
+GET  /api/jobs/duplicates          → Detecta possíveis vagas duplicadas entre fontes (mesma empresa + título similar + mesma senioridade), UI: botão 🧩 Duplicatas no cabeçalho
+GET  /api/jobs/ai-status           → Status da IA (Gemini): { enabled, model } — sem expor a key. UI: botão ⚙️ Configurações no cabeçalho
 PATCH /api/jobs/{id}/seen          → Marca como vista
 PATCH /api/jobs/{id}/applied       → Marca como aplicada (e tira de "em andamento"/"recusada"/"interessado")
 PATCH /api/jobs/{id}/in-progress   → Marca como em processo seletivo ativo
 PATCH /api/jobs/{id}/status?value=X → Move pra um status específico: NOVA|VISTA|INTERESSADO|APLICADA|ANDAMENTO|RECUSADA
 POST  /api/jobs/manual              → Adiciona/atualiza vaga manual (title, company, url obrigatórios)
-POST  /api/jobs/fetch               → Dispara fetch manual
+POST  /api/jobs/fetch               → Dispara fetch manual (roda as 7 fontes de forma síncrona, pode levar
+                                       ~1min — o nginx do frontend tem 240s de timeout pra dar folga)
 PATCH /api/jobs/{id}/pin            → Fixa/desfixa vaga no topo da lista (pinned ↔ unpinned)
 PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes": "..." }
+POST  /api/jobs/{id}/cover-letter   → Gera carta de apresentação via IA. 503 sem GEMINI_API_KEY, 429 se o free tier
+                                       estourou (mensagem diz se foi por minuto ou por dia), 502 pra outras falhas do
+                                       Gemini.  Body opcional: { "extraContext": "..." }  UI: menu 🤖 IA no card
+GET  /api/jobs/{id}/salary-estimate → Faixa salarial: { predicted, modelInfo, similarJobs } — predicted vem do
+                                       modelo treinado (Ridge, sempre disponível se o modelo carregou), similarJobs
+                                       é a mediana de vagas parecidas (exige amostra mínima). Não usa IA generativa,
+                                       sempre 200.  UI: botão 💰 Salário estimado no card
+POST /api/jobs/{id}/salary-estimate/personalized → Mesma estimativa, mas usando a senioridade/stack extraídas do
+                                       perfil do candidato em vez dos dados da vaga.  Body: { "candidateProfile": "..." }
+POST  /api/jobs/{id}/match-score    → Compatibilidade do perfil do candidato com a vaga (0-100 + pontos fortes/a
+                                       desenvolver). Mesmos códigos de erro do cover-letter.  Body: { "candidateProfile": "..." }
+                                       UI: menu 🤖 IA no card
+POST  /api/jobs/{id}/interview-questions → Perguntas prováveis de entrevista pra vaga. Mesmos códigos de erro do
+                                       cover-letter.  Body opcional: { "candidateProfile": "..." }  UI: menu 🤖 IA no card
 ```
 
 ---
@@ -381,27 +515,41 @@ job-radar/
 │   └── src/main/java/br/com/jobradar/
 │       ├── model/        ← Entidade Job
 │       ├── repository/   ← JPA Repository
-│       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, SeniorityClassifier, SalaryExtractor, Aggregator
+│       ├── resources/    ← application.yml, salary_model.json (modelo de salário treinado, ver scripts/)
+│       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, Nerdin, SeniorityClassifier,
+│       │                    SalaryExtractor, Aggregator, SalaryEstimateService/SalaryPredictionService (dado
+│       │                    real + modelo treinado, sem IA generativa), GeminiService (pool de keys) +
+│       │                    AiClassifier/AiDuplicateVerifier/CoverLetter/JobDescriptionService/MatchScore/
+│       │                    InterviewQuestions (IA opcional)
 │       └── controller/   ← REST API (jobs, stats, metrics, duplicates)
+├── scripts/               ← train_salary_model.py (treino offline do modelo de salário, ver scripts/README.md)
 └── frontend/             ← React 18 + TypeScript + Vite
     ├── Dockerfile
     ├── nginx.conf
     └── src/
         ├── components/   ← JobCard, FilterBar, StatsBar, ViewTabs, AddJobModal, MetricsModal,
-        │                    AgendaModal, AgendaStatusBar, InterviewModal
-        ├── hooks/        ← useJobs, useAgenda (integração client-side), useSourceColors
+        │                    AgendaModal, AgendaStatusBar, InterviewModal, SettingsModal,
+        │                    DuplicatesModal, CoverLetterModal, SalaryEstimateModal, MatchScoreModal,
+        │                    InterviewQuestionsModal, AiFeedbackBox (IA opcional, exceto Salary)
+        ├── hooks/         ← useJobs, useAgenda (integração client-side), useSourceColors,
+        │                    useAiStatus, useCandidateProfile, useAiFeedback
+        ├── utils/         ← extractResumeText (PDF/DOCX → texto, 100% client-side)
         └── types/        ← Job, Stats, Filters, Metrics
 ```
 
 ---
 
-## ⚙️ Customizando o horário do fetch
+## ⚙️ Customizando a frequência do fetch
 
 Em `JobAggregatorService.java`:
 ```java
-@Scheduled(cron = "0 0 8 * * *", zone = "America/Sao_Paulo")
+@Scheduled(cron = "0 0 */4 * * *", zone = "America/Sao_Paulo")
 ```
-Muda o cron pra qualquer horário. Formato: `segundos minutos horas * * *`
+Hoje roda a cada 4h (00h, 04h, 08h, 12h, 16h, 20h BRT) — antes era só uma
+vez por dia às 08:00, mas isso atrasava demais vagas postadas à tarde.
+Muda o cron pra qualquer frequência/horário. Formato: `segundos minutos
+horas * * *` (ex: `0 0 */2 * * *` pra a cada 2h, `0 0 8,20 * * *` pra
+8h e 20h especificamente).
 
 ## ⚙️ Customizando os termos de busca da Gupy
 

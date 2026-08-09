@@ -1,4 +1,4 @@
-export type JobSource = 'REMOTIVE' | 'ARBEITNOW' | 'WWR' | 'GUPY' | 'EURECA' | 'GLASSDOOR' | 'MANUAL' | 'QUEROVAGASTECH';
+export type JobSource = 'REMOTIVE' | 'ARBEITNOW' | 'WWR' | 'GUPY' | 'EURECA' | 'GLASSDOOR' | 'MANUAL' | 'QUEROVAGASTECH' | 'NERDIN';
 
 export type Seniority = 'ESTAGIO' | 'JUNIOR' | 'PLENO' | 'SENIOR' | 'NAO_INFORMADO';
 
@@ -31,6 +31,59 @@ export interface Job {
   pcd: boolean;
   pinned: boolean;
   notes: string | null;
+  classifiedByAi: boolean;
+}
+
+// Status da integração com Gemini — GET /api/jobs/ai-status
+export interface AiStatus {
+  enabled: boolean;
+  model: string | null;
+  // Contagem aproximada de chamadas feitas hoje — não é a oficial do Google
+  // (reseta se o backend reiniciar), só um sinal antes de bater no limite.
+  requestsToday: number | null;
+  // Presente só quando há mais de uma GEMINI_API_KEYS configurada — o
+  // backend faz rodízio automático entre elas quando uma bate no limite.
+  keyPool: { total: number; availableToday: number; exhaustedToday: number } | null;
+}
+
+// GET /api/jobs/{id}/salary-estimate — dado real do banco, não IA
+export interface SalaryEstimate {
+  available: boolean;
+  predicted?: number;
+  modelInfo?: { nSamples: number; r2: number; maePercent: number };
+  similarJobs?: { sampleSize: number; min: number; max: number; median: number };
+}
+
+// POST /api/jobs/{id}/salary-estimate/personalized
+export interface PersonalizedSalaryEstimate {
+  available: boolean;
+  predicted?: number;
+  inferredSeniority?: string;
+  inferredStack?: string[];
+}
+
+// POST /api/jobs/{id}/match-score
+export interface MatchScoreResult {
+  score: number;
+  pontosFortes: string[];
+  pontosFaltando: string[];
+  resumo: string;
+}
+
+export interface DuplicateJobRef {
+  id: number;
+  title: string;
+  source: JobSource;
+  url: string;
+  postedAt: string | null;
+}
+
+export interface DuplicateGroup {
+  company: string;
+  jobs: DuplicateJobRef[];
+  // true = a IA (Gemini) confirmou que são a mesma vaga, além do Jaccard por
+  // palavras; false/omitido = só o veredito por similaridade de título (sem IA)
+  aiVerificado?: boolean;
 }
 
 export interface Stats {
@@ -47,6 +100,8 @@ export interface Stats {
     WWR: number;
     GUPY: number;
     EURECA: number;
+    QUEROVAGASTECH: number;
+    NERDIN: number;
   };
   porSenioridade: Record<Seniority, number>;
 }
@@ -110,6 +165,7 @@ export const sourceMeta: Record<string, { label: string; color: string }> = {
   GLASSDOOR:        { label: 'Glassdoor',              color: '#0caa41' },
   MANUAL:           { label: 'Adicionada manualmente', color: '#94a3b8' },
   QUEROVAGASTECH:   { label: 'QueroVagasTech (BR)',    color: '#f97316' },
+  NERDIN:           { label: 'Nerdin (BR)',            color: '#8b5cf6' },
 };
 
 export const workplaceMeta: Record<WorkplaceType, { label: string; icon: string }> = {

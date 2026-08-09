@@ -2,7 +2,14 @@ package br.com.jobradar.controller;
 
 import br.com.jobradar.model.Job;
 import br.com.jobradar.repository.JobRepository;
+import br.com.jobradar.service.AiDuplicateVerifierService;
+import br.com.jobradar.service.CoverLetterService;
+import br.com.jobradar.service.GeminiService;
+import br.com.jobradar.service.InterviewQuestionsService;
 import br.com.jobradar.service.JobAggregatorService;
+import br.com.jobradar.service.MatchScoreService;
+import br.com.jobradar.service.SalaryEstimateService;
+import br.com.jobradar.service.SalaryPredictionService;
 import br.com.jobradar.service.SeniorityClassifier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +31,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
 
@@ -36,6 +44,13 @@ public class JobController {
     private final JobRepository jobRepository;
     private final JobAggregatorService aggregatorService;
     private final SeniorityClassifier seniorityClassifier;
+    private final AiDuplicateVerifierService aiDuplicateVerifierService;
+    private final CoverLetterService coverLetterService;
+    private final GeminiService geminiService;
+    private final SalaryEstimateService salaryEstimateService;
+    private final SalaryPredictionService salaryPredictionService;
+    private final MatchScoreService matchScoreService;
+    private final InterviewQuestionsService interviewQuestionsService;
 
     /**
      * Lista todas as vagas com filtros opcionais
@@ -124,6 +139,23 @@ public class JobController {
         return jobRepository.findDistinctSources();
     }
 
+    /**
+     * Conta quantas vagas foram buscadas (fetchedAt) desde X minutos atrás.
+     * Usado pelo frontend pra avisar "N vagas novas desde sua última visita"
+     * ao abrir o app. Recebe minutos (não um timestamp absoluto do cliente)
+     * de propósito — o cálculo de "agora - minutos" roda inteiramente no
+     * servidor, então não tem risco de descompasso de fuso horário entre
+     * o relógio do navegador e o do backend (já tivemos um bug assim com
+     * a Eureca — ver EurecaService.parseDate).
+     * GET /api/jobs/new-since?minutesAgo=180
+     */
+    @GetMapping("/new-since")
+    public Map<String, Object> getNewSince(@RequestParam long minutesAgo) {
+        long clamped = Math.max(0, Math.min(minutesAgo, 30 * 24 * 60)); // no máximo 30 dias
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(clamped);
+        return Map.of("count", jobRepository.countByFetchedAtAfter(cutoff));
+    }
+
     // Todos os termos da busca devem aparecer em título, empresa ou tags.
     // Ignora acentuação para achar "itau" em "Itaú", "sao paulo" em "São Paulo", etc.
     private boolean matchesSearch(Job j, String search) {
@@ -170,7 +202,9 @@ public class JobController {
                 "ARBEITNOW", jobRepository.countBySource("ARBEITNOW"),
                 "WWR", jobRepository.countBySource("WWR"),
                 "GUPY", jobRepository.countBySource("GUPY"),
-                "EURECA", jobRepository.countBySource("EURECA")
+                "EURECA", jobRepository.countBySource("EURECA"),
+                "QUEROVAGASTECH", jobRepository.countBySource("QUEROVAGASTECH"),
+                "NERDIN", jobRepository.countBySource("NERDIN")
         ));
         stats.put("porSenioridade", Map.of(
                 SeniorityClassifier.ESTAGIO, jobRepository.countBySeniority(SeniorityClassifier.ESTAGIO),
@@ -245,6 +279,12 @@ public class JobController {
      * Só sinaliza pra revisão manual: não deleta nem mescla nada sozinho.
      * GET /api/jobs/duplicates
      */
+    // Limite de grupos verificados por IA por chamada — o Jaccard já reduz
+    // milhares de vagas a um punhado de grupos candidatos, mas ainda assim
+    // pode passar disso, e cada verificação é uma chamada ao Gemini (free
+    // tier tem limite de requisições por minuto).
+    private static final int MAX_VERIFICACOES_IA = 20;
+
     @GetMapping("/duplicates")
     public List<Map<String, Object>> getDuplicates() {
         List<Job> ativos = jobRepository.findAll().stream()
@@ -259,6 +299,7 @@ public class JobController {
         }
 
         List<Map<String, Object>> grupos = new ArrayList<>();
+        int verificacoesIa = 0;
         for (List<Job> candidatos : porEmpresa.values()) {
             if (candidatos.size() < 2) continue;
 
@@ -289,6 +330,19 @@ public class JobController {
                 }
                 if (componente.size() < 2) continue;
 
+                // segunda opinião via IA — descarta grupos que o Jaccard achou parecidos
+                // por palavra mas que são vagas de times/produtos genuinamente diferentes.
+                // Sem IA disponível, ou depois do limite de verificações por chamada,
+                // mantém o comportamento anterior (só o veredito do Jaccard).
+                boolean aiVerificado = false;
+                if (verificacoesIa < MAX_VERIFICACOES_IA) {
+                    List<String> titulos = componente.stream().map(Job::getTitle).toList();
+                    boolean confirmado = aiDuplicateVerifierService.confirmar(componente.get(0).getCompany(), titulos);
+                    verificacoesIa++;
+                    if (!confirmado) continue; // IA disse que são vagas diferentes
+                    aiVerificado = true;
+                }
+
                 List<Map<String, Object>> vagas = componente.stream()
                         .map(j -> {
                             Map<String, Object> m = new HashMap<>();
@@ -303,6 +357,7 @@ public class JobController {
                 Map<String, Object> grupo = new HashMap<>();
                 grupo.put("company", componente.get(0).getCompany());
                 grupo.put("jobs", vagas);
+                grupo.put("aiVerificado", aiVerificado);
                 grupos.add(grupo);
             }
         }
@@ -538,7 +593,36 @@ public class JobController {
         dto.put("pcd", job.getPcd() != null && job.getPcd());
         dto.put("pinned", job.getFavorited() != null && job.getFavorited());
         dto.put("notes", job.getNotes());
+        dto.put("classifiedByAi", job.getClassifiedByAi() != null && job.getClassifiedByAi());
         return dto;
+    }
+
+    /**
+     * Status da integração com IA (Gemini) — o frontend usa isso pra mostrar
+     * se os recursos de IA (carta de apresentação, duplicatas, classificação)
+     * estão ativos, sem nunca expor a key.
+     * GET /api/jobs/ai-status
+     */
+    @GetMapping("/ai-status")
+    public Map<String, Object> aiStatus() {
+        Map<String, Object> status = new HashMap<>();
+        boolean enabled = geminiService.isEnabled();
+        status.put("enabled", enabled);
+        status.put("model", enabled ? geminiService.getModel() : null);
+        // Contagem aproximada (não é a oficial do Google) — só pra dar um
+        // sinal antes do usuário esbarrar no limite do free tier.
+        status.put("requestsToday", enabled ? geminiService.getRequestsToday() : null);
+        if (enabled) {
+            GeminiService.KeyPoolStatus pool = geminiService.getKeyPoolStatus();
+            Map<String, Object> keyPool = new HashMap<>();
+            keyPool.put("total", pool.total());
+            keyPool.put("availableToday", pool.availableToday());
+            keyPool.put("exhaustedToday", pool.exhaustedToday());
+            status.put("keyPool", keyPool);
+        } else {
+            status.put("keyPool", null);
+        }
+        return status;
     }
 
     /**
@@ -565,6 +649,198 @@ public class JobController {
             String text = body.getOrDefault("notes", "");
             job.setNotes(text.isBlank() ? null : text.trim());
             return ResponseEntity.ok(toDto(jobRepository.save(job)));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    // feedbackContext: histórico de avaliações (👍/👎 + comentário) que o
+    // usuário deu em gerações anteriores desse mesmo recurso — mantido só no
+    // localStorage do frontend (ver useAiFeedback), chega aqui formatado como
+    // texto pronto e nunca é persistido no backend, igual ao perfil do candidato.
+    public record CoverLetterRequest(String extraContext, String feedbackContext) {}
+
+    /**
+     * Gera uma carta de apresentação personalizada pra vaga via Gemini —
+     * usa os campos que o Job Radar já tem (não a descrição completa, que
+     * não é armazenada) mais qualquer contexto extra que o usuário quiser
+     * colar no corpo da requisição, mais o histórico de feedback que o
+     * usuário deu em cartas anteriores (se houver). 503 se a IA não estiver
+     * configurada (sem GEMINI_API_KEY), 429 se o free tier estourou (por
+     * minuto ou por dia — a mensagem diz qual), 502 pra qualquer outra falha
+     * do Gemini.
+     * POST /api/jobs/{id}/cover-letter  Body (opcional): { "extraContext": "...", "feedbackContext": "..." }
+     */
+    @PostMapping("/{id}/cover-letter")
+    public ResponseEntity<Map<String, Object>> gerarCartaApresentacao(
+            @PathVariable Long id, @RequestBody(required = false) CoverLetterRequest req) {
+        if (!geminiService.isEnabled()) {
+            return ResponseEntity.status(503)
+                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+        }
+        return jobRepository.findById(id).map(job -> {
+            String extraContext = req != null ? req.extraContext() : null;
+            String feedback = req != null ? req.feedbackContext() : null;
+            GeminiService.GeminiResult resultado = coverLetterService.gerar(job, extraContext, feedback);
+            if (!resultado.ok()) {
+                return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
+                        .body(Map.<String, Object>of("error", resultado.errorMessage()));
+            }
+            return ResponseEntity.ok(Map.<String, Object>of("coverLetter", resultado.text()));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Faixa salarial estimada — dado real do banco, nunca um chute de IA.
+     * Combina duas fontes, nenhuma depende do Gemini estar configurado:
+     * {@code predicted} vem de um modelo (regressão Ridge) treinado offline
+     * sobre as vagas com salário do banco, sempre disponível quando o
+     * modelo carregou (ver SalaryPredictionService — erro médio ~43%,
+     * exposto em {@code modelInfo} pra não esconder a incerteza);
+     * {@code similarJobs} é a mediana das vagas parecidas (mesma senioridade
+     * + tag em comum), disponível só com amostra mínima (>=3).
+     * GET /api/jobs/{id}/salary-estimate
+     */
+    @GetMapping("/{id}/salary-estimate")
+    public ResponseEntity<Map<String, Object>> estimarSalario(@PathVariable Long id) {
+        return jobRepository.findById(id).map(job -> {
+            Map<String, Object> body = new HashMap<>();
+            boolean anyAvailable = false;
+
+            Optional<Long> predicted = salaryPredictionService.predict(
+                    job.getSeniority(), tagList(job.getTags()), job.getWorkplaceType(), job.getState());
+            if (predicted.isPresent()) {
+                body.put("predicted", predicted.get());
+                SalaryPredictionService.ModelInfo info = salaryPredictionService.getModelInfo();
+                body.put("modelInfo", Map.of(
+                        "nSamples", info.nSamples(), "r2", info.r2(), "maePercent", info.maePercent()));
+                anyAvailable = true;
+            }
+
+            Optional<SalaryEstimateService.SalaryEstimate> estimativa = salaryEstimateService.estimate(job);
+            if (estimativa.isPresent()) {
+                SalaryEstimateService.SalaryEstimate e = estimativa.get();
+                Map<String, Object> similar = new HashMap<>();
+                similar.put("sampleSize", e.sampleSize());
+                similar.put("min", e.min());
+                similar.put("max", e.max());
+                similar.put("median", e.median());
+                body.put("similarJobs", similar);
+                anyAvailable = true;
+            }
+
+            body.put("available", anyAvailable);
+            return ResponseEntity.ok(body);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    private List<String> tagList(String tags) {
+        return tags == null || tags.isBlank() ? List.of() : Arrays.asList(tags.split(","));
+    }
+
+    /**
+     * Estimativa personalizada: usa a senioridade/stack extraídas do
+     * currículo/perfil salvo pelo candidato (nunca persistido — vem no
+     * corpo do request) em vez dos dados da vaga, mantendo modalidade e
+     * estado da vaga (isso não muda com quem se candidata). Sempre 200 —
+     * available=false só se o modelo não tiver carregado ou o perfil vier
+     * vazio, nunca erro.
+     * POST /api/jobs/{id}/salary-estimate/personalized  Body: { "candidateProfile": "..." }
+     */
+    @PostMapping("/{id}/salary-estimate/personalized")
+    public ResponseEntity<Map<String, Object>> estimarSalarioPersonalizado(
+            @PathVariable Long id, @RequestBody(required = false) CandidateProfileRequest req) {
+        return jobRepository.findById(id).map(job -> {
+            String perfil = req != null ? req.candidateProfile() : null;
+            Map<String, Object> body = new HashMap<>();
+            if (perfil == null || perfil.isBlank() || !salaryPredictionService.isLoaded()) {
+                body.put("available", false);
+                return ResponseEntity.ok(body);
+            }
+
+            Set<String> stackDoCurriculo = salaryPredictionService.extractTagsFromText(perfil);
+            String senioridadeInferida = seniorityClassifier.classify(perfil, String.join(",", stackDoCurriculo));
+
+            Optional<Long> predicted = salaryPredictionService.predict(
+                    senioridadeInferida, stackDoCurriculo, job.getWorkplaceType(), job.getState());
+            if (predicted.isEmpty()) {
+                body.put("available", false);
+                return ResponseEntity.ok(body);
+            }
+            body.put("available", true);
+            body.put("predicted", predicted.get());
+            body.put("inferredSeniority", senioridadeInferida);
+            body.put("inferredStack", stackDoCurriculo);
+            return ResponseEntity.ok(body);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Exporta as vagas com salário parseável e limpo (mesma lógica do
+     * salary-estimate) pra treinar um modelo real fora do backend — uso
+     * interno/manutenção, não é chamado pelo frontend. Ver
+     * scripts/train_salary_model.py e SalaryPredictionService.
+     * GET /api/jobs/admin/salary-training-data
+     */
+    @GetMapping("/admin/salary-training-data")
+    public List<SalaryEstimateService.TrainingRow> exportSalaryTrainingData() {
+        return salaryEstimateService.exportTrainingData();
+    }
+
+    public record CandidateProfileRequest(String candidateProfile, String feedbackContext) {}
+
+    /**
+     * Compatibilidade entre o perfil/currículo do candidato (enviado pelo
+     * frontend — nunca persistido no backend) e a vaga, considerando também
+     * o histórico de feedback do usuário sobre análises anteriores, se
+     * houver. 503 sem IA configurada, 429 em rate limit, 502 pra outras falhas.
+     * POST /api/jobs/{id}/match-score  Body: { "candidateProfile": "...", "feedbackContext": "..." }
+     */
+    @PostMapping("/{id}/match-score")
+    public ResponseEntity<Map<String, Object>> calcularCompatibilidade(
+            @PathVariable Long id, @RequestBody(required = false) CandidateProfileRequest req) {
+        if (!geminiService.isEnabled()) {
+            return ResponseEntity.status(503)
+                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+        }
+        return jobRepository.findById(id).map(job -> {
+            String perfil = req != null ? req.candidateProfile() : null;
+            String feedback = req != null ? req.feedbackContext() : null;
+            MatchScoreService.MatchOutcome resultado = matchScoreService.calcular(job, perfil, feedback);
+            if (!resultado.ok()) {
+                return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
+                        .body(Map.<String, Object>of("error", resultado.errorMessage()));
+            }
+            MatchScoreService.MatchResult r = resultado.result();
+            Map<String, Object> body = new HashMap<>();
+            body.put("score", r.score());
+            body.put("pontosFortes", r.pontosFortes());
+            body.put("pontosFaltando", r.pontosFaltando());
+            body.put("resumo", r.resumo());
+            return ResponseEntity.ok(body);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Perguntas prováveis de entrevista pra vaga, opcionalmente ajustadas ao
+     * perfil do candidato (mesma regra de privacidade do match-score — só
+     * chega no backend se o frontend mandar nesse request específico).
+     * POST /api/jobs/{id}/interview-questions  Body opcional: { "candidateProfile": "...", "feedbackContext": "..." }
+     */
+    @PostMapping("/{id}/interview-questions")
+    public ResponseEntity<Map<String, Object>> gerarPerguntasEntrevista(
+            @PathVariable Long id, @RequestBody(required = false) CandidateProfileRequest req) {
+        if (!geminiService.isEnabled()) {
+            return ResponseEntity.status(503)
+                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+        }
+        return jobRepository.findById(id).map(job -> {
+            String perfil = req != null ? req.candidateProfile() : null;
+            String feedback = req != null ? req.feedbackContext() : null;
+            InterviewQuestionsService.QuestionsOutcome resultado = interviewQuestionsService.gerar(job, perfil, feedback);
+            if (!resultado.ok()) {
+                return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
+                        .body(Map.<String, Object>of("error", resultado.errorMessage()));
+            }
+            return ResponseEntity.ok(Map.<String, Object>of("questions", resultado.questions()));
         }).orElse(ResponseEntity.notFound().build());
     }
 }

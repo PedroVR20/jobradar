@@ -2,6 +2,10 @@ import { DragEvent, useEffect, useRef, useState } from 'react';
 import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
 import { AgendaModal } from './AgendaModal';
 import { InterviewModal } from './InterviewModal';
+import { CoverLetterModal } from './CoverLetterModal';
+import { SalaryEstimateModal } from './SalaryEstimateModal';
+import { MatchScoreModal } from './MatchScoreModal';
+import { InterviewQuestionsModal } from './InterviewQuestionsModal';
 import { useAgenda } from '../hooks/useAgenda';
 import { useSourceColors } from '../hooks/useSourceColors';
 
@@ -14,6 +18,7 @@ interface Props {
   onTogglePin: (id: number) => void;
   onUpdateNotes: (id: number, notes: string) => void;
   onToast: (msg: string) => void;
+  aiEnabled: boolean;
 }
 
 const techTags = [
@@ -104,7 +109,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -127,13 +132,19 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const daysLeft = job.rejected && job.rejectedAt ? daysUntilDeletion(job.rejectedAt) : null;
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
+  const [coverLetterOpen, setCoverLetterOpen] = useState(false);
+  const [salaryOpen, setSalaryOpen] = useState(false);
+  const [matchScoreOpen, setMatchScoreOpen] = useState(false);
+  const [interviewQuestionsOpen, setInterviewQuestionsOpen] = useState(false);
   const [notesText, setNotesText] = useState(job.notes ?? '');
   const [notesSaved, setNotesSaved] = useState(false);
   const [logoError, setLogoError] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const aiMenuRef = useRef<HTMLDivElement>(null);
   const notesTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -151,6 +162,17 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!aiMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (aiMenuRef.current && !aiMenuRef.current.contains(e.target as Node)) {
+        setAiMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [aiMenuOpen]);
 
   const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
     e.dataTransfer.setData('text/job-id', String(job.id));
@@ -237,6 +259,11 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
                 style={{ background: seniority.color + '22', color: seniority.color, borderColor: seniority.color + '55' }}
               >
                 {seniority.label}
+              </span>
+            )}
+            {job.classifiedByAi && (
+              <span className="badge-ai" title="Senioridade/stack classificados por IA (Gemini), porque o título era ambíguo">
+                🤖
               </span>
             )}
             {job.pcd && (
@@ -397,6 +424,22 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         />
       )}
 
+      {coverLetterOpen && (
+        <CoverLetterModal job={job} onClose={() => setCoverLetterOpen(false)} />
+      )}
+
+      {salaryOpen && (
+        <SalaryEstimateModal job={job} onClose={() => setSalaryOpen(false)} />
+      )}
+
+      {matchScoreOpen && (
+        <MatchScoreModal job={job} onClose={() => setMatchScoreOpen(false)} />
+      )}
+
+      {interviewQuestionsOpen && (
+        <InterviewQuestionsModal job={job} onClose={() => setInterviewQuestionsOpen(false)} />
+      )}
+
       {/* Actions */}
       <div className="card-actions">
         <a
@@ -426,6 +469,48 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
           >
             🎤 Marcar entrevista
           </button>
+        )}
+        {!job.rejected && (
+          <button
+            className="btn btn-ghost"
+            onClick={() => setSalaryOpen(true)}
+            title="Estimativa de faixa salarial baseada em vagas parecidas já cadastradas (dado real, não IA)"
+          >
+            💰 Salário estimado
+          </button>
+        )}
+        {aiEnabled && !job.rejected && (
+          <div className="card-menu ai-menu" ref={aiMenuRef}>
+            <button
+              className="btn btn-ai"
+              onClick={() => setAiMenuOpen(open => !open)}
+              title="Recursos de IA pra essa vaga"
+            >
+              🤖 IA ▾
+            </button>
+            {aiMenuOpen && (
+              <div className="card-menu-dropdown ai-menu-dropdown">
+                <button
+                  className="card-menu-item"
+                  onClick={() => { setAiMenuOpen(false); setCoverLetterOpen(true); }}
+                >
+                  ✉️ Gerar carta de apresentação
+                </button>
+                <button
+                  className="card-menu-item"
+                  onClick={() => { setAiMenuOpen(false); setMatchScoreOpen(true); }}
+                >
+                  🎯 Compatibilidade com meu perfil
+                </button>
+                <button
+                  className="card-menu-item"
+                  onClick={() => { setAiMenuOpen(false); setInterviewQuestionsOpen(true); }}
+                >
+                  ❓ Perguntas prováveis de entrevista
+                </button>
+              </div>
+            )}
+          </div>
         )}
         {!job.applied && (
           <button
