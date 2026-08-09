@@ -278,4 +278,19 @@ public class GeminiService {
     public String generateText(String prompt) {
         return generate(prompt).text();
     }
+
+    /**
+     * Gemini às vezes envolve JSON pedido no prompt em cercas de código
+     * markdown (```json ... ```) mesmo quando instruído a não fazer isso —
+     * helper compartilhado por quem pede resposta em JSON (classificador,
+     * verificador de duplicatas, match score, perguntas de entrevista).
+     */
+    public static String stripMarkdownFences(String text) {
+        if (text == null) return null;
+        String trimmed = text.trim();
+        if (trimmed.startsWith("```")) {
+            trimmed = trimmed.replaceAll("^```(json)?", "").replaceAll("```$", "").trim();
+        }
+        return trimmed;
+    }
 }

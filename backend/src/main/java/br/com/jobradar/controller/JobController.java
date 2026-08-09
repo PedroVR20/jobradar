@@ -5,7 +5,10 @@ import br.com.jobradar.repository.JobRepository;
 import br.com.jobradar.service.AiDuplicateVerifierService;
 import br.com.jobradar.service.CoverLetterService;
 import br.com.jobradar.service.GeminiService;
+import br.com.jobradar.service.InterviewQuestionsService;
 import br.com.jobradar.service.JobAggregatorService;
+import br.com.jobradar.service.MatchScoreService;
+import br.com.jobradar.service.SalaryEstimateService;
 import br.com.jobradar.service.SeniorityClassifier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +30,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
 
@@ -42,6 +46,9 @@ public class JobController {
     private final AiDuplicateVerifierService aiDuplicateVerifierService;
     private final CoverLetterService coverLetterService;
     private final GeminiService geminiService;
+    private final SalaryEstimateService salaryEstimateService;
+    private final MatchScoreService matchScoreService;
+    private final InterviewQuestionsService interviewQuestionsService;
 
     /**
      * Lista todas as vagas com filtros opcionais
@@ -669,6 +676,89 @@ public class JobController {
                         .body(Map.<String, Object>of("error", resultado.errorMessage()));
             }
             return ResponseEntity.ok(Map.<String, Object>of("coverLetter", resultado.text()));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Faixa salarial estimada com base em vagas parecidas (mesma senioridade
+     * + tags em comum) já cadastradas no banco — dado real, não chute de IA.
+     * Não depende do Gemini estar configurado. 200 com available=false
+     * quando não há amostra suficiente (nunca erro, "sem dados" é normal).
+     * GET /api/jobs/{id}/salary-estimate
+     */
+    @GetMapping("/{id}/salary-estimate")
+    public ResponseEntity<Map<String, Object>> estimarSalario(@PathVariable Long id) {
+        return jobRepository.findById(id).map(job -> {
+            Optional<SalaryEstimateService.SalaryEstimate> estimativa = salaryEstimateService.estimate(job);
+            Map<String, Object> body = new HashMap<>();
+            if (estimativa.isEmpty()) {
+                body.put("available", false);
+                return ResponseEntity.ok(body);
+            }
+            SalaryEstimateService.SalaryEstimate e = estimativa.get();
+            body.put("available", true);
+            body.put("sampleSize", e.sampleSize());
+            body.put("min", e.min());
+            body.put("max", e.max());
+            body.put("median", e.median());
+            body.put("formatted", e.formatted());
+            return ResponseEntity.ok(body);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    public record CandidateProfileRequest(String candidateProfile) {}
+
+    /**
+     * Compatibilidade entre o perfil/currículo do candidato (enviado pelo
+     * frontend — nunca persistido no backend) e a vaga. 503 sem IA
+     * configurada, 429 em rate limit, 502 pra outras falhas.
+     * POST /api/jobs/{id}/match-score  Body: { "candidateProfile": "..." }
+     */
+    @PostMapping("/{id}/match-score")
+    public ResponseEntity<Map<String, Object>> calcularCompatibilidade(
+            @PathVariable Long id, @RequestBody(required = false) CandidateProfileRequest req) {
+        if (!geminiService.isEnabled()) {
+            return ResponseEntity.status(503)
+                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+        }
+        return jobRepository.findById(id).map(job -> {
+            String perfil = req != null ? req.candidateProfile() : null;
+            MatchScoreService.MatchOutcome resultado = matchScoreService.calcular(job, perfil);
+            if (!resultado.ok()) {
+                return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
+                        .body(Map.<String, Object>of("error", resultado.errorMessage()));
+            }
+            MatchScoreService.MatchResult r = resultado.result();
+            Map<String, Object> body = new HashMap<>();
+            body.put("score", r.score());
+            body.put("pontosFortes", r.pontosFortes());
+            body.put("pontosFaltando", r.pontosFaltando());
+            body.put("resumo", r.resumo());
+            return ResponseEntity.ok(body);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Perguntas prováveis de entrevista pra vaga, opcionalmente ajustadas ao
+     * perfil do candidato (mesma regra de privacidade do match-score — só
+     * chega no backend se o frontend mandar nesse request específico).
+     * POST /api/jobs/{id}/interview-questions  Body opcional: { "candidateProfile": "..." }
+     */
+    @PostMapping("/{id}/interview-questions")
+    public ResponseEntity<Map<String, Object>> gerarPerguntasEntrevista(
+            @PathVariable Long id, @RequestBody(required = false) CandidateProfileRequest req) {
+        if (!geminiService.isEnabled()) {
+            return ResponseEntity.status(503)
+                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+        }
+        return jobRepository.findById(id).map(job -> {
+            String perfil = req != null ? req.candidateProfile() : null;
+            InterviewQuestionsService.QuestionsOutcome resultado = interviewQuestionsService.gerar(job, perfil);
+            if (!resultado.ok()) {
+                return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
+                        .body(Map.<String, Object>of("error", resultado.errorMessage()));
+            }
+            return ResponseEntity.ok(Map.<String, Object>of("questions", resultado.questions()));
         }).orElse(ResponseEntity.notFound().build());
     }
 }

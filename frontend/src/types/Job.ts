@@ -46,6 +46,24 @@ export interface AiStatus {
   keyPool: { total: number; availableToday: number; exhaustedToday: number } | null;
 }
 
+// GET /api/jobs/{id}/salary-estimate — dado real do banco, não IA
+export interface SalaryEstimate {
+  available: boolean;
+  sampleSize?: number;
+  min?: number;
+  max?: number;
+  median?: number;
+  formatted?: string;
+}
+
+// POST /api/jobs/{id}/match-score
+export interface MatchScoreResult {
+  score: number;
+  pontosFortes: string[];
+  pontosFaltando: string[];
+  resumo: string;
+}
+
 export interface DuplicateJobRef {
   id: number;
   title: string;

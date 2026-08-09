@@ -383,9 +383,20 @@ escopo do Job Radar.
 
 | Recurso | Onde aparece | O que faz |
 |---|---|---|
-| **Carta de apresentação** | Botão **🤖 Gerar carta** em cada vaga (some se a IA estiver desativada), abre um modal próprio com campo de contexto extra opcional e botão de copiar | `POST /api/jobs/{id}/cover-letter` gera uma carta personalizada a partir do que a vaga tem salva (título, empresa, senioridade, modalidade, local, tags, salário, suas notas). Sem descrição completa da vaga nem seu currículo no banco, então o texto fica específico sobre a vaga mas genérico sobre sua experiência — a IA é instruída a não inventar histórico profissional, então normalmente vale revisar/completar antes de enviar. |
+| **Carta de apresentação** | Menu **🤖 IA** em cada vaga → "✉️ Gerar carta de apresentação", abre um modal próprio com campo de contexto extra opcional e botão de copiar | `POST /api/jobs/{id}/cover-letter` gera uma carta a partir do que a vaga tem salva (título, empresa, senioridade, modalidade, local, tags, salário, suas notas) **mais a descrição real da vaga**, buscada na hora na própria página dela (best effort — nem toda fonte deixa, ver JobDescriptionService abaixo). A IA é instruída a não inventar histórico profissional que você não informou. |
+| **Compatibilidade com seu perfil** | Menu **🤖 IA** → "🎯 Compatibilidade com meu perfil" | Compara seu currículo/perfil (o que você salvou em Configurações, ou cola na hora) com os requisitos reais da vaga e devolve uma nota 0-100% honesta, pontos fortes e pontos a desenvolver — a IA é instruída a não inflar a nota. |
+| **Perguntas prováveis de entrevista** | Menu **🤖 IA** → "❓ Perguntas prováveis de entrevista" | Gera de 6 a 8 perguntas técnicas + comportamentais específicas da vaga/stack (não genéricas tipo "fale sobre você"), considerando seu perfil salvo quando disponível. |
+| **Faixa salarial estimada** | Botão **💰 Salário estimado** em cada vaga (sempre visível, não depende da IA estar ativa) | **Não usa IA** — calcula estatística real (mediana, min, max) a partir de outras vagas parecidas (mesma senioridade + tecnologias em comum) já cadastradas no banco. Preferimos "sem dados suficientes" a um número inventado por um modelo — salário é decisão de negociação de verdade. |
 | **Detecção de duplicatas mais precisa** | Botão **🧩 Duplicatas** no cabeçalho, cada grupo confirmado pela IA leva o selo "🤖 confirmado por IA" | O endpoint `/api/jobs/duplicates` (mesma empresa + título parecido, já existia) agora pede uma segunda opinião ao Gemini pra descartar grupos que só parecem duplicata por palavra em comum mas são vagas de times/produtos diferentes. Limitado a 20 verificações por chamada (limite do free tier) — grupos além disso mantêm só o veredito por similaridade de palavras. |
 | **Classificação de senioridade/stack** | Selo **🤖** ao lado do badge de senioridade, nas vagas que passaram por ele | Quando o classificador por regex não decide (título ambíguo ou em outro idioma), uma chamada extra ao Gemini tenta resolver e também extrai tecnologias citadas no título pra completar as tags. Só roda nos casos que o regex não resolveu, não em toda vaga nova — o selo só aparece em vagas novas processadas depois que a IA foi ligada, não retroage nas antigas. |
+
+**Descrição real da vaga (JobDescriptionService):** carta, compatibilidade e
+perguntas de entrevista buscam a página da própria vaga (Jsoup) e extraem o
+texto principal na hora, sem guardar nada no banco — best effort, nem todo
+site deixa (SPAs renderizados em JS ficam sem texto, cai de volta pros
+campos que a vaga já tinha). Perfil de candidato usado em compatibilidade e
+perguntas nunca é persistido no backend — só chega junto do request que o
+usa, vindo do que o frontend já tem salvo em `localStorage`.
 
 ---
 
@@ -462,7 +473,15 @@ PATCH /api/jobs/{id}/pin            → Fixa/desfixa vaga no topo da lista (pinn
 PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes": "..." }
 POST  /api/jobs/{id}/cover-letter   → Gera carta de apresentação via IA. 503 sem GEMINI_API_KEY, 429 se o free tier
                                        estourou (mensagem diz se foi por minuto ou por dia), 502 pra outras falhas do
-                                       Gemini.  Body opcional: { "extraContext": "..." }  UI: botão 🤖 Gerar carta no card
+                                       Gemini.  Body opcional: { "extraContext": "..." }  UI: menu 🤖 IA no card
+GET  /api/jobs/{id}/salary-estimate → Faixa salarial estimada por dados reais do banco (não IA). Sempre 200; body
+                                       tem available:false quando não há amostra suficiente.  UI: botão 💰 Salário
+                                       estimado no card (não depende da IA estar ativa)
+POST  /api/jobs/{id}/match-score    → Compatibilidade do perfil do candidato com a vaga (0-100 + pontos fortes/a
+                                       desenvolver). Mesmos códigos de erro do cover-letter.  Body: { "candidateProfile": "..." }
+                                       UI: menu 🤖 IA no card
+POST  /api/jobs/{id}/interview-questions → Perguntas prováveis de entrevista pra vaga. Mesmos códigos de erro do
+                                       cover-letter.  Body opcional: { "candidateProfile": "..." }  UI: menu 🤖 IA no card
 ```
 
 ---
@@ -482,7 +501,9 @@ job-radar/
 │       ├── model/        ← Entidade Job
 │       ├── repository/   ← JPA Repository
 │       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, Nerdin, SeniorityClassifier,
-│       │                    SalaryExtractor, Aggregator, GeminiService + AiClassifier/AiDuplicateVerifier/CoverLetter (IA opcional)
+│       │                    SalaryExtractor, Aggregator, SalaryEstimateService (dado real, sem IA),
+│       │                    GeminiService (pool de keys) + AiClassifier/AiDuplicateVerifier/CoverLetter/
+│       │                    JobDescriptionService/MatchScore/InterviewQuestions (IA opcional)
 │       └── controller/   ← REST API (jobs, stats, metrics, duplicates)
 └── frontend/             ← React 18 + TypeScript + Vite
     ├── Dockerfile
@@ -490,7 +511,8 @@ job-radar/
     └── src/
         ├── components/   ← JobCard, FilterBar, StatsBar, ViewTabs, AddJobModal, MetricsModal,
         │                    AgendaModal, AgendaStatusBar, InterviewModal, SettingsModal,
-        │                    DuplicatesModal, CoverLetterModal (IA opcional)
+        │                    DuplicatesModal, CoverLetterModal, SalaryEstimateModal, MatchScoreModal,
+        │                    InterviewQuestionsModal (IA opcional, exceto Salary)
         ├── hooks/         ← useJobs, useAgenda (integração client-side), useSourceColors,
         │                    useAiStatus, useCandidateProfile
         ├── utils/         ← extractResumeText (PDF/DOCX → texto, 100% client-side)

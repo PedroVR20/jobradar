@@ -10,19 +10,19 @@ import java.util.stream.Stream;
 /**
  * Gera carta de apresentação personalizada por vaga via Gemini. Usa os
  * campos que o Job Radar já guarda (título, empresa, senioridade, modalidade,
- * local, tags, salário, notas pessoais do usuário) — o modelo de dados não
- * tem a descrição completa da vaga nem o currículo/perfil do candidato, então
- * o resultado é um texto direcionado à vaga, mas genérico quanto à
- * experiência do candidato (o prompt instrui a IA a não inventar histórico
- * profissional). O campo extraContext deixa o usuário colar mais detalhes
- * (trechos da descrição, requisitos, seu próprio resumo) pra melhorar a
- * qualidade quando quiser.
+ * local, tags, salário, notas pessoais do usuário), mais a descrição real da
+ * vaga buscada na hora na própria página dela (best effort — nem toda fonte
+ * deixa, ver JobDescriptionService) e o currículo/perfil do candidato quando
+ * o usuário salvou um em Configurações (enviado pelo frontend, nunca
+ * persistido no backend). O campo extraContext deixa colar mais detalhes
+ * pontuais pra essa vaga específica, por cima disso tudo.
  */
 @Service
 @RequiredArgsConstructor
 public class CoverLetterService {
 
     private final GeminiService geminiService;
+    private final JobDescriptionService jobDescriptionService;
 
     public GeminiService.GeminiResult gerar(Job job, String extraContext) {
         StringBuilder contexto = new StringBuilder();
@@ -47,8 +47,14 @@ public class CoverLetterService {
         if (job.getNotes() != null && !job.getNotes().isBlank()) {
             contexto.append("Notas pessoais do candidato sobre essa vaga: ").append(job.getNotes()).append("\n");
         }
+
+        String descricao = jobDescriptionService.fetchDescription(job.getUrl());
+        if (descricao != null) {
+            contexto.append("Descrição completa da vaga (extraída da página real):\n").append(descricao).append("\n");
+        }
+
         if (extraContext != null && !extraContext.isBlank()) {
-            contexto.append("Contexto adicional fornecido pelo candidato:\n").append(extraContext).append("\n");
+            contexto.append("Contexto adicional/perfil fornecido pelo candidato:\n").append(extraContext).append("\n");
         }
 
         String prompt = """
@@ -56,11 +62,13 @@ public class CoverLetterService {
                 em português do Brasil, em primeira pessoa, para uma candidatura à
                 vaga abaixo. Tom profissional mas natural, sem clichês genéricos tipo
                 "sou apaixonado por tecnologia" — foque em conectar o perfil às
-                informações concretas da vaga. Não invente experiências, certificações
-                ou anos de carreira que não foram informados: se não houver dados
-                suficientes sobre o histórico do candidato, mantenha o texto focado no
-                interesse genuíno pela vaga/empresa/stack e peça a oportunidade de uma
-                conversa, sem inventar trajetória profissional.
+                informações concretas da vaga (se houver descrição completa, use os
+                requisitos/responsabilidades reais dela, não só o título). Não invente
+                experiências, certificações ou anos de carreira que não foram
+                informados: se não houver dados suficientes sobre o histórico do
+                candidato, mantenha o texto focado no interesse genuíno pela
+                vaga/empresa/stack e peça a oportunidade de uma conversa, sem inventar
+                trajetória profissional.
 
                 %s
 
