@@ -9,8 +9,11 @@ import {
   JarvisSalarioData,
   JarvisSalarioVaga,
   JarvisToolResult,
+  LearningPlan,
 } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
+import { useAiFeedback } from '../hooks/useAiFeedback';
+import { AiFeedbackBox } from './AiFeedbackBox';
 import { HunterIcon } from './HunterIcon';
 
 interface Props {
@@ -18,9 +21,17 @@ interface Props {
 }
 
 type Message =
-  | { id: number; role: 'user'; text: string }
+  | { id: number; role: 'user'; text: string; imageDataUrl?: string }
   | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[] }
   | { id: number; role: 'assistant-loading' };
+
+// Imagem anexada/colada no chat, já convertida — dataUrl é só pra pré-visualizar
+// e reexibir na bolha enviada; base64/mimeType é o que de fato vai pro backend.
+interface AttachedImage {
+  dataUrl: string;
+  mimeType: string;
+  base64: string;
+}
 
 interface Conversation {
   id: string;
@@ -52,6 +63,37 @@ function scoreColor(score: number): string {
 
 function formatBRL(valor: number): string {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+}
+
+// Print de tela raramente passa de 1-2MB — 6MB de folga cobre até screenshot
+// de monitor 4K sem comprimir, e ainda fica bem abaixo do limite de POST do
+// backend (12MB, já contando a expansão de ~33% do base64).
+const MAX_ATTACH_BYTES = 6 * 1024 * 1024;
+const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+
+class AttachError extends Error {}
+
+// FileReader.readAsDataURL devolve "data:image/png;base64,AAAA..." — separa
+// o prefixo (guardado à parte só pra pré-visualização) do miolo em base64
+// puro que de fato vai pro backend (Gemini espera só os bytes, sem o prefixo).
+function readFileAsAttachedImage(file: File): Promise<AttachedImage> {
+  if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+    return Promise.reject(new AttachError('Só imagens PNG, JPEG, WEBP ou GIF — esse arquivo é ' + (file.type || 'de tipo desconhecido') + '.'));
+  }
+  if (file.size > MAX_ATTACH_BYTES) {
+    return Promise.reject(new AttachError(`Imagem muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB) — o limite é ${MAX_ATTACH_BYTES / 1024 / 1024}MB.`));
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new AttachError('Não consegui ler essa imagem.'));
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const comma = dataUrl.indexOf(',');
+      if (comma === -1) { reject(new AttachError('Não consegui ler essa imagem.')); return; }
+      resolve({ dataUrl, mimeType: file.type, base64: dataUrl.slice(comma + 1) });
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 // ===================== Markdown "lite" =====================
@@ -369,7 +411,70 @@ function CompatDashboard({ hits }: { hits: JarvisCompatibilidadeHit[] }) {
   );
 }
 
-function CompatibilidadeCard({ data }: { data: JarvisCompatibilidadeData }) {
+// Mesmo componente/endpoint que o "📚 Plano de ação" do modal de compatibilidade
+// (ver GapItem em MatchScoreModal.tsx) — só troca `job: Job` por `jobId:
+// number` porque aqui só temos o id/título/empresa da vaga (JarvisCompatibilidadeHit),
+// não o objeto Job inteiro. Usa a MESMA featureKey 'learning-plan' no
+// AiFeedbackBox — o 👍/👎 dado aqui cai no mesmo pool de feedback que o
+// modal já usa, então o que o usuário avalia num lugar vale pro outro também.
+function ChatGapItem({ jobId, gap, candidateProfile, feedbackContext }: {
+  jobId: number; gap: string; candidateProfile: string; feedbackContext: string;
+}) {
+  const [plan, setPlan] = useState<LearningPlan | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const handleGeneratePlan = async () => {
+    if (plan) { setOpen(o => !o); return; }
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/learning-plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gap, candidateProfile, feedbackContext: feedbackContext || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Não foi possível gerar o plano agora. Tente de novo.');
+        return;
+      }
+      setPlan(data as LearningPlan);
+      setOpen(true);
+    } catch {
+      setError('Erro de conexão com o backend.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <li className="match-gap-item">
+      <span className="match-gap-text">{gap}</span>
+      <button type="button" className="match-plan-btn" onClick={handleGeneratePlan} disabled={loading}>
+        {loading ? '⏳ Gerando plano...' : plan ? (open ? '📚 Ocultar plano' : '📚 Ver plano') : '📚 Plano de ação'}
+      </button>
+      {error && <p className="agenda-error match-gap-error">{error}</p>}
+      {plan && open && (
+        <div className="match-plan">
+          {plan.resumo && <p className="match-plan-resumo">{plan.resumo}</p>}
+          {plan.tempoEstimado && <span className="match-plan-tempo">⏱ {plan.tempoEstimado}</span>}
+          {plan.passos.length > 0 && (
+            <ol className="match-plan-steps">
+              {plan.passos.map((passo, i) => <li key={i}>{passo}</li>)}
+            </ol>
+          )}
+          <AiFeedbackBox featureKey="learning-plan" label="Esse plano ficou bom?" />
+        </div>
+      )}
+    </li>
+  );
+}
+
+function CompatibilidadeCard({ data, candidateProfile, planFeedbackContext }: {
+  data: JarvisCompatibilidadeData; candidateProfile: string; planFeedbackContext: string;
+}) {
   if (!data.available) {
     return <p>{data.erro ?? 'Recurso de IA indisponível no momento.'}</p>;
   }
@@ -401,6 +506,24 @@ function CompatibilidadeCard({ data }: { data: JarvisCompatibilidadeData }) {
               </div>
             </div>
             <p className="jarvis-hit-resumo">{h.resumo}</p>
+            {!!h.pontosFortes?.length && (
+              <div className="match-section">
+                <h4 className="match-section-title match-section-title--good">✅ Pontos fortes</h4>
+                <ul className="match-list">
+                  {h.pontosFortes.map((p, i) => <li key={i}>{p}</li>)}
+                </ul>
+              </div>
+            )}
+            {!!h.pontosFaltando?.length && (
+              <div className="match-section">
+                <h4 className="match-section-title match-section-title--gap">⚠️ Pontos a desenvolver</h4>
+                <ul className="match-list">
+                  {h.pontosFaltando.map((p, i) => (
+                    <ChatGapItem key={i} jobId={h.id} gap={p} candidateProfile={candidateProfile} feedbackContext={planFeedbackContext} />
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -494,7 +617,9 @@ function SalarioCard({ data }: { data: JarvisSalarioData }) {
   );
 }
 
-function ToolResultCard({ result }: { result: JarvisToolResult }) {
+function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
+  result: JarvisToolResult; candidateProfile: string; planFeedbackContext: string;
+}) {
   switch (result.tool) {
     case 'listarVagas':
       return <ListarVagasCard data={result.data as JarvisListarVagasData} />;
@@ -502,7 +627,13 @@ function ToolResultCard({ result }: { result: JarvisToolResult }) {
       return <ResumoFunilCard data={result.data as JarvisResumoFunilData} />;
     case 'compatibilidadeComVagasRecentes':
     case 'compatibilidadeComVagasDoFunil':
-      return <CompatibilidadeCard data={result.data as JarvisCompatibilidadeData} />;
+      return (
+        <CompatibilidadeCard
+          data={result.data as JarvisCompatibilidadeData}
+          candidateProfile={candidateProfile}
+          planFeedbackContext={planFeedbackContext}
+        />
+      );
     case 'estimativaSalarialDeVagas':
       return <SalarioCard data={result.data as JarvisSalarioData} />;
     default:
@@ -549,6 +680,12 @@ function HistoryView({
 
 export function JarvisPanel({ onClose }: Props) {
   const { profile } = useCandidateProfile();
+  // Mesmas featureKeys que MatchScoreModal.tsx usa pros cards de vaga — o
+  // 👍/👎 dado ali OU aqui no chat cai no mesmo pool salvo em localStorage,
+  // então o feedback vale nos dois lugares (antes o chat não tinha acesso
+  // nenhum a esse histórico).
+  const { buildContext: buildMatchFeedbackContext } = useAiFeedback('match-score');
+  const { buildContext: buildPlanFeedbackContext } = useAiFeedback('learning-plan');
   const [conversations, setConversations] = useState<Conversation[]>(loadConversations);
   const [activeId, setActiveId] = useState<string>(loadActiveId);
   const [view, setView] = useState<'chat' | 'history'>('chat');
@@ -561,6 +698,10 @@ export function JarvisPanel({ onClose }: Props) {
   // mensagem enviada de volta pro campo (útil quando o Hunter erra numa
   // mensagem enorme e ela já não tá mais no clipboard) e ↓ vai voltando.
   const [historyNav, setHistoryNav] = useState<{ index: number; draft: string } | null>(null);
+  const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
+  const [attachError, setAttachError] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // loadConversations() e loadActiveId() são inicializadores independentes
@@ -691,17 +832,28 @@ export function JarvisPanel({ onClose }: Props) {
   // conversa ativa inteiro pro backend, e é o próprio Gemini que decide se e
   // quais ferramentas chamar (listarVagas, resumoFunil,
   // compatibilidadeComVagasRecentes) a partir da linguagem natural.
-  const handleSend = async (text: string) => {
+  // `image`, se presente, vai só na mensagem mais nova (print anexado/colado
+  // pelo usuário) — nunca reenviamos imagens de mensagens antigas.
+  const handleSend = async (text: string, image?: AttachedImage | null) => {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
+    if ((!trimmed && !image) || busy) return;
 
     const historicoAnterior = messages
       .filter((m): m is Extract<Message, { role: 'user' | 'assistant' }> => m.role === 'user' || m.role === 'assistant')
       .map(m => ({ role: m.role, text: m.text }));
-    const history = [...historicoAnterior, { role: 'user' as const, text: trimmed }];
+    const history = [
+      ...historicoAnterior,
+      {
+        role: 'user' as const,
+        text: trimmed,
+        ...(image ? { imageMimeType: image.mimeType, imageBase64: image.base64 } : {}),
+      },
+    ];
 
-    addMessage({ role: 'user', text: trimmed } as Omit<Message, 'id'>);
+    addMessage({ role: 'user', text: trimmed, imageDataUrl: image?.dataUrl } as Omit<Message, 'id'>);
     setInput('');
+    setAttachedImage(null);
+    setAttachError('');
     setHistoryNav(null);
     setBusy(true);
     addMessage({ role: 'assistant-loading' } as Omit<Message, 'id'>);
@@ -710,7 +862,7 @@ export function JarvisPanel({ onClose }: Props) {
       const res = await fetch('/api/jobs/assistant/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ history, candidateProfile: profile }),
+        body: JSON.stringify({ history, candidateProfile: profile, feedbackContext: buildMatchFeedbackContext() }),
       });
       removeLoading();
 
@@ -737,13 +889,34 @@ export function JarvisPanel({ onClose }: Props) {
     }
   };
 
-  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter manda a mensagem (como todo chat) — Shift+Enter quebra linha
+    // normalmente. Precisa checar isComposing pra não disparar envio no meio
+    // de um input assistido (IME de chinês/japonês/coreano confirmando com
+    // Enter), embora raro nesse app em pt-BR.
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      handleSend(input, attachedImage);
+      return;
+    }
+
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
 
     const userMessages = messages.filter((m): m is Extract<Message, { role: 'user' }> => m.role === 'user');
     if (userMessages.length === 0) return;
 
+    // Textarea agora pode ter várias linhas — só sequestra a seta quando ela
+    // faria a mesma coisa num campo de uma linha só (cursor bem no início
+    // pra ↑, ou já estava navegando o histórico, que sempre substitui o
+    // campo inteiro então a posição do cursor deixa de importar). Sem essa
+    // trava, ↑/↓ pra mover o cursor dentro de um rascunho de várias linhas
+    // ficaria impossível.
+    const ta = e.currentTarget;
+    const cursorNoInicio = ta.selectionStart === 0 && ta.selectionEnd === 0;
+    const cursorNoFim = ta.selectionStart === ta.value.length && ta.selectionEnd === ta.value.length;
+
     if (e.key === 'ArrowUp') {
+      if (!historyNav && !cursorNoInicio) return;
       e.preventDefault();
       if (!historyNav) {
         const idx = userMessages.length - 1;
@@ -758,7 +931,7 @@ export function JarvisPanel({ onClose }: Props) {
     }
 
     // ArrowDown
-    if (!historyNav) return;
+    if (!historyNav || !cursorNoFim) return;
     e.preventDefault();
     if (historyNav.index < userMessages.length - 1) {
       const idx = historyNav.index + 1;
@@ -768,6 +941,45 @@ export function JarvisPanel({ onClose }: Props) {
       setInput(historyNav.draft);
       setHistoryNav(null);
     }
+  };
+
+  // Auto-grow: cresce junto com o texto (word-wrap deixa tudo visível sem
+  // precisar rolar horizontalmente) até um teto, depois passa a rolar dentro
+  // da própria caixa. Reseta pra 'auto' antes de medir scrollHeight, senão o
+  // navegador nunca encolhe de volta ao apagar texto.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+  }, [input]);
+
+  const handleAttachFile = async (file: File) => {
+    setAttachError('');
+    try {
+      const img = await readFileAsAttachedImage(file);
+      setAttachedImage(img);
+    } catch (e) {
+      setAttachError(e instanceof AttachError ? e.message : 'Não foi possível anexar essa imagem.');
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permite anexar o mesmo arquivo de novo depois
+    if (file) handleAttachFile(file);
+  };
+
+  // Print colado (Ctrl+V) é o jeito mais natural de anexar um print de vaga
+  // — não precisa procurar o arquivo salvo. Só intercepta quando o clipboard
+  // realmente tem uma imagem; texto colado continua funcionando normal.
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const item = Array.from(e.clipboardData.items).find(i => i.type.startsWith('image/'));
+    if (!item) return;
+    const file = item.getAsFile();
+    if (!file) return;
+    e.preventDefault();
+    handleAttachFile(file);
   };
 
   return createPortal(
@@ -806,7 +1018,12 @@ export function JarvisPanel({ onClose }: Props) {
           <div className="jarvis-messages" ref={scrollRef}>
             {messages.map(m => {
               if (m.role === 'user') {
-                return <div key={m.id} className="jarvis-bubble jarvis-bubble--user">{m.text}</div>;
+                return (
+                  <div key={m.id} className="jarvis-bubble jarvis-bubble--user">
+                    {m.imageDataUrl && <img src={m.imageDataUrl} alt="Print anexado" className="jarvis-msg-image" />}
+                    {m.text}
+                  </div>
+                );
               }
               if (m.role === 'assistant-loading') {
                 return (
@@ -824,7 +1041,14 @@ export function JarvisPanel({ onClose }: Props) {
                   <div className="jarvis-bubble jarvis-bubble--assistant">
                     {m.toolResults && m.toolResults.length > 0 && (
                       <div className="jarvis-tool-results">
-                        {m.toolResults.map((tr, i) => <ToolResultCard key={i} result={tr} />)}
+                        {m.toolResults.map((tr, i) => (
+                          <ToolResultCard
+                            key={i}
+                            result={tr}
+                            candidateProfile={profile}
+                            planFeedbackContext={buildPlanFeedbackContext()}
+                          />
+                        ))}
                       </div>
                     )}
                     {renderMarkdownLite(m.text)}
@@ -845,16 +1069,45 @@ export function JarvisPanel({ onClose }: Props) {
             )}
           </div>
 
-          <form className="jarvis-input-row" onSubmit={e => { e.preventDefault(); handleSend(input); }}>
+          {attachError && <p className="jarvis-attach-error">⚠️ {attachError}</p>}
+
+          {attachedImage && (
+            <div className="jarvis-attach-preview">
+              <img src={attachedImage.dataUrl} alt="Print a anexar" />
+              <button type="button" className="jarvis-attach-remove" onClick={() => setAttachedImage(null)} aria-label="Remover imagem">✕</button>
+            </div>
+          )}
+
+          <form className="jarvis-input-row" onSubmit={e => { e.preventDefault(); handleSend(input, attachedImage); }}>
             <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPTED_IMAGE_TYPES.join(',')}
+              className="jarvis-file-input"
+              onChange={handleFileInputChange}
+            />
+            <button
+              type="button"
+              className="jarvis-attach-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={busy}
+              aria-label="Anexar print"
+              title="Anexar print (ou cole com Ctrl+V no campo de texto)"
+            >
+              📎
+            </button>
+            <textarea
+              ref={textareaRef}
               className="jarvis-input"
+              rows={1}
               value={input}
               onChange={e => { setInput(e.target.value); setHistoryNav(null); }}
               onKeyDown={handleInputKeyDown}
-              placeholder="Pergunte algo pro Hunter... (↑ recupera mensagens anteriores)"
+              onPaste={handlePaste}
+              placeholder="Pergunte algo pro Hunter... (Shift+Enter quebra linha, ↑ recupera mensagens, cole um print com Ctrl+V)"
               disabled={busy}
             />
-            <button type="submit" className="jarvis-send-btn" disabled={busy || !input.trim()} aria-label="Enviar">➤</button>
+            <button type="submit" className="jarvis-send-btn" disabled={busy || (!input.trim() && !attachedImage)} aria-label="Enviar">➤</button>
           </form>
         </>
       )}

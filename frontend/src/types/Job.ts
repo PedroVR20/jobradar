@@ -131,6 +131,8 @@ export interface JarvisCompatibilidadeHit {
   url: string;
   score: number;
   resumo: string;
+  pontosFortes?: string[];
+  pontosFaltando?: string[];
 }
 
 export interface JarvisCompatibilidadeData {

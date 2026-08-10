@@ -116,6 +116,25 @@ public class JarvisChatService {
             números já visíveis no card não dizem sozinhos (ex: "a faixa ficou
             concentrada entre 6 e 8 mil, só a vaga X destoa pra cima").
 
+            Sobre "pontos a desenvolver": quando compatibilidadeComVagasRecentes ou
+            compatibilidadeComVagasDoFunil devolvem pontosFaltando pra uma vaga, a
+            interface já mostra um botão "📚 Plano de ação" do lado de cada ponto —
+            clicando, o usuário gera um plano de estudo detalhado pra aquele ponto
+            específico, sem precisar te pedir nada. Você NÃO gera esse plano (não
+            existe ferramenta pra isso) — seu papel é só, no texto, mencionar de
+            passagem que dá pra clicar no botão em qualquer ponto que quiser
+            aprofundar (só na primeira vez que aparecer numa conversa, não repita
+            isso toda resposta).
+
+            Se o usuário anexar uma imagem (print de tela) na mensagem: descreva
+            objetivamente o que reconhece nela (título da vaga, empresa, status/aba
+            aparente, badges visíveis) e, se conseguir ler título e/ou empresa com
+            confiança, chame listarVagas com esse texto no parâmetro busca pra
+            confirmar contra o dado real e trazer o card de verdade (status,
+            anotações, link) — NUNCA afirme status, nota ou qualquer dado da vaga só
+            pelo que "parece" na imagem sem confirmar via listarVagas. Se a busca não
+            achar nada compatível, diga isso e pergunte mais detalhes, não invente.
+
             Se o usuário perguntar algo sem relação com o Job Radar (vagas,
             candidatura, perfil, salário), explique educadamente que você só ajuda
             com isso.
@@ -133,7 +152,19 @@ public class JarvisChatService {
             separadores "---", isso é formatação de documento, não de chat.
             """;
 
-    public record ChatMessage(String role, String text) {} // role: "user" | "assistant"
+    // role: "user" | "assistant". imageMimeType/imageBase64 só fazem sentido
+    // numa mensagem "user" — usado quando o usuário anexa um print no chat
+    // (ver GeminiService.userTurnWithImage). Construtor de 2 args mantém
+    // compatível todo código que já criava ChatMessage sem imagem.
+    public record ChatMessage(String role, String text, String imageMimeType, String imageBase64) {
+        public ChatMessage(String role, String text) {
+            this(role, text, null, null);
+        }
+
+        public boolean temImagem() {
+            return imageMimeType != null && !imageMimeType.isBlank() && imageBase64 != null && !imageBase64.isBlank();
+        }
+    }
 
     public record ToolResultPayload(String tool, Object data) {}
 
@@ -144,6 +175,15 @@ public class JarvisChatService {
     }
 
     public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile) {
+        return conversar(historico, candidateProfile, null);
+    }
+
+    // feedbackContext: 👍/👎 salvos em ⚙️/nos cards de vaga (useAiFeedback no
+    // frontend) pras análises de compatibilidade — antes só chegava nos
+    // endpoints diretos (match-score, learning-plan), nunca no chat. Agora o
+    // Hunter usa o MESMO histórico de feedback, então o que o usuário avalia
+    // ali também refina o que o Hunter mostra na conversa.
+    public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext) {
         if (historico == null || historico.isEmpty()) {
             return new ChatOutcome(null, List.of(), "Mensagem vazia.", false);
         }
@@ -154,7 +194,17 @@ public class JarvisChatService {
 
         List<Map<String, Object>> contents = new ArrayList<>();
         for (ChatMessage m : recortado) {
-            contents.add("user".equals(m.role()) ? geminiService.userTurn(m.text()) : geminiService.modelTurn(m.text()));
+            if ("user".equals(m.role())) {
+                // Imagem só é anexada na mensagem mais recente (ver
+                // handleSend no frontend) — não reenviamos prints antigos a
+                // cada rodada, senão o payload/custo cresce sem limite numa
+                // conversa longa.
+                contents.add(m.temImagem()
+                        ? geminiService.userTurnWithImage(m.text(), m.imageMimeType(), m.imageBase64())
+                        : geminiService.userTurn(m.text()));
+            } else {
+                contents.add(geminiService.modelTurn(m.text()));
+            }
         }
 
         List<GeminiService.FunctionDeclaration> tools = buildTools();
@@ -171,7 +221,7 @@ public class JarvisChatService {
 
             GeminiService.FunctionCallRequest chamada = resultado.functionCall();
             log.info("Jarvis: chamando ferramenta '{}' com args {}", chamada.name(), chamada.args());
-            Object dado = executarFerramenta(chamada, candidateProfile);
+            Object dado = executarFerramenta(chamada, candidateProfile, feedbackContext);
             toolResults.add(new ToolResultPayload(chamada.name(), dado));
 
             contents.add(geminiService.buildFunctionCallPart(chamada));
@@ -275,12 +325,12 @@ public class JarvisChatService {
         );
     }
 
-    private Object executarFerramenta(GeminiService.FunctionCallRequest chamada, String candidateProfile) {
+    private Object executarFerramenta(GeminiService.FunctionCallRequest chamada, String candidateProfile, String feedbackContext) {
         return switch (chamada.name()) {
             case "listarVagas" -> executarListarVagas(chamada.args());
             case "resumoFunil" -> executarResumoFunil();
-            case "compatibilidadeComVagasRecentes" -> executarCompatibilidade(chamada.args(), candidateProfile);
-            case "compatibilidadeComVagasDoFunil" -> executarCompatibilidadeFunil(chamada.args(), candidateProfile);
+            case "compatibilidadeComVagasRecentes" -> executarCompatibilidade(chamada.args(), candidateProfile, feedbackContext);
+            case "compatibilidadeComVagasDoFunil" -> executarCompatibilidadeFunil(chamada.args(), candidateProfile, feedbackContext);
             case "estimativaSalarialDeVagas" -> executarEstimativaSalarial(chamada.args());
             default -> Map.of("erro", "Ferramenta desconhecida: " + chamada.name());
         };
@@ -387,14 +437,19 @@ public class JarvisChatService {
         return m;
     }
 
-    private Object executarCompatibilidade(Map<String, Object> args, String candidateProfile) {
+    private Object executarCompatibilidade(Map<String, Object> args, String candidateProfile, String feedbackContext) {
         int dias = args.get("dias") instanceof Number n ? Math.max(1, n.intValue()) : 1;
-        JarvisAssistantService.CompatibilityResult r = jarvisAssistantService.scanCompatibilidade(candidateProfile, dias, null);
+        JarvisAssistantService.CompatibilityResult r = jarvisAssistantService.scanCompatibilidade(candidateProfile, dias, feedbackContext);
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("available", r.available());
         m.put("totalConsiderados", r.totalConsiderados());
         m.put("totalAnalisadosPorIa", r.totalAnalisadosPorIa());
+        // pontosFortes/pontosFaltando entravam só no resultado da versão "do
+        // funil" — a interface não conseguia montar o mesmo card com "✅
+        // pontos fortes" / "⚠️ pontos a desenvolver" + botão de plano de ação
+        // pra esse caminho, mesmo o CompatibilityHit já carregando os dois
+        // campos (só não eram repassados pro mapa que volta pro chat).
         m.put("hits", r.hits().stream().map(h -> {
             Map<String, Object> hit = new LinkedHashMap<>();
             hit.put("id", h.job().getId());
@@ -403,6 +458,8 @@ public class JarvisChatService {
             hit.put("url", h.job().getUrl());
             hit.put("score", h.score());
             hit.put("resumo", h.resumo());
+            hit.put("pontosFortes", h.pontosFortes());
+            hit.put("pontosFaltando", h.pontosFaltando());
             return (Map<String, Object>) hit;
         }).toList());
         if (r.errorMessage() != null) m.put("erro", r.errorMessage());
@@ -416,7 +473,7 @@ public class JarvisChatService {
     // passarem no filtro, direto, sem pré-seleção. O teto (MAX_COMPAT_FUNIL)
     // é só uma trava de segurança contra pedir isso num status que por
     // acaso tenha muitas vagas (ex: "NOVA" pode ter milhares).
-    private Object executarCompatibilidadeFunil(Map<String, Object> args, String candidateProfile) {
+    private Object executarCompatibilidadeFunil(Map<String, Object> args, String candidateProfile, String feedbackContext) {
         if (candidateProfile == null || candidateProfile.isBlank()) {
             return Map.of("erro", "Salve seu perfil/currículo em ⚙️ Configurações primeiro, ou cole ele aqui na conversa.");
         }
@@ -437,7 +494,7 @@ public class JarvisChatService {
 
         List<Map<String, Object>> hits = new ArrayList<>();
         for (Job j : analisar) {
-            MatchScoreService.MatchOutcome outcome = matchScoreService.calcular(j, candidateProfile, null);
+            MatchScoreService.MatchOutcome outcome = matchScoreService.calcular(j, candidateProfile, feedbackContext);
             if (!outcome.ok()) {
                 log.warn("Jarvis: falha ao calcular compatibilidade da vaga {} pro funil: {}", j.getId(), outcome.errorMessage());
                 continue;

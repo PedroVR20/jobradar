@@ -1041,8 +1041,16 @@ public class JobController {
         return body;
     }
 
-    public record ChatMessageDto(String role, String text) {}
-    public record ChatRequest(List<ChatMessageDto> history, String candidateProfile) {}
+    // imageMimeType/imageBase64: só preenchido na mensagem mais recente,
+    // quando o usuário anexa um print no chat (ver JarvisChatService.
+    // ChatMessage e GeminiService.userTurnWithImage). base64Data vem sem o
+    // prefixo "data:image/png;base64," — o frontend já manda só o miolo.
+    public record ChatMessageDto(String role, String text, String imageMimeType, String imageBase64) {}
+
+    // feedbackContext: 👍/👎 salvos pelo usuário nos cards de compatibilidade/
+    // plano de ação (useAiFeedback no frontend) — mesmo texto que já
+    // alimenta match-score e learning-plan, agora também chega no chat.
+    public record ChatRequest(List<ChatMessageDto> history, String candidateProfile, String feedbackContext) {}
 
     /**
      * Chat livre do Jarvis — diferente do compatibility-scan (ação fixa),
@@ -1051,7 +1059,7 @@ public class JobController {
      * natural, via function-calling de verdade (ver JarvisChatService).
      * 503 sem IA configurada, 429 em rate limit, 502 pra outras falhas.
      * POST /api/jobs/assistant/chat
-     * Body: { "history": [{"role":"user","text":"..."}, ...], "candidateProfile": "..." }
+     * Body: { "history": [{"role":"user","text":"...","imageMimeType":null,"imageBase64":null}, ...], "candidateProfile": "...", "feedbackContext": "..." }
      */
     @PostMapping("/assistant/chat")
     public ResponseEntity<Map<String, Object>> assistantChat(@RequestBody(required = false) ChatRequest req) {
@@ -1060,11 +1068,14 @@ public class JobController {
                     .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
         }
         List<JarvisChatService.ChatMessage> historico = req != null && req.history() != null
-                ? req.history().stream().map(m -> new JarvisChatService.ChatMessage(m.role(), m.text())).toList()
+                ? req.history().stream()
+                        .map(m -> new JarvisChatService.ChatMessage(m.role(), m.text(), m.imageMimeType(), m.imageBase64()))
+                        .toList()
                 : List.of();
         String perfil = req != null ? req.candidateProfile() : null;
+        String feedbackContext = req != null ? req.feedbackContext() : null;
 
-        JarvisChatService.ChatOutcome resultado = jarvisChatService.conversar(historico, perfil);
+        JarvisChatService.ChatOutcome resultado = jarvisChatService.conversar(historico, perfil, feedbackContext);
         if (!resultado.ok()) {
             return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
                     .body(Map.<String, Object>of("error", resultado.errorMessage()));

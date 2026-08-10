@@ -298,6 +298,25 @@ public class GeminiService {
         return Map.of("role", "user", "parts", List.of(Map.of("text", text)));
     }
 
+    /**
+     * Mesma coisa que {@link #userTurn}, mas com um print anexado — usado
+     * quando o usuário cola/anexa uma imagem no chat do Hunter. O modelo
+     * ("gemini-flash-latest") aceita imagem inline no mesmo endpoint de
+     * texto/function-calling, sem chamada separada: basta um "part" a mais
+     * com "inlineData" (mimeType + base64 puro, sem o prefixo "data:...").
+     * Só a mensagem mais recente carrega imagem (ver JarvisChatService.
+     * conversar()) — reenviar prints antigos a cada rodada custaria tokens
+     * à toa numa conversa longa.
+     */
+    public Map<String, Object> userTurnWithImage(String text, String mimeType, String base64Data) {
+        List<Map<String, Object>> parts = new ArrayList<>();
+        if (text != null && !text.isBlank()) {
+            parts.add(Map.of("text", text));
+        }
+        parts.add(Map.of("inlineData", Map.of("mimeType", mimeType, "data", base64Data)));
+        return Map.of("role", "user", "parts", parts);
+    }
+
     public Map<String, Object> modelTurn(String text) {
         return Map.of("role", "model", "parts", List.of(Map.of("text", text)));
     }

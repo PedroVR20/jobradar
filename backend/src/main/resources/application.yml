@@ -15,6 +15,13 @@ spring:
 
 server:
   port: 8080
+  tomcat:
+    # Default do Tomcat embutido é 2MB — baixo demais pro chat do Hunter
+    # aceitar print anexado (imagem vira base64 no corpo do POST, ~33% maior
+    # que o arquivo original). Print comprimido no frontend fica bem abaixo
+    # disso, mas a margem evita 413/conexão resetada em prints maiores.
+    max-http-form-post-size: 12MB
+    max-swallow-size: 12MB
 
 gemini:
   # Vazio por padrão — recursos de IA ficam desativados sem uma key.
