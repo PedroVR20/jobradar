@@ -373,6 +373,10 @@ export function JarvisPanel({ onClose }: Props) {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [closing, setClosing] = useState(false);
+  // Recall de mensagens anteriores tipo terminal: seta ↑ traz a última
+  // mensagem enviada de volta pro campo (útil quando o Rovi erra numa
+  // mensagem enorme e ela já não tá mais no clipboard) e ↓ vai voltando.
+  const [historyNav, setHistoryNav] = useState<{ index: number; draft: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // loadConversations() e loadActiveId() são inicializadores independentes
@@ -392,6 +396,12 @@ export function JarvisPanel({ onClose }: Props) {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
   }, [messages, view]);
+
+  // Troca de conversa invalida o índice do recall — cada conversa tem sua
+  // própria lista de mensagens do usuário.
+  useEffect(() => {
+    setHistoryNav(null);
+  }, [resolvedActiveId]);
 
   useEffect(() => {
     const capped = [...conversations]
@@ -465,6 +475,7 @@ export function JarvisPanel({ onClose }: Props) {
 
     addMessage({ role: 'user', text: trimmed } as Omit<Message, 'id'>);
     setInput('');
+    setHistoryNav(null);
     setBusy(true);
     addMessage({ role: 'assistant-loading' } as Omit<Message, 'id'>);
 
@@ -496,6 +507,39 @@ export function JarvisPanel({ onClose }: Props) {
       addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+
+    const userMessages = messages.filter((m): m is Extract<Message, { role: 'user' }> => m.role === 'user');
+    if (userMessages.length === 0) return;
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!historyNav) {
+        const idx = userMessages.length - 1;
+        setHistoryNav({ index: idx, draft: input });
+        setInput(userMessages[idx].text);
+      } else if (historyNav.index > 0) {
+        const idx = historyNav.index - 1;
+        setHistoryNav({ ...historyNav, index: idx });
+        setInput(userMessages[idx].text);
+      }
+      return;
+    }
+
+    // ArrowDown
+    if (!historyNav) return;
+    e.preventDefault();
+    if (historyNav.index < userMessages.length - 1) {
+      const idx = historyNav.index + 1;
+      setHistoryNav({ ...historyNav, index: idx });
+      setInput(userMessages[idx].text);
+    } else {
+      setInput(historyNav.draft);
+      setHistoryNav(null);
     }
   };
 
@@ -573,8 +617,9 @@ export function JarvisPanel({ onClose }: Props) {
             <input
               className="jarvis-input"
               value={input}
-              onChange={e => setInput(e.target.value)}
-              placeholder="Pergunte algo pro Rovi..."
+              onChange={e => { setInput(e.target.value); setHistoryNav(null); }}
+              onKeyDown={handleInputKeyDown}
+              placeholder="Pergunte algo pro Rovi... (↑ recupera mensagens anteriores)"
               disabled={busy}
             />
             <button type="submit" className="jarvis-send-btn" disabled={busy || !input.trim()} aria-label="Enviar">➤</button>
