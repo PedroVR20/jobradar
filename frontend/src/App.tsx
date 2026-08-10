@@ -10,7 +10,6 @@ import { AddJobModal } from './components/AddJobModal';
 import { AgendaStatusBar } from './components/AgendaStatusBar';
 import { MetricsModal } from './components/MetricsModal';
 import { SettingsModal } from './components/SettingsModal';
-import { DuplicatesModal } from './components/DuplicatesModal';
 import { JarvisPanel } from './components/JarvisPanel';
 import { HunterIcon } from './components/HunterIcon';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
@@ -65,7 +64,6 @@ export default function App() {
   const [showMetrics, setShowMetrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showJarvis, setShowJarvis] = useState(false);
-  const [showDuplicates, setShowDuplicates] = useState(false);
 
   const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
     useJobs(filters);
@@ -232,9 +230,6 @@ export default function App() {
             <button className="btn btn-ghost" onClick={() => setShowMetrics(true)}>
               📊 Métricas
             </button>
-            <button className="btn btn-ghost" onClick={() => setShowDuplicates(true)}>
-              🧩 Duplicatas
-            </button>
             <button className="btn btn-ghost" onClick={() => setShowSettings(true)}>
               ⚙️ Configurações
             </button>
@@ -258,13 +253,6 @@ export default function App() {
 
       {showMetrics && (
         <MetricsModal onClose={() => setShowMetrics(false)} />
-      )}
-
-      {showDuplicates && (
-        <DuplicatesModal
-          onClose={() => setShowDuplicates(false)}
-          onReject={id => handleSetStatus(id, 'RECUSADA')}
-        />
       )}
 
       {showSettings && (
@@ -340,6 +328,7 @@ export default function App() {
                   onUpdateNotes={updateNotes}
                   onToast={showToast}
                   aiEnabled={aiStatus.enabled}
+                  sortMode={filters.sort}
                 />
               ))}
             </div>

@@ -208,7 +208,7 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
           </ul>
 
           <p className="agenda-hint settings-note">
-            Sem chave configurada, o Job Radar continua funcionando normalmente — esses 3 recursos
+            Sem chave configurada, o Job Radar continua funcionando normalmente — esses 2 recursos
             ficam apenas ocultos até você configurar a IA.
           </p>
         </div>

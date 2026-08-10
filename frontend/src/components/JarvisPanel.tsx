@@ -1,8 +1,9 @@
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   JarvisChatResponse,
   JarvisCompatibilidadeData,
+  JarvisCompatibilidadeHit,
   JarvisListarVagasData,
   JarvisResumoFunilData,
   JarvisToolResult,
@@ -144,6 +145,25 @@ const LEGACY_KEY = 'jobradar:jarvis-history';
 const MAX_CONVERSATIONS = 30;
 const MAX_STORED_PER_CONVO = 40;
 const TITLE_MAX_LEN = 48;
+
+// Largura do painel — arrastável pela borda esquerda (ver .jarvis-resize-handle),
+// lembrada entre sessões. min/max evitam um painel inutilizável (muito
+// estreito pra ler, ou tomando a tela toda num desktop).
+const WIDTH_KEY = 'jobradar:jarvis-width';
+const DEFAULT_WIDTH = 400;
+const MIN_WIDTH = 320;
+const MAX_WIDTH = 800;
+const CSS_VAR = '--jarvis-panel-width';
+
+function clampWidth(w: number): number {
+  return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
+}
+
+function loadWidth(): number {
+  const raw = localStorage.getItem(WIDTH_KEY);
+  const parsed = raw ? parseInt(raw, 10) : DEFAULT_WIDTH;
+  return Number.isFinite(parsed) ? clampWidth(parsed) : DEFAULT_WIDTH;
+}
 
 let nextId = 1;
 
@@ -293,6 +313,56 @@ function ResumoFunilCard({ data }: { data: JarvisResumoFunilData }) {
   );
 }
 
+// "Dashboard" com a visão geral antes dos cards individuais — pedido depois
+// de um resultado só em texto/cards: média, quantas em cada faixa, e uma
+// barra por vaga ordenada da maior compatibilidade pra menor, pra comparar
+// todas de relance sem precisar ler card por card. Só aparece com 2+ vagas
+// (com uma só, "média" e "distribuição" não dizem nada de útil).
+function CompatDashboard({ hits }: { hits: JarvisCompatibilidadeHit[] }) {
+  if (hits.length < 2) return null;
+  const media = Math.round(hits.reduce((soma, h) => soma + h.score, 0) / hits.length);
+  const altas = hits.filter(h => h.score >= 70).length;
+  const medias = hits.filter(h => h.score >= 40 && h.score < 70).length;
+  const baixas = hits.filter(h => h.score < 40).length;
+  const ordenados = [...hits].sort((a, b) => b.score - a.score);
+
+  return (
+    <div className="compat-dashboard">
+      <div className="compat-stats-grid">
+        <div className="jarvis-stat">
+          <span className="jarvis-stat-value">{media}%</span>
+          <span className="jarvis-stat-label">Média</span>
+        </div>
+        <div className="jarvis-stat">
+          <span className="jarvis-stat-value" style={{ color: 'var(--green)' }}>{altas}</span>
+          <span className="jarvis-stat-label">Altas (≥70%)</span>
+        </div>
+        <div className="jarvis-stat">
+          <span className="jarvis-stat-value" style={{ color: 'var(--yellow)' }}>{medias}</span>
+          <span className="jarvis-stat-label">Médias (40-69%)</span>
+        </div>
+        <div className="jarvis-stat">
+          <span className="jarvis-stat-value" style={{ color: 'var(--red)' }}>{baixas}</span>
+          <span className="jarvis-stat-label">Baixas (&lt;40%)</span>
+        </div>
+      </div>
+      <div className="compat-bars">
+        {ordenados.map(h => (
+          <div className="compat-bar-row" key={h.id}>
+            <div className="compat-bar-head">
+              <span className="compat-bar-label" title={h.titulo}>{h.titulo}</span>
+              <span className="compat-bar-score" style={{ color: scoreColor(h.score) }}>{h.score}%</span>
+            </div>
+            <div className="compat-bar-track">
+              <div className="compat-bar-fill" style={{ width: `${h.score}%`, background: scoreColor(h.score) }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CompatibilidadeCard({ data }: { data: JarvisCompatibilidadeData }) {
   if (!data.available) {
     return <p>{data.erro ?? 'Recurso de IA indisponível no momento.'}</p>;
@@ -311,6 +381,7 @@ function CompatibilidadeCard({ data }: { data: JarvisCompatibilidadeData }) {
         Olhei {data.totalConsiderados} vaga{data.totalConsiderados === 1 ? '' : 's'} do período e analisei as{' '}
         {data.totalAnalisadosPorIa} mais parecidas com seu perfil de verdade:
       </p>
+      <CompatDashboard hits={data.hits} />
       <div className="jarvis-hits">
         {data.hits.map(h => (
           <div key={h.id} className="jarvis-hit">
@@ -391,6 +462,8 @@ export function JarvisPanel({ onClose }: Props) {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [width, setWidth] = useState(loadWidth);
+  const [resizing, setResizing] = useState(false);
   // Recall de mensagens anteriores tipo terminal: seta ↑ traz a última
   // mensagem enviada de volta pro campo (útil quando o Hunter erra numa
   // mensagem enorme e ela já não tá mais no clipboard) e ↓ vai voltando.
@@ -420,6 +493,49 @@ export function JarvisPanel({ onClose }: Props) {
   useEffect(() => {
     setHistoryNav(null);
   }, [resolvedActiveId]);
+
+  // A variável fica no <html> (não teria como setar via className, já que
+  // .jarvis-panel é portal pro body e .app-main é uma div separada lá no
+  // App.tsx) — os dois lêem a mesma var, então empurram/encolhem juntos.
+  // useLayoutEffect (não useEffect) pra aplicar antes do primeiro paint —
+  // sem isso, abrir o painel com uma largura salva diferente de 400px
+  // piscaria o default por um frame antes de corrigir.
+  useLayoutEffect(() => {
+    document.documentElement.style.setProperty(CSS_VAR, `${width}px`);
+    return () => {
+      document.documentElement.style.removeProperty(CSS_VAR);
+    };
+  }, [width]);
+
+  // Arrasta a borda esquerda do painel — o conteúdo principal (app-main)
+  // acompanha em tempo real porque lê a MESMA variável CSS, atualizada aqui
+  // a cada movimento do ponteiro, sem esperar o React re-renderizar.
+  const handleResizeStart = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = width;
+    setResizing(true);
+    document.documentElement.classList.add('jarvis-resizing');
+
+    const handleMove = (ev: PointerEvent) => {
+      const deltaX = startX - ev.clientX; // arrastar pra esquerda cresce o painel
+      const novaLargura = clampWidth(startWidth + deltaX);
+      document.documentElement.style.setProperty(CSS_VAR, `${novaLargura}px`);
+      setWidth(novaLargura);
+    };
+    const handleUp = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      document.documentElement.classList.remove('jarvis-resizing');
+      setResizing(false);
+      setWidth(w => {
+        localStorage.setItem(WIDTH_KEY, String(w));
+        return w;
+      });
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+  };
 
   useEffect(() => {
     const capped = [...conversations]
@@ -563,6 +679,11 @@ export function JarvisPanel({ onClose }: Props) {
 
   return createPortal(
     <div className={`jarvis-panel ${closing ? 'jarvis-panel--closing' : ''}`}>
+      <div
+        className={`jarvis-resize-handle ${resizing ? 'jarvis-resize-handle--active' : ''}`}
+        onPointerDown={handleResizeStart}
+        title="Arraste pra redimensionar"
+      />
       <div className="jarvis-header">
         <span className="jarvis-header-title">
           {view === 'history' ? '🕘 Histórico' : <><HunterIcon size={19} alive /> Hunter</>}

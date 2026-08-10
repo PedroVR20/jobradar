@@ -491,8 +491,15 @@ public class JobController {
     // Ponto único que traduz um status "lógico" (NOVA/VISTA/APLICADA/ANDAMENTO/
     // RECUSADA) para os campos booleanos da entidade. RECUSADA marca rejectedAt
     // com o instante atual, usado depois pra excluir a vaga após alguns dias.
+    //
+    // "RECUSADA" NÃO força applied=true sozinho — antes forçava, assumindo que
+    // toda recusa vem depois de uma candidatura de verdade, mas o usuário usa
+    // "Recusada/congelada" também como "descartar/não tenho interesse" direto
+    // de vagas nunca aplicadas (ex: limpar vagas antigas de anos atrás). Fica
+    // com o applied que a vaga já tinha — true só se já era true antes.
     private void aplicarStatus(Job job, String status) {
-        boolean applied = status.equals("APLICADA") || status.equals("ANDAMENTO") || status.equals("RECUSADA");
+        boolean applied = status.equals("APLICADA") || status.equals("ANDAMENTO")
+                || (status.equals("RECUSADA") && job.isApplied());
         boolean inProgress = status.equals("ANDAMENTO");
 
         job.setSeen(!status.equals("NOVA"));

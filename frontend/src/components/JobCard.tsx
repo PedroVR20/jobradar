@@ -1,5 +1,5 @@
 import { DragEvent, useEffect, useRef, useState } from 'react';
-import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
+import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, SortOption, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
 import { AgendaModal } from './AgendaModal';
 import { InterviewModal } from './InterviewModal';
 import { CoverLetterModal } from './CoverLetterModal';
@@ -20,6 +20,7 @@ interface Props {
   onUpdateNotes: (id: number, notes: string) => void;
   onToast: (msg: string) => void;
   aiEnabled: boolean;
+  sortMode: SortOption;
 }
 
 const techTags = [
@@ -87,6 +88,31 @@ function formatDateFull(iso: string | null): string | undefined {
   }).format(parseBackendIso(iso));
 }
 
+// Quando a lista tá ordenada por "🔄 Adicionadas recentemente", o que
+// importa é quando o JOB RADAR encontrou a vaga (fetchedAt) — não quando
+// ela foi originalmente publicada na fonte (postedAt), que pode ser bem
+// mais antigo (uma vaga publicada há 2 dias só "é nova" pra você quando a
+// gente finalmente a descobre). Reportado: buscou vagas novas (144→148),
+// mas as 4 novas não apareciam com hora "de agora" — o badge só mostrava
+// postedAt, sem refletir a descoberta recente.
+function formatFetched(iso: string | null): string {
+  if (!iso) return '—';
+  const date = parseBackendIso(iso);
+  const diffMin = Math.floor((Date.now() - date.getTime()) / 60000);
+  if (diffMin < 1) return 'agora mesmo';
+  if (diffMin < 60) return `há ${diffMin}min`;
+  const now = new Date();
+  const isToday = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  if (isToday) {
+    return `hoje, ${new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date)}`;
+  }
+  const h = Math.floor(diffMin / 60);
+  if (h < 24) return `há ${h}h`;
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' }).format(date);
+}
+
 function highlightTechTag(tag: string): boolean {
   return techTags.some(t => tag.toLowerCase().includes(t));
 }
@@ -142,7 +168,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -307,7 +333,16 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
           </div>
         </div>
         <div className="card-header-right">
-          <span className="card-date" title={formatDateFull(job.postedAt)}>📅 {formatDate(job.postedAt)}</span>
+          {sortMode === 'fetched_desc' ? (
+            <span
+              className="card-date"
+              title={`Publicada na fonte: ${formatDateFull(job.postedAt) ?? '—'} · Encontrada pelo Job Radar: ${formatDateFull(job.fetchedAt) ?? '—'}`}
+            >
+              🆕 {formatFetched(job.fetchedAt)}
+            </span>
+          ) : (
+            <span className="card-date" title={formatDateFull(job.postedAt)}>📅 {formatDate(job.postedAt)}</span>
+          )}
 
           {/* Botão fixar — oculto em vagas recusadas */}
           {!job.rejected && (

@@ -1824,7 +1824,12 @@ a:hover { text-decoration: underline; }
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(400px, 100vw);
+  /* --jarvis-panel-width é lida/escrita em JarvisPanel.tsx (arrastando a
+     borda esquerda) e no :root abaixo (valor salvo/padrão) — o app-main
+     também lê essa mesma variável pro padding-right, então os dois
+     acompanham juntos em tempo real durante o arrasto, mesmo estando em
+     partes bem separadas do DOM (o painel é portal pro body). */
+  width: min(var(--jarvis-panel-width, 400px), 100vw);
   background: var(--bg-card);
   border-left: 1px solid var(--border);
   box-shadow: -8px 0 32px rgba(0,0,0,0.5);
@@ -1832,6 +1837,20 @@ a:hover { text-decoration: underline; }
   display: flex;
   flex-direction: column;
   animation: jarvis-slide-in 0.2s ease-out;
+}
+.jarvis-resize-handle {
+  position: absolute;
+  top: 0;
+  left: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 3001;
+  touch-action: none;
+}
+.jarvis-resize-handle:hover, .jarvis-resize-handle--active {
+  background: var(--accent);
+  opacity: 0.4;
 }
 .jarvis-panel--closing {
   animation: jarvis-slide-out 0.18s ease-in forwards;
@@ -2012,6 +2031,32 @@ a:hover { text-decoration: underline; }
 }
 .jarvis-stat-value { font-size: 1.1rem; font-weight: 800; }
 .jarvis-stat-label { font-size: 0.68rem; color: var(--text-muted); text-align: center; }
+
+/* "Dashboard" de compatibilidade — média/distribuição + barra por vaga,
+   pedido depois de um resultado só com cards individuais em texto. Reusa
+   o visual dos .jarvis-stat (mesma "linguagem" de UI), só num grid de 4
+   colunas em vez de 3. */
+.compat-dashboard { margin-bottom: 0.8rem; display: flex; flex-direction: column; gap: 0.7rem; }
+.compat-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; }
+.compat-bars { display: flex; flex-direction: column; gap: 0.5rem; }
+.compat-bar-row { display: flex; flex-direction: column; gap: 3px; }
+.compat-bar-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.compat-bar-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.compat-bar-score { font-size: 0.72rem; font-weight: 800; flex-shrink: 0; }
+.compat-bar-track {
+  height: 6px;
+  background: var(--bg-card2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.compat-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease-out; }
 
 /* Sugestões só aparecem na conversa vazia (só a saudação) — como os
    "example prompts" do Claude Desktop, não ficam grudadas embaixo da tela
@@ -2198,17 +2243,33 @@ a:hover { text-decoration: underline; }
 
 /* Com o Jarvis aberto, empurra o conteúdo principal em vez de deixar o
    painel sobrepor os cards por cima — sem isso, a última coluna da grade
-   ficava escondida atrás da gaveta fixa. */
-.app--jarvis-open .app-main {
-  padding-right: 400px;
+   ficava escondida atrás da gaveta fixa. Acompanha --jarvis-panel-width
+   (mesma variável que o painel usa) pra reagir junto quando o usuário
+   arrasta a borda pra redimensionar. O header (título + botões do topo) é
+   uma <header> separada do .app-main — reportado que ela não acompanhava o
+   arrasto e o painel comia os botões Configurações/Duplicatas/Métricas,
+   então recebe o mesmo tratamento aqui. */
+.app--jarvis-open .app-main,
+.app--jarvis-open .header-inner {
+  padding-right: var(--jarvis-panel-width, 400px);
   transition: padding-right 0.2s ease-out;
+}
+/* Durante o arrasto ativo a transição teria que "correr atrás" do mouse a
+   cada frame, dando uma sensação de atraso — desliga só nesse momento pra
+   o conteúdo acompanhar o dedo/cursor 1:1, sem lag. Classe fica na <html>
+   (não no .app) porque o painel é portal pro body, sem referência fácil
+   à div .app. */
+html.jarvis-resizing .app-main,
+html.jarvis-resizing .header-inner {
+  transition: none;
 }
 
 @media (max-width: 480px) {
   .jarvis-panel { width: 100vw; }
   /* nesse tamanho o painel já cobre a tela toda, então não faz sentido
      também encolher o conteúdo — ele já não é visível de qualquer jeito */
-  .app--jarvis-open .app-main { padding-right: clamp(1rem, 3vw, 3rem); }
+  .app--jarvis-open .app-main,
+  .app--jarvis-open .header-inner { padding-right: clamp(1rem, 3vw, 3rem); }
 }
 
 /* Feedback de IA (👍/👎 + comentário) — reaproveitado em carta, match score
