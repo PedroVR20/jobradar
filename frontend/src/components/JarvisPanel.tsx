@@ -339,6 +339,7 @@ function ToolResultCard({ result }: { result: JarvisToolResult }) {
     case 'resumoFunil':
       return <ResumoFunilCard data={result.data as JarvisResumoFunilData} />;
     case 'compatibilidadeComVagasRecentes':
+    case 'compatibilidadeComVagasDoFunil':
       return <CompatibilidadeCard data={result.data as JarvisCompatibilidadeData} />;
     default:
       return null;

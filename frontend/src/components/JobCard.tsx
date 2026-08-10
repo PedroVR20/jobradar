@@ -59,7 +59,7 @@ function parseBackendIso(iso: string): Date {
   return new Date(/[Zz]|[+-]\d{2}:\d{2}$/.test(iso) ? iso : `${iso}Z`);
 }
 
-// Com a busca rodando a cada 4h, só a data não diz qual vaga "acabou de
+// Com a busca rodando a cada 2h, só a data não diz qual vaga "acabou de
 // chegar" — todo mundo publicado hoje mostrava o mesmo "10 de ago." Se foi
 // hoje, mostra a hora exata em vez da data (mais compacto e mais útil);
 // vagas mais antigas continuam só com a data, sem virar bagunça em

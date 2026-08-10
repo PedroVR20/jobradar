@@ -513,7 +513,7 @@ public class JobController {
      * Dispara um fetch manual (útil para testar sem esperar o agendamento).
      * Como o fetch inicial agora roda em background ao subir o app (não
      * bloqueia mais o Tomcat, ver JobAggregatorService), dá pra essa chamada
-     * chegar enquanto ele (ou o do cron de 4h) ainda está em andamento —
+     * chegar enquanto ele (ou o do cron de 2h) ainda está em andamento —
      * nesse caso devolve status "already-running" em vez de rodar tudo de
      * novo em paralelo à toa.
      * POST /api/jobs/fetch

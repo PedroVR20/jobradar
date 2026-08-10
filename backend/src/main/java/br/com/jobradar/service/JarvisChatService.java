@@ -32,6 +32,17 @@ public class JarvisChatService {
     private final GeminiService geminiService;
     private final JobRepository jobRepository;
     private final JarvisAssistantService jarvisAssistantService;
+    private final MatchScoreService matchScoreService;
+
+    // compatibilidadeComVagasDoFunil analisa DIRETO (sem pré-filtro), porque
+    // o grupo já vem pequeno por natureza (é o funil curado do próprio
+    // usuário) — mas ainda precisa de um teto rígido: um status como "NOVA"
+    // pode ter milhares de vagas, e sem isso um pedido mal-entendido
+    // estouraria a cota de IA analisando tudo. Ver bug real reportado: pediu
+    // pra analisar 4 vagas da aba Interessado, o modelo usou a ferramenta
+    // errada (a de vagas recentes do feed geral) e varreu 3279 vagas.
+    private static final int MAX_COMPAT_FUNIL = 15;
+    private static final int DEFAULT_COMPAT_FUNIL = 10;
 
     // Limite de rounds de function-calling por mensagem — evita loop
     // infinito ou uma mensagem só disparando dezenas de chamadas de ferramenta.
@@ -59,11 +70,23 @@ public class JarvisChatService {
             tem nota registrada), nunca com passos genéricos de plataforma
             (Gupy/Eureca/etc.) que você não confirmou pela nota real.
 
-            A ferramenta compatibilidadeComVagasRecentes gasta chamadas reais de IA
-            (cota limitada do free tier) — só use quando o usuário pedir de verdade
-            uma comparação de compatibilidade/match com o perfil dele, não para
-            perguntas simples tipo "quantas vagas eu tenho" ou "quais vagas apliquei"
-            (essas usam listarVagas ou resumoFunil, que são gratuitas).
+            Duas ferramentas fazem compatibilidade REAL (IA de verdade, gasta cota
+            limitada do free tier) — escolher a errada gasta cota analisando vagas
+            que o usuário nem pediu:
+            - compatibilidadeComVagasRecentes: pra "vagas novas/recentes" em geral,
+              o FEED INTEIRO de vagas (filtra só por dias). Faz um pré-filtro sem IA
+              e só manda pra IA as 5 mais promissoras — apropriado porque esse
+              conjunto pode ter milhares de vagas.
+            - compatibilidadeComVagasDoFunil: pra quando o usuário se refere a um
+              STATUS ESPECÍFICO DO FUNIL DELE — "minhas vagas interessadas", "minhas
+              vagas aplicadas", "vagas em andamento", etc. Analisa direto (sem
+              pré-filtro), porque esses grupos normalmente já são pequenos e
+              curados pelo próprio usuário. NUNCA use compatibilidadeComVagasRecentes
+              pra um pedido sobre status do funil — são conjuntos diferentes, e a
+              recentes varre o feed geral, não o que o usuário marcou.
+            Nenhuma das duas deve ser chamada pra perguntas simples tipo "quantas
+            vagas eu tenho" ou "quais vagas apliquei" (essas usam listarVagas ou
+            resumoFunil, que são gratuitas e não fazem match de compatibilidade).
 
             Se o usuário perguntar algo sem relação com o Job Radar (vagas,
             candidatura, perfil, salário), explique educadamente que você só ajuda
@@ -158,6 +181,20 @@ public class JarvisChatService {
                 )
         );
 
+        Map<String, Object> compatibilidadeFunilParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "status", Map.of(
+                                "type", "STRING",
+                                "description", "Status do funil do usuário pra filtrar — mesmo enum de listarVagas.",
+                                "enum", List.of("NOVA", "VISTA", "INTERESSADO", "APLICADA", "ANDAMENTO", "RECUSADA")
+                        ),
+                        "busca", Map.of("type", "STRING", "description", "Termo de busca livre em título/empresa/tags, opcional."),
+                        "limite", Map.of("type", "INTEGER", "description", "Máximo de vagas a analisar de verdade com IA. Padrão 10, máximo 15 (teto rígido, mesmo se pedir mais).")
+                ),
+                "required", List.of("status")
+        );
+
         return List.of(
                 new GeminiService.FunctionDeclaration("listarVagas",
                         "Lista vagas do usuário, opcionalmente filtradas por status (ex: em andamento, aplicadas), período ou busca por texto. " +
@@ -174,8 +211,17 @@ public class JarvisChatService {
                                 "campo totalHistoricoAplicadas, não o campo aplicadas.",
                         semParametros),
                 new GeminiService.FunctionDeclaration("compatibilidadeComVagasRecentes",
-                        "Compara o perfil/currículo salvo do usuário com vagas publicadas recentemente e avalia compatibilidade real (usa IA de verdade, gasta cota).",
-                        compatibilidadeParams)
+                        "Compara o perfil/currículo salvo do usuário com vagas publicadas recentemente NO FEED GERAL " +
+                                "(usa IA de verdade, gasta cota) — não é pra vagas de um status do funil do usuário, " +
+                                "pra isso use compatibilidadeComVagasDoFunil.",
+                        compatibilidadeParams),
+                new GeminiService.FunctionDeclaration("compatibilidadeComVagasDoFunil",
+                        "Compara o perfil/currículo salvo do usuário com as vagas de um STATUS ESPECÍFICO DO FUNIL " +
+                                "DELE (ex: 'minhas vagas interessadas', 'minhas aplicadas', 'em andamento') e avalia " +
+                                "compatibilidade real (usa IA de verdade, gasta cota — uma chamada por vaga, até o " +
+                                "limite). Use esta ferramenta, não compatibilidadeComVagasRecentes, sempre que o " +
+                                "pedido mencionar um status do funil do usuário em vez de 'vagas recentes' em geral.",
+                        compatibilidadeFunilParams)
         );
     }
 
@@ -184,6 +230,7 @@ public class JarvisChatService {
             case "listarVagas" -> executarListarVagas(chamada.args());
             case "resumoFunil" -> executarResumoFunil();
             case "compatibilidadeComVagasRecentes" -> executarCompatibilidade(chamada.args(), candidateProfile);
+            case "compatibilidadeComVagasDoFunil" -> executarCompatibilidadeFunil(chamada.args(), candidateProfile);
             default -> Map.of("erro", "Ferramenta desconhecida: " + chamada.name());
         };
     }
@@ -308,6 +355,63 @@ public class JarvisChatService {
             return (Map<String, Object>) hit;
         }).toList());
         if (r.errorMessage() != null) m.put("erro", r.errorMessage());
+        return m;
+    }
+
+    // Diferente de executarCompatibilidade (que faz um pré-filtro sem IA
+    // antes de escolher as 5 mais promissoras num feed potencialmente
+    // gigante), aqui o conjunto já vem filtrado por status — pequeno e
+    // curado pelo próprio usuário por natureza — então analisa TODAS as que
+    // passarem no filtro, direto, sem pré-seleção. O teto (MAX_COMPAT_FUNIL)
+    // é só uma trava de segurança contra pedir isso num status que por
+    // acaso tenha muitas vagas (ex: "NOVA" pode ter milhares).
+    private Object executarCompatibilidadeFunil(Map<String, Object> args, String candidateProfile) {
+        if (candidateProfile == null || candidateProfile.isBlank()) {
+            return Map.of("erro", "Salve seu perfil/currículo em ⚙️ Configurações primeiro, ou cole ele aqui na conversa.");
+        }
+
+        String status = args.get("status") instanceof String s && !s.isBlank() ? s.toUpperCase() : null;
+        String busca = args.get("busca") instanceof String s && !s.isBlank() ? s : null;
+        int limite = args.get("limite") instanceof Number n
+                ? Math.min(MAX_COMPAT_FUNIL, Math.max(1, n.intValue()))
+                : DEFAULT_COMPAT_FUNIL;
+
+        List<Job> filtradas = jobRepository.findAll().stream()
+                .filter(j -> statusBate(j, status))
+                .filter(j -> busca == null || contemBusca(j, busca))
+                .sorted(Comparator.comparing(Job::getPostedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+
+        List<Job> analisar = filtradas.stream().limit(limite).toList();
+
+        List<Map<String, Object>> hits = new ArrayList<>();
+        for (Job j : analisar) {
+            MatchScoreService.MatchOutcome outcome = matchScoreService.calcular(j, candidateProfile, null);
+            if (!outcome.ok()) {
+                log.warn("Jarvis: falha ao calcular compatibilidade da vaga {} pro funil: {}", j.getId(), outcome.errorMessage());
+                continue;
+            }
+            MatchScoreService.MatchResult r = outcome.result();
+            Map<String, Object> hit = new LinkedHashMap<>();
+            hit.put("id", j.getId());
+            hit.put("titulo", j.getTitle());
+            hit.put("empresa", j.getCompany());
+            hit.put("url", j.getUrl());
+            hit.put("score", r.score());
+            hit.put("resumo", r.resumo());
+            hit.put("pontosFortes", r.pontosFortes());
+            hit.put("pontosFaltando", r.pontosFaltando());
+            hits.add(hit);
+        }
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("available", true);
+        m.put("totalConsiderados", filtradas.size());
+        m.put("totalAnalisadosPorIa", hits.size());
+        m.put("hits", hits);
+        if (filtradas.size() > analisar.size()) {
+            m.put("erro", "Só analisei as " + analisar.size() + " mais recentes — tinha " + filtradas.size() + " vagas nesse status no total.");
+        }
         return m;
     }
 }

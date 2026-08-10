@@ -14,11 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
@@ -35,14 +32,13 @@ public class JobAggregatorService {
     private final QuerovagastechService querovagastechService;
     private final NerdinService nerdinService;
     private final SeniorityClassifier seniorityClassifier;
-    private final AiClassifierService aiClassifierService;
 
     /**
-     * Roda automaticamente a cada 4 horas (00h, 04h, 08h, 12h, 16h, 20h BRT)
-     * — antes era só uma vez por dia às 08:00, mas isso deixava vagas postadas
-     * à tarde até ~16h atrasadas em relação a quem busca com mais frequência.
+     * Roda automaticamente a cada 2 horas, sempre em hora cheia par
+     * (00h, 02h, 04h, 06h, 08h, 10h, 12h, 14h, 16h, 18h, 20h, 22h BRT) —
+     * antes era a cada 4h, reduzido pra pegar vagas novas mais rápido.
      */
-    @Scheduled(cron = "0 0 */4 * * *", zone = "America/Sao_Paulo")
+    @Scheduled(cron = "0 0 */2 * * *", zone = "America/Sao_Paulo")
     @Transactional
     public void fetchPeriodico() {
         log.info("=== Fetch periódico iniciado ===");
@@ -159,7 +155,7 @@ public class JobAggregatorService {
     // Trava simples pra evitar dois fetches rodando ao mesmo tempo — desde
     // que o fetch inicial passou a rodar em background (ver
     // fetchNaInicializacao), o app fica respondendo durante ele, e agora dá
-    // pra alguém clicar em "Buscar agora" (ou o cron de 4h disparar) enquanto
+    // pra alguém clicar em "Buscar agora" (ou o cron de 2h disparar) enquanto
     // o inicial ainda está em andamento. Sem essa trava, o Nerdin (o mais
     // pesado) rodaria duas vezes ao mesmo tempo à toa.
     private final AtomicBoolean fetchEmAndamento = new AtomicBoolean(false);
@@ -186,25 +182,15 @@ public class JobAggregatorService {
 
             int novos = 0;
             int enriquecidas = 0;
-            int classificadasPorIa = 0;
             for (Job job : allJobs) {
                 Optional<Job> existente = jobRepository.findByUrl(job.getUrl());
                 if (existente.isEmpty()) {
+                    // Antes, quando o regex não decidia (NAO_INFORMADO), tentava uma
+                    // segunda opinião via IA (AiClassifierService) — removido: na
+                    // prática acertava pouco (título ambíguo pro regex costuma ser
+                    // ambíguo pra IA também) e gastava cota de Gemini à toa em toda
+                    // vaga nova ambígua, sem contrapartida que justificasse.
                     String seniority = seniorityClassifier.classify(job.getTitle(), job.getTags());
-                    // regex não decidiu — só aí vale a pena gastar uma chamada de IA
-                    // (título ambíguo ou em idioma que os padrões não cobrem)
-                    if (SeniorityClassifier.NAO_INFORMADO.equals(seniority)) {
-                        AiClassifierService.Resultado ia = aiClassifierService.classificar(
-                                job.getTitle(), job.getCompany(), job.getTags());
-                        if (ia != null) {
-                            seniority = ia.seniority();
-                            if (!ia.stackTags().isEmpty()) {
-                                job.setTags(mergeTags(job.getTags(), ia.stackTags()));
-                            }
-                            job.setClassifiedByAi(true);
-                            classificadasPorIa++;
-                        }
-                    }
                     job.setSeniority(seniority);
                     if ("GUPY".equals(job.getSource()) && job.getSalary() == null) {
                         job.setSalary(gupyService.fetchSalaryHint(job.getUrl()));
@@ -216,9 +202,6 @@ public class JobAggregatorService {
                     enriquecidas++;
                 }
             }
-            if (classificadasPorIa > 0) {
-                log.info("=== {} vagas ambíguas classificadas via IA (Gemini) ===", classificadasPorIa);
-            }
 
             log.info("=== Fetch concluído: {} vagas totais, {} novas salvas, {} enriquecidas ===",
                     allJobs.size(), novos, enriquecidas);
@@ -226,19 +209,6 @@ public class JobAggregatorService {
         } finally {
             fetchEmAndamento.set(false);
         }
-    }
-
-    // Junta as tags extraídas pela IA com as que a vaga já tinha, sem duplicar
-    // (LinkedHashSet preserva a ordem original e ignora repetições).
-    private String mergeTags(String tagsAtuais, List<String> novasTags) {
-        Set<String> merged = new LinkedHashSet<>();
-        if (tagsAtuais != null && !tagsAtuais.isBlank()) {
-            merged.addAll(Arrays.asList(tagsAtuais.split(",")));
-        }
-        for (String t : novasTags) {
-            if (t != null && !t.isBlank()) merged.add(t.trim());
-        }
-        return String.join(",", merged);
     }
 
     /**

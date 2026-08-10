@@ -17,7 +17,6 @@ interface Props {
 const AI_FEATURES = [
   { icon: '✉️', label: 'Carta de apresentação personalizada', hint: 'Botão "🤖 Gerar carta" em cada vaga' },
   { icon: '🧩', label: 'Segunda opinião em duplicatas', hint: 'Selo "confirmado por IA" no painel de Duplicatas' },
-  { icon: '🏷️', label: 'Classificação de senioridade/stack', hint: 'Só entra em ação quando o título é ambíguo — selo "🤖" no card' },
 ];
 
 function formatSize(chars: number): string {

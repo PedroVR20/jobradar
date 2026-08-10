@@ -5,7 +5,7 @@ vagas no Brasil — empresas grandes como Itaú, Stone, Localiza, Boticário,
 TIM, Bradesco, Stellantis e Natura, entre centenas de outras, agregadas de
 7 fontes (Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, Nerdin)
 num único funil de candidatura, com integração opcional a uma Agenda Pessoal.
-Busca automaticamente **a cada 4 horas** e guarda tudo no banco.
+Busca automaticamente **a cada 2 horas** e guarda tudo no banco.
 
 Repositório: https://github.com/PedroVR20/jobradar
 
@@ -393,8 +393,7 @@ escopo do Job Radar.
 | **Perguntas prováveis de entrevista** | Menu **🤖 IA** → "❓ Perguntas prováveis de entrevista" | Gera de 6 a 8 perguntas técnicas + comportamentais específicas da vaga/stack (não genéricas tipo "fale sobre você"), considerando seu perfil salvo quando disponível. |
 | **Faixa salarial estimada** | Botão **💰 Salário estimado** em cada vaga (sempre visível, não depende da IA estar ativa) · retreino em **⚙️ Configurações → 🔒 Área avançada** | **Não usa IA generativa** — usa um modelo de **regressão treinado de verdade** (Ridge regression + validação cruzada, portado pra Java puro em `SalaryModelTrainerService`) sobre as vagas com salário real já cadastradas no banco, prevendo a partir de senioridade + stack + modalidade + estado. Mostra a margem de erro típica explicitamente (varia conforme o último treino — a tela sempre traz o número atual), e tem um botão extra pra estimar com base no *seu* currículo salvo em vez dos dados da vaga. Considera salários em R$, € e $ (convertidos pela cotação do dia). Retreino é self-service pelo app (código simples protegendo o botão, ver `RETRAIN_SECRET_CODE` no `.env`) — sem precisar rodar Python nem reconstruir o container. Ver [scripts/README.md](scripts/README.md) pra como o treino funciona por dentro. |
 | **Detecção de duplicatas mais precisa** | Botão **🧩 Duplicatas** no cabeçalho, cada grupo confirmado pela IA leva o selo "🤖 confirmado por IA" | O endpoint `/api/jobs/duplicates` (mesma empresa + título parecido, já existia) agora pede uma segunda opinião ao Gemini pra descartar grupos que só parecem duplicata por palavra em comum mas são vagas de times/produtos diferentes. Limitado a 20 verificações por chamada (limite do free tier) — grupos além disso mantêm só o veredito por similaridade de palavras. |
-| **Classificação de senioridade/stack** | Selo **🤖** ao lado do badge de senioridade, nas vagas que passaram por ele | Quando o classificador por regex não decide (título ambíguo ou em outro idioma), uma chamada extra ao Gemini tenta resolver e também extrai tecnologias citadas no título pra completar as tags. Só roda nos casos que o regex não resolveu, não em toda vaga nova — o selo só aparece em vagas novas processadas depois que a IA foi ligada, não retroage nas antigas. |
-| **🤖 Jarvis** — chat livre | Botão **🤖 Jarvis** no cabeçalho, abre um painel lateral tipo chat com **múltiplas conversas salvas** (inspirado no histórico do Claude Desktop — ➕ nova conversa, 🕘 volta pra uma antiga, tudo persistido no navegador) | Chat **livre de verdade** via function-calling do Gemini — não é roteamento por palavra-chave: você escreve do jeito que quiser ("dê uma olhada nas minhas vagas em andamento", "quantas vagas tenho hoje") e o próprio modelo decide se e quais ferramentas chamar (`JarvisChatService`, até 4 rounds por mensagem). Três ferramentas disponíveis: `listarVagas` e `resumoFunil` (gratuitas, direto no banco) e `compatibilidadeComVagasRecentes` (gasta IA de verdade — reaproveita `JarvisAssistantService`, que filtra por sobreposição de tags/senioridade **sem IA** primeiro e só chama o Gemini nas 5 mais promissoras). Resultados de ferramenta viram cards estruturados na conversa, não só texto. |
+| **🐕 Hunter** — chat livre | Botão **🐕 Hunter** no cabeçalho, abre um painel lateral tipo chat com **múltiplas conversas salvas** (inspirado no histórico do Claude Desktop — ➕ nova conversa, 🕘 volta pra uma antiga, tudo persistido no navegador) | Chat **livre de verdade** via function-calling do Gemini — não é roteamento por palavra-chave: você escreve do jeito que quiser ("dê uma olhada nas minhas vagas em andamento", "quantas vagas tenho hoje") e o próprio modelo decide se e quais ferramentas chamar (`JarvisChatService`, até 4 rounds por mensagem). `listarVagas` e `resumoFunil` são gratuitas (direto no banco); `compatibilidadeComVagasRecentes` varre o feed geral de vagas novas (pré-filtro sem IA, só as 5 mais promissoras viram chamada real) e `compatibilidadeComVagasDoFunil` analisa direto um status específico do funil do usuário (ex: "minhas vagas interessadas") — duas ferramentas distintas de propósito, pra evitar o modelo escolher a errada e gastar cota analisando o feed geral quando o pedido era sobre um grupo pequeno e já filtrado. Resultados de ferramenta viram cards estruturados na conversa, não só texto. |
 
 **Descrição real da vaga (JobDescriptionService):** carta, compatibilidade e
 perguntas de entrevista buscam a página da própria vaga (Jsoup) e extraem o
@@ -509,7 +508,8 @@ POST  /api/jobs/assistant/compatibility-scan → Ação do Jarvis: filtra vagas 
                                        tags/senioridade (sem IA) e roda compatibilidade de verdade só nas 5
                                        melhores. Sempre 200 (available:false só sem perfil).
                                        Body: { "candidateProfile": "...", "days": 1, "feedbackContext": "..." }
-                                       UI: botão 🤖 Jarvis no cabeçalho
+                                       UI: botão 🐕 Hunter no cabeçalho (endpoint legado — o chat livre usa
+                                       POST /api/jobs/assistant/chat, ver seção do Hunter na tabela de IA acima)
 ```
 
 ---

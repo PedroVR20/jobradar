@@ -142,7 +142,7 @@ export interface JarvisCompatibilidadeData {
 }
 
 export interface JarvisToolResult {
-  tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes';
+  tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData;
 }
 
