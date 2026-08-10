@@ -89,8 +89,22 @@ public class QuerovagastechService {
         return jobs;
     }
 
+    // Vaga com sourceName "Manual" (curada à mão pelo próprio QueroVagasTech,
+    // sem link direto de candidatura) vem com applyUrl nesse esquema interno
+    // "manual://jobs/{id}" — não é uma URL de verdade, só um marcador pro
+    // frontend deles saberem que não tem link externo. Seguindo direto isso
+    // dá tela em branco pro usuário (bug real reportado: vaga clicável mas
+    // sem destino). Troca pela página da própria vaga no site deles
+    // (querovagastech.com.br/vagas/{id}), que existe e mostra os detalhes —
+    // já confirmado manualmente que essa rota funciona e traz a vaga certa.
+    private static final String MANUAL_URL_PREFIX = "manual://jobs/";
+
     private Job parseJob(JsonNode node) {
         String applyUrl = node.has("applyUrl") ? node.get("applyUrl").asText() : null;
+        if (applyUrl != null && applyUrl.startsWith(MANUAL_URL_PREFIX)) {
+            String id = applyUrl.substring(MANUAL_URL_PREFIX.length());
+            applyUrl = "https://www.querovagastech.com.br/vagas/" + id;
+        }
         String title = node.has("title") ? node.get("title").asText() : "Sem título";
         String company = node.has("company") ? node.get("company").asText() : "Empresa não informada";
 
