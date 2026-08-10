@@ -200,7 +200,15 @@ public class GeminiService {
      * a função de verdade e manda o resultado de volta via
      * {@link #buildFunctionResponsePart}). Nunca os dois ao mesmo tempo.
      */
-    public record ChatResult(String text, FunctionCallRequest functionCall, String errorMessage, boolean rateLimited) {
+    // thinking: raciocínio real do modelo antes de chegar na resposta final
+    // (só preenchido quando o passo termina em texto, não em function call —
+    // nas rodadas intermediárias de ferramenta ninguém vê a tela mesmo, não
+    // vale a pena acumular). Vem do Gemini só porque pedimos explicitamente
+    // (generationConfig.thinkingConfig.includeThoughts=true em chat()) —
+    // sem isso a API nem manda esse texto de volta, mesmo sendo um modelo
+    // "thinking" por baixo dos panos (que já gera o thoughtSignature de
+    // qualquer forma, ver FunctionCallRequest).
+    public record ChatResult(String text, String thinking, FunctionCallRequest functionCall, String errorMessage, boolean rateLimited) {
         public boolean ok() {
             return errorMessage == null;
         }
@@ -220,6 +228,17 @@ public class GeminiService {
      * texto final OU um pedido de function call; nunca lança exceção.
      */
     public ChatResult chat(String systemInstruction, List<Map<String, Object>> contents, List<FunctionDeclaration> tools) {
+        return chat(systemInstruction, contents, tools, false);
+    }
+
+    // includeThoughts: pede o raciocínio real de volta (generationConfig.
+    // thinkingConfig) — custa alguns tokens de saída a mais, então só o
+    // Hunter (chat livre, onde faz sentido mostrar "🧠 Pensando...") pede
+    // isso. As outras 4 features que reaproveitam chat() pra extrair JSON
+    // (carta, perguntas de entrevista, plano de ação, match-score) usam o
+    // overload de 3 args e continuam sem pedir — não têm onde mostrar
+    // raciocínio e só pagaria tokens à toa numa cota já apertada.
+    public ChatResult chat(String systemInstruction, List<Map<String, Object>> contents, List<FunctionDeclaration> tools, boolean includeThoughts) {
         Map<String, Object> body = new LinkedHashMap<>();
         if (systemInstruction != null && !systemInstruction.isBlank()) {
             body.put("systemInstruction", Map.of("parts", List.of(Map.of("text", systemInstruction))));
@@ -237,10 +256,13 @@ public class GeminiService {
                     .toList();
             body.put("tools", List.of(Map.of("functionDeclarations", declarations)));
         }
+        if (includeThoughts) {
+            body.put("generationConfig", Map.of("thinkingConfig", Map.of("includeThoughts", true)));
+        }
 
         PoolResult resultado = attemptWithPool(body);
         if (!resultado.ok()) {
-            return new ChatResult(null, null, resultado.errorMessage(), resultado.rateLimited());
+            return new ChatResult(null, null, null, resultado.errorMessage(), resultado.rateLimited());
         }
 
         JsonNode parts = resultado.content().path("parts");
@@ -256,14 +278,27 @@ public class GeminiService {
                 }
                 JsonNode sigNode = part.get("thoughtSignature");
                 String thoughtSignature = sigNode != null ? sigNode.asText() : null;
-                return new ChatResult(null, new FunctionCallRequest(nome, args, thoughtSignature), null, false);
+                return new ChatResult(null, null, new FunctionCallRequest(nome, args, thoughtSignature), null, false);
             }
         }
-        JsonNode textNode = parts.path(0).path("text");
-        if (textNode.isMissingNode()) {
-            return new ChatResult(null, null, "O Gemini devolveu uma resposta inesperada. Tente de novo.", false);
+
+        // Parte com "thought": true é raciocínio, não a resposta em si — junta
+        // os dois tipos separadamente (pode vir mais de um parágrafo de cada).
+        StringBuilder textoFinal = new StringBuilder();
+        StringBuilder pensamento = new StringBuilder();
+        for (JsonNode part : parts) {
+            JsonNode textNode = part.path("text");
+            if (textNode.isMissingNode()) continue;
+            boolean isThought = part.path("thought").asBoolean(false);
+            StringBuilder alvo = isThought ? pensamento : textoFinal;
+            if (alvo.length() > 0) alvo.append("\n\n");
+            alvo.append(textNode.asText());
         }
-        return new ChatResult(textNode.asText().trim(), null, null, false);
+        if (textoFinal.length() == 0) {
+            return new ChatResult(null, null, null, "O Gemini devolveu uma resposta inesperada. Tente de novo.", false);
+        }
+        String thinking = pensamento.length() > 0 ? pensamento.toString().trim() : null;
+        return new ChatResult(textoFinal.toString().trim(), thinking, null, null, false);
     }
 
     /** Monta a parte "model" pra representar uma function call no histórico da conversa. */

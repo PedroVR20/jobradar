@@ -4,11 +4,14 @@ import {
   JarvisChatResponse,
   JarvisCompatibilidadeData,
   JarvisCompatibilidadeHit,
+  JarvisDetalharVagasData,
   JarvisListarVagasData,
+  JarvisMarcarStatusData,
   JarvisResumoFunilData,
   JarvisSalarioData,
   JarvisSalarioVaga,
   JarvisToolResult,
+  JarvisVagasParecidasData,
   LearningPlan,
 } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
@@ -18,11 +21,15 @@ import { HunterIcon } from './HunterIcon';
 
 interface Props {
   onClose: () => void;
+  // Avisa o App.tsx pra recarregar a lista de vagas quando o Hunter mudou
+  // algo de verdade (hoje só marcarStatusDeVaga) — sem isso o card mudado
+  // só refletiria depois de um F5, mesmo a mudança já valendo no banco.
+  onJobsChanged?: () => void;
 }
 
 type Message =
   | { id: number; role: 'user'; text: string; imageDataUrl?: string }
-  | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[] }
+  | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[]; thinking?: string | null }
   | { id: number; role: 'assistant-loading' };
 
 // Imagem anexada/colada no chat, já convertida — dataUrl é só pra pré-visualizar
@@ -617,6 +624,135 @@ function SalarioCard({ data }: { data: JarvisSalarioData }) {
   );
 }
 
+function DetalharVagasCard({ data }: { data: JarvisDetalharVagasData }) {
+  if (data.vagas.length === 0) {
+    return <p className="jarvis-scan-intro">{data.erro ?? 'Não achei nenhuma vaga com esse id.'}</p>;
+  }
+  if (data.modo === 'comparacao') {
+    return (
+      <div className="jarvis-compare">
+        {data.vagas.map(v => {
+          const meta = STATUS_META[v.status] ?? { label: v.status, color: 'var(--text-muted)' };
+          return (
+            <div key={v.id} className="jarvis-compare-col">
+              <div className="jarvis-hit-title">
+                <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+                <span className="jarvis-hit-company">{v.empresa}</span>
+              </div>
+              <span className="jarvis-hit-score" style={{ color: meta.color, borderColor: meta.color }}>{meta.label}</span>
+              <dl className="jarvis-compare-facts">
+                <dt>Senioridade</dt><dd>{v.senioridade ?? '—'}</dd>
+                <dt>Modalidade</dt><dd>{v.modalidade ?? '—'}</dd>
+                <dt>Local</dt><dd>{[v.cidade, v.estado].filter(Boolean).join(' - ') || '—'}</dd>
+                <dt>Salário informado</dt><dd>{v.salarioInformado ?? '—'}</dd>
+                <dt>Salário estimado</dt><dd>{v.salarioEstimado != null ? formatBRL(v.salarioEstimado) : '—'}</dd>
+                <dt>Fonte</dt><dd>{v.fonte}</dd>
+              </dl>
+              {v.tags.length > 0 && (
+                <div className="jarvis-compare-tags">
+                  {v.tags.map(t => <span key={t} className="jarvis-tag-pill">{t}</span>)}
+                </div>
+              )}
+              {v.notas && <p className="jarvis-hit-resumo">📝 {v.notas}</p>}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  const v = data.vagas[0];
+  const meta = STATUS_META[v.status] ?? { label: v.status, color: 'var(--text-muted)' };
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-head">
+        <span className="jarvis-hit-score" style={{ color: meta.color, borderColor: meta.color }}>{meta.label}</span>
+        <div className="jarvis-hit-title">
+          <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+          <span className="jarvis-hit-company">{v.empresa}</span>
+        </div>
+      </div>
+      <dl className="jarvis-compare-facts">
+        <dt>Senioridade</dt><dd>{v.senioridade ?? '—'}</dd>
+        <dt>Modalidade</dt><dd>{v.modalidade ?? '—'}</dd>
+        <dt>Local</dt><dd>{[v.cidade, v.estado].filter(Boolean).join(' - ') || '—'}</dd>
+        <dt>Salário informado</dt><dd>{v.salarioInformado ?? '—'}</dd>
+        <dt>Salário estimado</dt><dd>{v.salarioEstimado != null ? formatBRL(v.salarioEstimado) : '—'}</dd>
+        <dt>Fonte</dt><dd>{v.fonte}</dd>
+      </dl>
+      {v.tags.length > 0 && (
+        <div className="jarvis-compare-tags">
+          {v.tags.map(t => <span key={t} className="jarvis-tag-pill">{t}</span>)}
+        </div>
+      )}
+      {v.notas && <p className="jarvis-hit-resumo">📝 {v.notas}</p>}
+    </div>
+  );
+}
+
+function VagasParecidasCard({ data }: { data: JarvisVagasParecidasData }) {
+  if (data.vagas.length === 0) {
+    return <p className="jarvis-scan-intro">{data.erro ?? 'Não achei vagas parecidas.'}</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.vagas.map(v => {
+        const meta = STATUS_META[v.status] ?? { label: v.status, color: 'var(--text-muted)' };
+        return (
+          <div key={v.id} className="jarvis-hit">
+            <div className="jarvis-hit-head">
+              <span className="jarvis-hit-score" style={{ color: meta.color, borderColor: meta.color }}>{meta.label}</span>
+              <div className="jarvis-hit-title">
+                <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+                <span className="jarvis-hit-company">{v.empresa}</span>
+              </div>
+            </div>
+            {v.tagsEmComum.length > 0 && (
+              <div className="jarvis-compare-tags">
+                {v.tagsEmComum.map(t => <span key={t} className="jarvis-tag-pill">{t}</span>)}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Confirmação visual da ÚNICA ferramenta que escreve — mostra o "antes/depois"
+// pra deixar claro o que mudou de verdade no banco (a lista de vagas por
+// trás do chat já recarrega sozinha, ver onJobsChanged em handleSend).
+function MarcarStatusCard({ data }: { data: JarvisMarcarStatusData }) {
+  if (!data.sucesso) {
+    return <p className="jarvis-scan-warning">⚠️ {data.erro ?? 'Não consegui mudar o status dessa vaga.'}</p>;
+  }
+  const antes = data.statusAntes ? (STATUS_META[data.statusAntes]?.label ?? data.statusAntes) : '—';
+  const depois = data.statusNovo ? (STATUS_META[data.statusNovo]?.label ?? data.statusNovo) : '—';
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        <span className="jarvis-hit-company">{data.empresa}</span>
+      </div>
+      <p className="jarvis-hit-resumo">✅ {antes} → <strong>{depois}</strong></p>
+    </div>
+  );
+}
+
+// Raciocínio real do Gemini antes da resposta — recolhido por padrão (é
+// texto de "rascunho mental", não a resposta em si, então não compete por
+// atenção com ela). Só existe o botão quando thinking vem preenchido.
+function ThinkingBlock({ thinking }: { thinking: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="jarvis-thinking">
+      <button type="button" className="jarvis-thinking-toggle" onClick={() => setOpen(o => !o)}>
+        {open ? '🧠 Ocultar raciocínio' : '🧠 Ver raciocínio'}
+      </button>
+      {open && <div className="jarvis-thinking-text">{renderMarkdownLite(thinking)}</div>}
+    </div>
+  );
+}
+
 function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
   result: JarvisToolResult; candidateProfile: string; planFeedbackContext: string;
 }) {
@@ -636,6 +772,12 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       );
     case 'estimativaSalarialDeVagas':
       return <SalarioCard data={result.data as JarvisSalarioData} />;
+    case 'detalharVagas':
+      return <DetalharVagasCard data={result.data as JarvisDetalharVagasData} />;
+    case 'vagasParecidas':
+      return <VagasParecidasCard data={result.data as JarvisVagasParecidasData} />;
+    case 'marcarStatusDeVaga':
+      return <MarcarStatusCard data={result.data as JarvisMarcarStatusData} />;
     default:
       return null;
   }
@@ -678,7 +820,7 @@ function HistoryView({
   );
 }
 
-export function JarvisPanel({ onClose }: Props) {
+export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   const { profile } = useCandidateProfile();
   // Mesmas featureKeys que MatchScoreModal.tsx usa pros cards de vaga — o
   // 👍/👎 dado ali OU aqui no chat cai no mesmo pool salvo em localStorage,
@@ -686,6 +828,14 @@ export function JarvisPanel({ onClose }: Props) {
   // nenhum a esse histórico).
   const { buildContext: buildMatchFeedbackContext } = useAiFeedback('match-score');
   const { buildContext: buildPlanFeedbackContext } = useAiFeedback('learning-plan');
+  // Feedback dado direto embaixo de cada resposta do Hunter no chat (não é
+  // sobre um plano ou uma análise específica, é sobre a resposta em si) —
+  // combinado com o de match-score e mandado junto em toda mensagem, pra
+  // realmente influenciar tom/formato das próximas respostas (ver
+  // SYSTEM_INSTRUCTION no backend).
+  const { buildContext: buildChatFeedbackContext } = useAiFeedback('jarvis-chat');
+  const combinedFeedbackContext = () =>
+    [buildMatchFeedbackContext(), buildChatFeedbackContext()].filter(s => s.trim()).join('\n');
   const [conversations, setConversations] = useState<Conversation[]>(loadConversations);
   const [activeId, setActiveId] = useState<string>(loadActiveId);
   const [view, setView] = useState<'chat' | 'history'>('chat');
@@ -862,7 +1012,7 @@ export function JarvisPanel({ onClose }: Props) {
       const res = await fetch('/api/jobs/assistant/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ history, candidateProfile: profile, feedbackContext: buildMatchFeedbackContext() }),
+        body: JSON.stringify({ history, candidateProfile: profile, feedbackContext: combinedFeedbackContext() }),
       });
       removeLoading();
 
@@ -880,7 +1030,15 @@ export function JarvisPanel({ onClose }: Props) {
         role: 'assistant',
         text: data.reply ?? 'Não consegui gerar uma resposta dessa vez — tenta reformular?',
         toolResults: data.toolResults,
+        thinking: data.thinking,
       } as Omit<Message, 'id'>);
+
+      // marcarStatusDeVaga muda dado de verdade no banco — avisa o App.tsx
+      // pra recarregar a lista, senão o card só refletiria após um F5.
+      const mudouStatus = data.toolResults?.some(
+        tr => tr.tool === 'marcarStatusDeVaga' && (tr.data as { sucesso?: boolean })?.sucesso
+      );
+      if (mudouStatus) onJobsChanged?.();
     } catch {
       removeLoading();
       addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);
@@ -1039,6 +1197,7 @@ export function JarvisPanel({ onClose }: Props) {
                 <div key={m.id} className="jarvis-msg-row">
                   <span className="jarvis-avatar"><HunterIcon size={22} alive /></span>
                   <div className="jarvis-bubble jarvis-bubble--assistant">
+                    {m.thinking && <ThinkingBlock thinking={m.thinking} />}
                     {m.toolResults && m.toolResults.length > 0 && (
                       <div className="jarvis-tool-results">
                         {m.toolResults.map((tr, i) => (
@@ -1052,6 +1211,7 @@ export function JarvisPanel({ onClose }: Props) {
                       </div>
                     )}
                     {renderMarkdownLite(m.text)}
+                    <AiFeedbackBox featureKey="jarvis-chat" label="Essa resposta foi útil?" />
                   </div>
                 </div>
               );

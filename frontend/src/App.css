@@ -2011,8 +2011,64 @@ a:hover { text-decoration: underline; }
 .jarvis-hit-company { font-size: 0.72rem; color: var(--text-muted); }
 .jarvis-hit-resumo { margin-top: 0.4rem; font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
 
+.jarvis-compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.6rem;
+}
+.jarvis-compare-col {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.jarvis-compare-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.5rem;
+  font-size: 0.74rem;
+}
+.jarvis-compare-facts dt { color: var(--text-muted); }
+.jarvis-compare-facts dd { margin: 0; color: var(--text); text-align: right; }
+.jarvis-compare-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.jarvis-tag-pill {
+  font-size: 0.68rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
 .jarvis-tool-results { margin-bottom: 0.6rem; }
 .jarvis-tool-results:last-child { margin-bottom: 0; }
+
+.jarvis-thinking { margin-bottom: 0.6rem; }
+.jarvis-thinking-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0;
+  font-style: italic;
+}
+.jarvis-thinking-toggle:hover { color: var(--text); }
+.jarvis-thinking-text {
+  margin-top: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-card2);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  font-style: italic;
+}
 
 .jarvis-stats-grid {
   display: grid;

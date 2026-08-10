@@ -65,7 +65,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showJarvis, setShowJarvis] = useState(false);
 
-  const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
+  const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reload } =
     useJobs(filters);
   const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
   const aiStatus = useAiStatus();
@@ -245,7 +245,7 @@ export default function App() {
         </div>
       </header>
 
-      {showJarvis && <JarvisPanel onClose={() => setShowJarvis(false)} />}
+      {showJarvis && <JarvisPanel onClose={() => setShowJarvis(false)} onJobsChanged={() => reload(true)} />}
 
       {showAddModal && (
         <AddJobModal onClose={() => setShowAddModal(false)} onSubmit={handleAddManual} />

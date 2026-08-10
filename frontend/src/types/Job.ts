@@ -160,13 +160,73 @@ export interface JarvisSalarioData {
   vagas: JarvisSalarioVaga[];
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta detalharVagas
+export interface JarvisVagaDetalhe {
+  id: number;
+  titulo: string;
+  empresa: string;
+  url: string;
+  status: string;
+  fonte: string;
+  senioridade: string | null;
+  modalidade: string | null;
+  estado: string | null;
+  cidade: string | null;
+  tags: string[];
+  salarioInformado: string | null;
+  salarioEstimado: number | null;
+  postedAt: string | null;
+  expiraEm: string | null;
+  notas: string | null;
+}
+
+export interface JarvisDetalharVagasData {
+  vagas: JarvisVagaDetalhe[];
+  modo: 'detalhe' | 'comparacao';
+  erro?: string;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta vagasParecidas
+export interface JarvisVagaParecida {
+  id: number;
+  titulo: string;
+  empresa: string;
+  status: string;
+  url: string;
+  tagsEmComum: string[];
+}
+
+export interface JarvisVagasParecidasData {
+  vagaReferencia: { id: number; titulo: string; empresa: string };
+  vagas: JarvisVagaParecida[];
+  erro?: string;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta marcarStatusDeVaga
+// (única ferramenta do Hunter que escreve, todas as outras só leem)
+export interface JarvisMarcarStatusData {
+  sucesso?: boolean;
+  vagaId?: number;
+  titulo?: string;
+  empresa?: string;
+  statusAntes?: string;
+  statusNovo?: string;
+  erro?: string;
+}
+
 export interface JarvisToolResult {
-  tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil' | 'estimativaSalarialDeVagas';
-  data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData;
+  tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil'
+    | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'marcarStatusDeVaga';
+  data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
+    | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisMarcarStatusData;
 }
 
 export interface JarvisChatResponse {
   reply: string | null;
+  // Raciocínio real do Gemini antes de chegar na resposta — só vem quando a
+  // API decide mandar (pedido explicitamente, ver GeminiService.chat), pode
+  // vir null mesmo numa pergunta que teoricamente "merecia" pensar mais.
+  thinking?: string | null;
   toolResults: JarvisToolResult[];
 }
 

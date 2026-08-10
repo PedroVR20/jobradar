@@ -34,6 +34,7 @@ public class JarvisChatService {
     private final JarvisAssistantService jarvisAssistantService;
     private final MatchScoreService matchScoreService;
     private final SalaryPredictionService salaryPredictionService;
+    private final JobStatusService jobStatusService;
 
     // compatibilidadeComVagasDoFunil analisa DIRETO (sem pré-filtro), porque
     // o grupo já vem pequeno por natureza (é o funil curado do próprio
@@ -126,6 +127,25 @@ public class JarvisChatService {
             aprofundar (só na primeira vez que aparecer numa conversa, não repita
             isso toda resposta).
 
+            detalharVagas: pra "me explica a vaga X" (1 id) ou "compara a vaga X
+            com a Y" (2+ ids) — traz todo dado salvo da(s) vaga(s), sem IA. Precisa
+            do id; se o usuário só deu título/empresa, chame listarVagas primeiro
+            com busca pra achar o id certo antes de chamar detalharVagas.
+
+            vagasParecidas: pra "acha mais vagas como essa"/"parecidas com a que
+            eu apliquei" — compara tags salvas, sem IA. Mesma regra: precisa do
+            id, ache com listarVagas primeiro se só tiver título/empresa.
+
+            marcarStatusDeVaga: a ÚNICA ferramenta que MUDA dado de verdade (todas
+            as outras só leem). Só chame quando o usuário pedir claramente pra
+            mudar o status de UMA vaga específica já identificada (id, ou título/
+            empresa que você confirmou antes com listarVagas). Se a busca por
+            título/empresa achar mais de uma vaga batendo, PERGUNTE qual antes de
+            chamar — nunca escolha sozinho nem chame em lote pra várias vagas de
+            uma vez. Depois de mudar, confirme em texto o que mudou (vaga e
+            status novo) — a interface já recarrega a lista sozinha, mas
+            confirmar por escrito evita dúvida sobre o que exatamente mudou.
+
             Se o usuário anexar uma imagem (print de tela) na mensagem: descreva
             objetivamente o que reconhece nela (título da vaga, empresa, status/aba
             aparente, badges visíveis) e, se conseguir ler título e/ou empresa com
@@ -168,7 +188,12 @@ public class JarvisChatService {
 
     public record ToolResultPayload(String tool, Object data) {}
 
-    public record ChatOutcome(String reply, List<ToolResultPayload> toolResults, String errorMessage, boolean rateLimited) {
+    // thinking: raciocínio real do Gemini antes da resposta final (ver
+    // GeminiService.chat(..., includeThoughts=true)) — null quando a rodada
+    // que produziu a resposta não veio com pensamento (a API nem sempre
+    // manda, mesmo pedindo) ou quando o modelo respondeu direto sem "pensar"
+    // visivelmente numa pergunta simples.
+    public record ChatOutcome(String reply, String thinking, List<ToolResultPayload> toolResults, String errorMessage, boolean rateLimited) {
         public boolean ok() {
             return errorMessage == null;
         }
@@ -185,7 +210,7 @@ public class JarvisChatService {
     // ali também refina o que o Hunter mostra na conversa.
     public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext) {
         if (historico == null || historico.isEmpty()) {
-            return new ChatOutcome(null, List.of(), "Mensagem vazia.", false);
+            return new ChatOutcome(null, null, List.of(), "Mensagem vazia.", false);
         }
 
         List<ChatMessage> recortado = historico.size() > MAX_HISTORY_MESSAGES
@@ -210,13 +235,24 @@ public class JarvisChatService {
         List<GeminiService.FunctionDeclaration> tools = buildTools();
         List<ToolResultPayload> toolResults = new ArrayList<>();
 
+        // feedbackContext antes só ia pras sub-chamadas de compatibilidade
+        // (executarCompatibilidade/Funil) — a resposta conversacional em si
+        // nunca via esse histórico, então o 👍/👎 que o usuário dava numa
+        // resposta comum do Hunter não tinha efeito nenhum. Anexado aqui na
+        // instrução de sistema, vale pra QUALQUER resposta da conversa.
+        String systemInstructionComFeedback = feedbackContext != null && !feedbackContext.isBlank()
+                ? SYSTEM_INSTRUCTION + "\n\nFeedback que o usuário já deu sobre suas respostas anteriores " +
+                        "(curtiu/não curtiu + comentário) — leve em conta pra ajustar tom, formato ou nível " +
+                        "de detalhe das próximas respostas:\n" + feedbackContext
+                : SYSTEM_INSTRUCTION;
+
         for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
-            GeminiService.ChatResult resultado = geminiService.chat(SYSTEM_INSTRUCTION, contents, tools);
+            GeminiService.ChatResult resultado = geminiService.chat(systemInstructionComFeedback, contents, tools, true);
             if (!resultado.ok()) {
-                return new ChatOutcome(null, toolResults, resultado.errorMessage(), resultado.rateLimited());
+                return new ChatOutcome(null, null, toolResults, resultado.errorMessage(), resultado.rateLimited());
             }
             if (!resultado.isFunctionCall()) {
-                return new ChatOutcome(resultado.text(), toolResults, null, false);
+                return new ChatOutcome(resultado.text(), resultado.thinking(), toolResults, null, false);
             }
 
             GeminiService.FunctionCallRequest chamada = resultado.functionCall();
@@ -230,7 +266,7 @@ public class JarvisChatService {
 
         return new ChatOutcome(
                 "Essa pergunta pediu mais passos do que eu consigo resolver de uma vez — tenta reformular de um jeito mais direto?",
-                toolResults, null, false
+                null, toolResults, null, false
         );
     }
 
@@ -287,6 +323,41 @@ public class JarvisChatService {
                 )
         );
 
+        Map<String, Object> detalharVagasParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "vagaIds", Map.of(
+                                "type", "ARRAY",
+                                "items", Map.of("type", "INTEGER"),
+                                "description", "IDs das vagas a detalhar (peça pra listarVagas primeiro se só tiver título/empresa). " +
+                                        "1 id = detalhe completo de uma vaga só; 2+ ids = comparação lado a lado."
+                        )
+                ),
+                "required", List.of("vagaIds")
+        );
+
+        Map<String, Object> vagasParecidasParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "vagaId", Map.of("type", "INTEGER", "description", "ID da vaga de referência (peça pra listarVagas primeiro se só tiver título/empresa)."),
+                        "limite", Map.of("type", "INTEGER", "description", "Máximo de vagas parecidas a retornar. Padrão 8, máximo 15.")
+                ),
+                "required", List.of("vagaId")
+        );
+
+        Map<String, Object> marcarStatusParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "vagaId", Map.of("type", "INTEGER", "description", "ID da vaga a mudar (peça pra listarVagas primeiro se só tiver título/empresa)."),
+                        "status", Map.of(
+                                "type", "STRING",
+                                "description", "Novo status da vaga.",
+                                "enum", List.of("NOVA", "VISTA", "INTERESSADO", "APLICADA", "ANDAMENTO", "RECUSADA")
+                        )
+                ),
+                "required", List.of("vagaId", "status")
+        );
+
         return List.of(
                 new GeminiService.FunctionDeclaration("listarVagas",
                         "Lista vagas do usuário, opcionalmente filtradas por status (ex: em andamento, aplicadas), período ou busca por texto. " +
@@ -321,7 +392,31 @@ public class JarvisChatService {
                                 "o salário dessas vagas', 'quanto pagam essas 5 vagas que apliquei'). NÃO usa IA " +
                                 "generativa (é um modelo de regressão treinado, não gasta cota do Gemini) — pode " +
                                 "usar sem economia especial, dentro do limite.",
-                        salarioVagasParams)
+                        salarioVagasParams),
+                new GeminiService.FunctionDeclaration("detalharVagas",
+                        "Traz TODOS os dados salvos de uma ou mais vagas específicas (salário informado/estimado, " +
+                                "modalidade, cidade/estado, tags, prazo, nota pessoal, status atual) — use quando o " +
+                                "usuário pedir detalhe de UMA vaga específica ('me explica a vaga X') ou pra COMPARAR " +
+                                "duas ou mais vagas específicas lado a lado ('compara a vaga X com a Y'). Não usa IA " +
+                                "generativa, não gasta cota. Precisa do id da vaga — se só tiver título/empresa, " +
+                                "chame listarVagas primeiro com busca pra achar o id certo.",
+                        detalharVagasParams),
+                new GeminiService.FunctionDeclaration("vagasParecidas",
+                        "Acha outras vagas do feed parecidas com uma vaga de referência (mesma stack/tags, senioridade " +
+                                "e modalidade) — use quando o usuário pedir algo tipo 'acha mais vagas como essa' ou " +
+                                "'tem outras parecidas com a que eu apliquei'. Não usa IA generativa, é só comparação " +
+                                "de tags salvas, não gasta cota. Precisa do id da vaga de referência — se só tiver " +
+                                "título/empresa, chame listarVagas primeiro com busca pra achar o id certo.",
+                        vagasParecidasParams),
+                new GeminiService.FunctionDeclaration("marcarStatusDeVaga",
+                        "Move uma vaga específica pra outro status do funil (ex: marcar como aplicada, interessado, " +
+                                "recusada) — é a ÚNICA ferramenta que MUDA dado de verdade, as outras só leem. Use " +
+                                "SÓ quando o usuário pedir isso de forma clara e específica sobre UMA vaga identificada " +
+                                "(por id, ou por título/empresa já confirmado via listarVagas antes) — nunca chame " +
+                                "isso 'no escuro' ou em lote sem o usuário ter apontado exatamente qual vaga. Se " +
+                                "houver ambiguidade sobre qual vaga (mais de uma batendo com a busca), pergunte antes " +
+                                "de chamar, não escolha sozinho.",
+                        marcarStatusParams)
         );
     }
 
@@ -332,6 +427,9 @@ public class JarvisChatService {
             case "compatibilidadeComVagasRecentes" -> executarCompatibilidade(chamada.args(), candidateProfile, feedbackContext);
             case "compatibilidadeComVagasDoFunil" -> executarCompatibilidadeFunil(chamada.args(), candidateProfile, feedbackContext);
             case "estimativaSalarialDeVagas" -> executarEstimativaSalarial(chamada.args());
+            case "detalharVagas" -> executarDetalharVagas(chamada.args());
+            case "vagasParecidas" -> executarVagasParecidas(chamada.args());
+            case "marcarStatusDeVaga" -> executarMarcarStatus(chamada.args());
             default -> Map.of("erro", "Ferramenta desconhecida: " + chamada.name());
         };
     }
@@ -561,6 +659,158 @@ public class JarvisChatService {
         m.put("modeloDisponivel", salaryPredictionService.isLoaded());
         m.put("totalEncontradas", filtradas.size());
         m.put("vagas", vagas);
+        return m;
+    }
+
+    // Não usa IA — só devolve tudo que já está salvo sobre cada vaga (mais a
+    // estimativa salarial gratuita, mesmo modelo do botão 💰). Cobre tanto
+    // "detalha essa vaga" (1 id) quanto "compara essas vagas" (2+ ids) — o
+    // frontend decide como desenhar com base em quantos itens vieram.
+    @SuppressWarnings("unchecked")
+    private Object executarDetalharVagas(Map<String, Object> args) {
+        List<Number> idsRaw = args.get("vagaIds") instanceof List<?> l
+                ? (List<Number>) l.stream().filter(Number.class::isInstance).toList()
+                : List.of();
+        if (idsRaw.isEmpty()) {
+            return Map.of("erro", "Preciso do id de pelo menos uma vaga — chame listarVagas primeiro se só tiver título/empresa.");
+        }
+        List<Long> ids = idsRaw.stream().map(Number::longValue).distinct().limit(10).toList();
+
+        List<Map<String, Object>> vagas = new ArrayList<>();
+        List<Long> naoEncontradas = new ArrayList<>();
+        for (Long id : ids) {
+            Optional<Job> jobOpt = jobRepository.findById(id);
+            if (jobOpt.isEmpty()) {
+                naoEncontradas.add(id);
+                continue;
+            }
+            Job j = jobOpt.get();
+            List<String> tags = j.getTags() == null || j.getTags().isBlank()
+                    ? List.of() : Arrays.asList(j.getTags().split(","));
+            Optional<Long> estimativa = salaryPredictionService.predict(j.getSeniority(), tags, j.getWorkplaceType(), j.getState());
+
+            Map<String, Object> v = new LinkedHashMap<>();
+            v.put("id", j.getId());
+            v.put("titulo", j.getTitle());
+            v.put("empresa", j.getCompany());
+            v.put("url", j.getUrl());
+            v.put("status", statusDe(j));
+            v.put("fonte", j.getSource());
+            v.put("senioridade", j.getSeniority());
+            v.put("modalidade", j.getWorkplaceType());
+            v.put("estado", j.getState());
+            v.put("cidade", j.getCity());
+            v.put("tags", tags);
+            v.put("salarioInformado", j.getSalary());
+            v.put("salarioEstimado", estimativa.orElse(null));
+            v.put("postedAt", j.getPostedAt() != null ? j.getPostedAt().toString() : null);
+            v.put("expiraEm", j.getExpiresAt() != null ? j.getExpiresAt().toString() : null);
+            v.put("notas", j.getNotes());
+            vagas.add(v);
+        }
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("vagas", vagas);
+        m.put("modo", vagas.size() >= 2 ? "comparacao" : "detalhe");
+        if (!naoEncontradas.isEmpty()) {
+            m.put("erro", "Não achei a(s) vaga(s) de id " + naoEncontradas + " — pode ter sido apagada.");
+        }
+        return m;
+    }
+
+    // Não usa IA — pontua outras vagas do feed geral por quantas tags a vaga
+    // de referência tem em comum (Jaccard simples), com bônus se senioridade
+    // e modalidade também baterem. Não filtra por status do funil de
+    // propósito: a ideia é achar OUTRAS vagas ainda não vistas/curadas,
+    // parecidas com uma que o usuário já gostou.
+    private Object executarVagasParecidas(Map<String, Object> args) {
+        Long vagaId = args.get("vagaId") instanceof Number n ? n.longValue() : null;
+        if (vagaId == null) {
+            return Map.of("erro", "Preciso do id da vaga de referência — chame listarVagas primeiro se só tiver título/empresa.");
+        }
+        Optional<Job> refOpt = jobRepository.findById(vagaId);
+        if (refOpt.isEmpty()) {
+            return Map.of("erro", "Não achei a vaga de id " + vagaId + " — pode ter sido apagada.");
+        }
+        Job ref = refOpt.get();
+        Set<String> tagsRef = tagsDe(ref);
+        int limite = args.get("limite") instanceof Number n
+                ? Math.min(15, Math.max(1, n.intValue()))
+                : 8;
+
+        record Candidata(Job job, int score, Set<String> tagsComuns) {}
+
+        List<Candidata> candidatas = jobRepository.findAll().stream()
+                .filter(j -> !j.getId().equals(ref.getId()))
+                .map(j -> {
+                    Set<String> tagsJ = tagsDe(j);
+                    Set<String> comuns = new LinkedHashSet<>(tagsRef);
+                    comuns.retainAll(tagsJ);
+                    int score = comuns.size() * 2;
+                    if (Objects.equals(j.getSeniority(), ref.getSeniority())) score += 1;
+                    if (Objects.equals(j.getWorkplaceType(), ref.getWorkplaceType())) score += 1;
+                    return new Candidata(j, score, comuns);
+                })
+                .filter(c -> c.score() > 0)
+                .sorted(Comparator.comparingInt(Candidata::score).reversed()
+                        .thenComparing(c -> c.job().getPostedAt(), Comparator.nullsLast(Comparator.reverseOrder())))
+                .limit(limite)
+                .toList();
+
+        List<Map<String, Object>> vagas = candidatas.stream().map(c -> {
+            Map<String, Object> v = new LinkedHashMap<>();
+            v.put("id", c.job().getId());
+            v.put("titulo", c.job().getTitle());
+            v.put("empresa", c.job().getCompany());
+            v.put("status", statusDe(c.job()));
+            v.put("url", c.job().getUrl());
+            v.put("tagsEmComum", c.tagsComuns());
+            return (Map<String, Object>) v;
+        }).toList();
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("vagaReferencia", Map.of("id", ref.getId(), "titulo", ref.getTitle(), "empresa", ref.getCompany()));
+        m.put("vagas", vagas);
+        if (vagas.isEmpty()) {
+            m.put("erro", "Não achei nenhuma vaga parecida — essa vaga tem poucas tags salvas pra comparar.");
+        }
+        return m;
+    }
+
+    private Set<String> tagsDe(Job j) {
+        if (j.getTags() == null || j.getTags().isBlank()) return Set.of();
+        return Arrays.stream(j.getTags().split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    // ÚNICA ferramenta que escreve — todas as outras só leem. Ver guidance
+    // na SYSTEM_INSTRUCTION e na descrição da ferramenta sobre só chamar com
+    // a vaga claramente identificada, nunca "no escuro".
+    private Object executarMarcarStatus(Map<String, Object> args) {
+        Long vagaId = args.get("vagaId") instanceof Number n ? n.longValue() : null;
+        String status = args.get("status") instanceof String s && !s.isBlank() ? s.toUpperCase() : null;
+        if (vagaId == null || status == null || !JobStatusService.VALID_STATUSES.contains(status)) {
+            return Map.of("erro", "Preciso do id da vaga e um status válido (" + JobStatusService.VALID_STATUSES + ").");
+        }
+        Optional<Job> jobOpt = jobRepository.findById(vagaId);
+        if (jobOpt.isEmpty()) {
+            return Map.of("erro", "Não achei a vaga de id " + vagaId + " — pode ter sido apagada.");
+        }
+        Job job = jobOpt.get();
+        String statusAntes = statusDe(job);
+        String tituloAntes = job.getTitle();
+        String empresaAntes = job.getCompany();
+        jobStatusService.aplicarEsalvar(job, status);
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("sucesso", true);
+        m.put("vagaId", vagaId);
+        m.put("titulo", tituloAntes);
+        m.put("empresa", empresaAntes);
+        m.put("statusAntes", statusAntes);
+        m.put("statusNovo", status);
         return m;
     }
 }

@@ -9,6 +9,7 @@ import br.com.jobradar.service.InterviewQuestionsService;
 import br.com.jobradar.service.JarvisAssistantService;
 import br.com.jobradar.service.JarvisChatService;
 import br.com.jobradar.service.JobAggregatorService;
+import br.com.jobradar.service.JobStatusService;
 import br.com.jobradar.service.LearningPlanService;
 import br.com.jobradar.service.MatchScoreService;
 import br.com.jobradar.service.SalaryEstimateService;
@@ -63,6 +64,7 @@ public class JobController {
     private final MatchScoreService matchScoreService;
     private final LearningPlanService learningPlanService;
     private final InterviewQuestionsService interviewQuestionsService;
+    private final JobStatusService jobStatusService;
 
     // Gate simples (não é segurança de verdade — app pessoal local) pra não
     // ter um botão de "retreinar" clicável sem querer. Vazio == recurso
@@ -495,32 +497,12 @@ public class JobController {
         }).orElse(ResponseEntity.notFound().build());
     }
 
-    // Ponto único que traduz um status "lógico" (NOVA/VISTA/APLICADA/ANDAMENTO/
-    // RECUSADA) para os campos booleanos da entidade. RECUSADA marca rejectedAt
-    // com o instante atual, usado depois pra excluir a vaga após alguns dias.
-    //
-    // "RECUSADA" NÃO força applied=true sozinho — antes forçava, assumindo que
-    // toda recusa vem depois de uma candidatura de verdade, mas o usuário usa
-    // "Recusada/congelada" também como "descartar/não tenho interesse" direto
-    // de vagas nunca aplicadas (ex: limpar vagas antigas de anos atrás). Fica
-    // com o applied que a vaga já tinha — true só se já era true antes.
+    // Lógica movida pra JobStatusService (agora reaproveitada também pela
+    // ferramenta marcarStatusDeVaga do Hunter, ver JarvisChatService) — esse
+    // wrapper só existe pra não precisar trocar "aplicarStatus(...)" em toda
+    // chamada já existente abaixo.
     private void aplicarStatus(Job job, String status) {
-        boolean applied = status.equals("APLICADA") || status.equals("ANDAMENTO")
-                || (status.equals("RECUSADA") && job.isApplied());
-        boolean inProgress = status.equals("ANDAMENTO");
-
-        job.setSeen(!status.equals("NOVA"));
-        job.setInterested(status.equals("INTERESSADO"));
-        job.setApplied(applied);
-        if (applied && job.getAppliedAt() == null) {
-            job.setAppliedAt(LocalDateTime.now());
-        }
-        job.setInProgress(inProgress);
-        if (inProgress && job.getInProgressAt() == null) {
-            job.setInProgressAt(LocalDateTime.now());
-        }
-        job.setRejected(status.equals("RECUSADA"));
-        job.setRejectedAt(status.equals("RECUSADA") ? LocalDateTime.now() : null);
+        jobStatusService.aplicarStatus(job, status);
     }
 
     /**
@@ -1082,6 +1064,7 @@ public class JobController {
         }
         Map<String, Object> body = new HashMap<>();
         body.put("reply", resultado.reply());
+        body.put("thinking", resultado.thinking());
         body.put("toolResults", resultado.toolResults());
         return ResponseEntity.ok(body);
     }
