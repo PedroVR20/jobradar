@@ -1818,6 +1818,27 @@ a:hover { text-decoration: underline; }
 .jarvis-hit-company { font-size: 0.72rem; color: var(--text-muted); }
 .jarvis-hit-resumo { margin-top: 0.4rem; font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
 
+.jarvis-tool-results { margin-bottom: 0.6rem; }
+.jarvis-tool-results:last-child { margin-bottom: 0; }
+
+.jarvis-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+.jarvis-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.3rem;
+}
+.jarvis-stat-value { font-size: 1.1rem; font-weight: 800; }
+.jarvis-stat-label { font-size: 0.68rem; color: var(--text-muted); text-align: center; }
+
 .jarvis-suggestions {
   display: flex;
   flex-wrap: wrap;

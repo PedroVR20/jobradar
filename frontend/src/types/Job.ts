@@ -87,6 +87,59 @@ export interface MatchScoreResult {
   resumo: string;
 }
 
+// POST /api/jobs/assistant/chat — chat livre do 🤖 Jarvis (function-calling
+// de verdade: o Gemini decide sozinho quais ferramentas chamar a partir da
+// mensagem em linguagem natural, sem roteamento por palavra-chave).
+export interface JarvisVagaResumo {
+  id: number;
+  title: string;
+  company: string;
+  status: string;
+  url: string;
+  postedAt: string | null;
+}
+
+export interface JarvisListarVagasData {
+  totalEncontradas: number;
+  vagas: JarvisVagaResumo[];
+}
+
+export interface JarvisResumoFunilData {
+  total: number;
+  novas: number;
+  interessadas: number;
+  aplicadas: number;
+  emAndamento: number;
+  recusadas: number;
+}
+
+export interface JarvisCompatibilidadeHit {
+  id: number;
+  titulo: string;
+  empresa: string;
+  url: string;
+  score: number;
+  resumo: string;
+}
+
+export interface JarvisCompatibilidadeData {
+  available: boolean;
+  totalConsiderados: number;
+  totalAnalisadosPorIa: number;
+  hits: JarvisCompatibilidadeHit[];
+  erro?: string;
+}
+
+export interface JarvisToolResult {
+  tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes';
+  data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData;
+}
+
+export interface JarvisChatResponse {
+  reply: string | null;
+  toolResults: JarvisToolResult[];
+}
+
 export interface DuplicateJobRef {
   id: number;
   title: string;

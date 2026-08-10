@@ -7,6 +7,7 @@ import br.com.jobradar.service.CoverLetterService;
 import br.com.jobradar.service.GeminiService;
 import br.com.jobradar.service.InterviewQuestionsService;
 import br.com.jobradar.service.JarvisAssistantService;
+import br.com.jobradar.service.JarvisChatService;
 import br.com.jobradar.service.JobAggregatorService;
 import br.com.jobradar.service.MatchScoreService;
 import br.com.jobradar.service.SalaryEstimateService;
@@ -51,6 +52,7 @@ public class JobController {
     private final SalaryEstimateService salaryEstimateService;
     private final SalaryPredictionService salaryPredictionService;
     private final JarvisAssistantService jarvisAssistantService;
+    private final JarvisChatService jarvisChatService;
     private final MatchScoreService matchScoreService;
     private final InterviewQuestionsService interviewQuestionsService;
 
@@ -900,5 +902,39 @@ public class JobController {
             return hit;
         }).toList());
         return body;
+    }
+
+    public record ChatMessageDto(String role, String text) {}
+    public record ChatRequest(List<ChatMessageDto> history, String candidateProfile) {}
+
+    /**
+     * Chat livre do Jarvis — diferente do compatibility-scan (ação fixa),
+     * aqui o Gemini decide sozinho quais ferramentas chamar (listar vagas,
+     * resumo do funil, compatibilidade) a partir da mensagem em linguagem
+     * natural, via function-calling de verdade (ver JarvisChatService).
+     * 503 sem IA configurada, 429 em rate limit, 502 pra outras falhas.
+     * POST /api/jobs/assistant/chat
+     * Body: { "history": [{"role":"user","text":"..."}, ...], "candidateProfile": "..." }
+     */
+    @PostMapping("/assistant/chat")
+    public ResponseEntity<Map<String, Object>> assistantChat(@RequestBody(required = false) ChatRequest req) {
+        if (!geminiService.isEnabled()) {
+            return ResponseEntity.status(503)
+                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+        }
+        List<JarvisChatService.ChatMessage> historico = req != null && req.history() != null
+                ? req.history().stream().map(m -> new JarvisChatService.ChatMessage(m.role(), m.text())).toList()
+                : List.of();
+        String perfil = req != null ? req.candidateProfile() : null;
+
+        JarvisChatService.ChatOutcome resultado = jarvisChatService.conversar(historico, perfil);
+        if (!resultado.ok()) {
+            return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
+                    .body(Map.<String, Object>of("error", resultado.errorMessage()));
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("reply", resultado.reply());
+        body.put("toolResults", resultado.toolResults());
+        return ResponseEntity.ok(body);
     }
 }
