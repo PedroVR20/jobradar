@@ -8,6 +8,7 @@ import {
   JarvisToolResult,
 } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
+import { RoviIcon } from './RoviIcon';
 
 interface Props {
   onClose: () => void;
@@ -18,10 +19,17 @@ type Message =
   | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[] }
   | { id: number; role: 'assistant-loading' };
 
+interface Conversation {
+  id: string;
+  title: string;
+  messages: Message[];
+  updatedAt: number;
+}
+
 const SUGESTOES = [
-  'Compatibilidade com vagas de hoje',
-  'Dê uma olhada nas minhas vagas em andamento',
-  'Resumo rápido do meu funil',
+  { icon: '🎯', text: 'Compatibilidade com vagas de hoje' },
+  { icon: '🔄', text: 'Dê uma olhada nas minhas vagas em andamento' },
+  { icon: '📊', text: 'Resumo rápido do meu funil' },
 ];
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
@@ -39,13 +47,13 @@ function scoreColor(score: number): string {
   return 'var(--red)';
 }
 
-// Renderizador de markdown "lite" — a instrução de sistema pede pro Gemini
-// não usar títulos/separadores num chat, mas ele nem sempre obedece à risca,
-// e mesmo **negrito**/listas simples (que a instrução permite) precisam ser
-// interpretados, senão aparecem como asteriscos crus na tela. Sem trazer uma
-// lib de markdown pro bundle — só cobre o que o Jarvis realmente usa:
-// **negrito**, [link](url), listas com "-"/"*"/"1.", e títulos "#" (caso
-// escape a instrução, ainda assim fica legível em vez de "### texto" cru).
+// ===================== Markdown "lite" =====================
+// A instrução de sistema pede pro Gemini não usar títulos/separadores num
+// chat, mas ele nem sempre obedece à risca, e mesmo **negrito**/listas
+// simples (que a instrução permite) precisam ser interpretados, senão
+// aparecem como asteriscos crus na tela. Sem trazer uma lib de markdown pro
+// bundle — só cobre o que o Jarvis realmente usa: **negrito**, [link](url),
+// listas com "-"/"*"/"1.", e títulos "#" (caso escape a instrução).
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   const re = /\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\)/g;
@@ -126,34 +134,99 @@ function renderMarkdownLite(text: string): ReactNode {
   return <>{blocks}</>;
 }
 
-// Histórico persistido no navegador — antes o painel perdia a conversa toda
-// vez que fechava e abria de novo (o componente desmontava e o estado ia
-// junto). Guarda só as últimas MAX_STORED mensagens pra não crescer sem limite.
-const STORAGE_KEY = 'jobradar:jarvis-history';
-const MAX_STORED = 40;
+// ===================== Persistência: múltiplas conversas =====================
+// Antes era uma conversa só (localStorage 'jobradar:jarvis-history'). Agora
+// guarda várias, como o histórico lateral do Claude Desktop: dá pra abrir
+// uma pergunta antiga sem perder a de agora.
+const CONVERSATIONS_KEY = 'jobradar:jarvis-conversations';
+const ACTIVE_KEY = 'jobradar:jarvis-active-conversation';
+const LEGACY_KEY = 'jobradar:jarvis-history';
+const MAX_CONVERSATIONS = 30;
+const MAX_STORED_PER_CONVO = 40;
+const TITLE_MAX_LEN = 48;
 
 let nextId = 1;
+
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 function greeting(): Message {
   return {
     id: nextId++,
     role: 'assistant',
-    text: 'Oi! Eu sou o Jarvis 🤖 — pode falar comigo do jeito que quiser, tipo "dê uma olhada nas minhas vagas em andamento" ou "quantas vagas eu tenho hoje". Eu entendo a pergunta e busco o dado real pra responder.',
+    text: 'Oi! Eu sou o Rovi — pode falar comigo do jeito que quiser, tipo "dê uma olhada nas minhas vagas em andamento" ou "quantas vagas eu tenho hoje". Eu entendo a pergunta e busco o dado real pra responder.',
   };
 }
 
-function loadInitialMessages(): Message[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [greeting()];
-    const parsed = JSON.parse(raw) as Message[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return [greeting()];
-    nextId = Math.max(...parsed.map(m => m.id)) + 1;
-    return parsed;
-  } catch {
-    return [greeting()];
-  }
+function deriveTitle(messages: Message[]): string {
+  const firstUser = messages.find((m): m is Extract<Message, { role: 'user' }> => m.role === 'user');
+  if (!firstUser) return 'Nova conversa';
+  const t = firstUser.text.trim();
+  return t.length > TITLE_MAX_LEN ? `${t.slice(0, TITLE_MAX_LEN)}…` : t;
 }
+
+function freshConversation(): Conversation {
+  return { id: generateId(), title: 'Nova conversa', messages: [greeting()], updatedAt: Date.now() };
+}
+
+function computeNextId(conversations: Conversation[]): number {
+  let max = 0;
+  for (const c of conversations) for (const m of c.messages) if (m.id > max) max = m.id;
+  return max + 1;
+}
+
+function loadConversations(): Conversation[] {
+  try {
+    const raw = localStorage.getItem(CONVERSATIONS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Conversation[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        nextId = computeNextId(parsed);
+        return parsed;
+      }
+    }
+  } catch { /* ignore, cai pro fallback abaixo */ }
+
+  // Migração de sessões antigas (uma conversa só, sem histórico de verdade)
+  try {
+    const legacyRaw = localStorage.getItem(LEGACY_KEY);
+    if (legacyRaw) {
+      const legacyMessages = JSON.parse(legacyRaw) as Message[];
+      localStorage.removeItem(LEGACY_KEY);
+      if (Array.isArray(legacyMessages) && legacyMessages.length > 0) {
+        nextId = computeNextId([{ id: '', title: '', messages: legacyMessages, updatedAt: 0 }]);
+        return [{ id: generateId(), title: deriveTitle(legacyMessages), messages: legacyMessages, updatedAt: Date.now() }];
+      }
+    }
+  } catch { /* ignore */ }
+
+  return [freshConversation()];
+}
+
+function loadActiveId(): string {
+  const conversations = loadConversations();
+  try {
+    const raw = localStorage.getItem(ACTIVE_KEY);
+    if (raw && conversations.some(c => c.id === raw)) return raw;
+  } catch { /* ignore */ }
+  return [...conversations].sort((a, b) => b.updatedAt - a.updatedAt)[0].id;
+}
+
+function relativeTime(ts: number): string {
+  const diffMin = Math.floor((Date.now() - ts) / 60000);
+  if (diffMin < 1) return 'agora';
+  if (diffMin < 60) return `há ${diffMin}min`;
+  const h = Math.floor(diffMin / 60);
+  if (h < 24) return `há ${h}h`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return 'ontem';
+  if (d < 7) return `há ${d}d`;
+  return new Date(ts).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+// ===================== Cards de resultado de ferramenta =====================
 
 function ListarVagasCard({ data }: { data: JarvisListarVagasData }) {
   if (data.vagas.length === 0) {
@@ -255,31 +328,132 @@ function ToolResultCard({ result }: { result: JarvisToolResult }) {
   }
 }
 
+// ===================== Histórico de conversas =====================
+
+function HistoryView({
+  conversations, activeId, onSelect, onDelete,
+}: {
+  conversations: Conversation[];
+  activeId: string;
+  onSelect: (id: string) => void;
+  onDelete: (id: string, e: React.MouseEvent) => void;
+}) {
+  const ordered = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+  return (
+    <div className="jarvis-history-list">
+      {ordered.map(c => (
+        <button
+          key={c.id}
+          className={`jarvis-history-item ${c.id === activeId ? 'jarvis-history-item--active' : ''}`}
+          onClick={() => onSelect(c.id)}
+        >
+          <div className="jarvis-history-item-main">
+            <span className="jarvis-history-item-title">{c.title}</span>
+            <span className="jarvis-history-item-time">{relativeTime(c.updatedAt)}</span>
+          </div>
+          <span
+            className="jarvis-history-item-delete"
+            role="button"
+            aria-label="Apagar conversa"
+            onClick={e => onDelete(c.id, e)}
+          >
+            🗑
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function JarvisPanel({ onClose }: Props) {
   const { profile } = useCandidateProfile();
-  const [messages, setMessages] = useState<Message[]>(loadInitialMessages);
+  const [conversations, setConversations] = useState<Conversation[]>(loadConversations);
+  const [activeId, setActiveId] = useState<string>(loadActiveId);
+  const [view, setView] = useState<'chat' | 'history'>('chat');
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [closing, setClosing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages]);
+  // loadConversations() e loadActiveId() são inicializadores independentes
+  // do useState (cada um roda separado) — quando o localStorage começa
+  // vazio, os dois chamam freshConversation() por conta própria e geram
+  // UUIDs diferentes, então o activeId "bruto" pode não bater com nenhuma
+  // conversa de verdade no primeiro render. Por isso toda lógica interna usa
+  // resolvedActiveId (o id que realmente existe, com fallback pra primeira
+  // conversa), nunca o activeId bruto — senão os writes silenciosamente não
+  // encontram a conversa e a mensagem some.
+  const active = conversations.find(c => c.id === activeId) ?? conversations[0];
+  const resolvedActiveId = active.id;
+  const messages = active.messages;
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-MAX_STORED)));
-  }, [messages]);
+    if (view === 'chat') {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    }
+  }, [messages, view]);
 
-  const addMessage = (m: Omit<Message, 'id'>) => setMessages(prev => [...prev, { ...m, id: nextId++ } as Message]);
+  useEffect(() => {
+    const capped = [...conversations]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, MAX_CONVERSATIONS)
+      .map(c => ({ ...c, messages: c.messages.slice(-MAX_STORED_PER_CONVO) }));
+    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(capped));
+  }, [conversations]);
 
-  const handleClear = () => {
-    setMessages([greeting()]);
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_KEY, resolvedActiveId);
+  }, [resolvedActiveId]);
+
+  const patchActive = (fn: (msgs: Message[]) => Message[]) => {
+    setConversations(prev => prev.map(c => {
+      if (c.id !== resolvedActiveId) return c;
+      const newMessages = fn(c.messages);
+      const newTitle = c.title === 'Nova conversa' ? deriveTitle(newMessages) : c.title;
+      return { ...c, messages: newMessages, updatedAt: Date.now(), title: newTitle };
+    }));
+  };
+
+  const addMessage = (m: Omit<Message, 'id'>) => patchActive(msgs => [...msgs, { ...m, id: nextId++ } as Message]);
+  const removeLoading = () => patchActive(msgs => msgs.filter(m => m.role !== 'assistant-loading'));
+
+  const handleNewConversation = () => {
+    if (messages.length <= 1) { setView('chat'); return; } // já tá numa conversa vazia, não duplica
+    const fresh = freshConversation();
+    setConversations(prev => [fresh, ...prev]);
+    setActiveId(fresh.id);
+    setView('chat');
+  };
+
+  const handleSelectConversation = (id: string) => {
+    setActiveId(id);
+    setView('chat');
+  };
+
+  const handleDeleteConversation = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rest = conversations.filter(c => c.id !== id);
+    if (rest.length === 0) {
+      const fresh = freshConversation();
+      setConversations([fresh]);
+      setActiveId(fresh.id);
+      return;
+    }
+    setConversations(rest);
+    if (id === resolvedActiveId) {
+      setActiveId([...rest].sort((a, b) => b.updatedAt - a.updatedAt)[0].id);
+    }
+  };
+
+  const handleRequestClose = () => {
+    setClosing(true);
+    window.setTimeout(onClose, 180); // acompanha a duração da animação de saída
   };
 
   // Chat livre com function-calling de verdade: manda o histórico da
-  // conversa inteiro pro backend, e é o próprio Gemini que decide se e quais
-  // ferramentas chamar (listarVagas, resumoFunil, compatibilidadeComVagasRecentes)
-  // a partir da linguagem natural — sem roteamento por palavra-chave aqui.
+  // conversa ativa inteiro pro backend, e é o próprio Gemini que decide se e
+  // quais ferramentas chamar (listarVagas, resumoFunil,
+  // compatibilidadeComVagasRecentes) a partir da linguagem natural.
   const handleSend = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || busy) return;
@@ -300,13 +474,13 @@ export function JarvisPanel({ onClose }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ history, candidateProfile: profile }),
       });
-      setMessages(prev => prev.filter(m => m.role !== 'assistant-loading'));
+      removeLoading();
 
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         addMessage({
           role: 'assistant',
-          text: err?.error ?? 'Deu erro falando com o Jarvis. Tenta de novo?',
+          text: err?.error ?? 'Deu erro falando com o Rovi. Tenta de novo?',
         } as Omit<Message, 'id'>);
         return;
       }
@@ -318,7 +492,7 @@ export function JarvisPanel({ onClose }: Props) {
         toolResults: data.toolResults,
       } as Omit<Message, 'id'>);
     } catch {
-      setMessages(prev => prev.filter(m => m.role !== 'assistant-loading'));
+      removeLoading();
       addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);
     } finally {
       setBusy(false);
@@ -326,58 +500,88 @@ export function JarvisPanel({ onClose }: Props) {
   };
 
   return createPortal(
-    <div className="jarvis-panel">
-        <div className="jarvis-header">
-          <span className="jarvis-header-title">🤖 Jarvis</span>
-          <div className="jarvis-header-actions">
-            <button className="jarvis-clear-btn" onClick={handleClear} title="Limpar conversa">🗑</button>
-            <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
-          </div>
+    <div className={`jarvis-panel ${closing ? 'jarvis-panel--closing' : ''}`}>
+      <div className="jarvis-header">
+        <span className="jarvis-header-title">
+          {view === 'history' ? '🕘 Histórico' : <><RoviIcon size={19} /> Rovi</>}
+        </span>
+        <div className="jarvis-header-actions">
+          <button
+            className="jarvis-header-icon-btn"
+            onClick={() => setView(v => (v === 'history' ? 'chat' : 'history'))}
+            title={view === 'history' ? 'Voltar pro chat' : 'Ver conversas anteriores'}
+          >
+            {view === 'history' ? '💬' : '🕘'}
+          </button>
+          <button className="jarvis-header-icon-btn" onClick={handleNewConversation} title="Nova conversa">➕</button>
+          <button className="jarvis-header-icon-btn" onClick={handleRequestClose} aria-label="Fechar">✕</button>
         </div>
+      </div>
 
-        <div className="jarvis-messages" ref={scrollRef}>
-          {messages.map(m => {
-            if (m.role === 'user') {
-              return <div key={m.id} className="jarvis-bubble jarvis-bubble--user">{m.text}</div>;
-            }
-            if (m.role === 'assistant-loading') {
-              return <div key={m.id} className="jarvis-bubble jarvis-bubble--assistant jarvis-bubble--loading">🤖 Pensando...</div>;
-            }
-            return (
-              <div key={m.id} className="jarvis-bubble jarvis-bubble--assistant">
-                {m.toolResults && m.toolResults.length > 0 && (
-                  <div className="jarvis-tool-results">
-                    {m.toolResults.map((tr, i) => <ToolResultCard key={i} result={tr} />)}
+      {view === 'history' ? (
+        <HistoryView
+          conversations={conversations}
+          activeId={resolvedActiveId}
+          onSelect={handleSelectConversation}
+          onDelete={handleDeleteConversation}
+        />
+      ) : (
+        <>
+          <div className="jarvis-messages" ref={scrollRef}>
+            {messages.map(m => {
+              if (m.role === 'user') {
+                return <div key={m.id} className="jarvis-bubble jarvis-bubble--user">{m.text}</div>;
+              }
+              if (m.role === 'assistant-loading') {
+                return (
+                  <div key={m.id} className="jarvis-msg-row">
+                    <span className="jarvis-avatar"><RoviIcon size={15} /></span>
+                    <div className="jarvis-bubble jarvis-bubble--assistant jarvis-bubble--loading">
+                      <span className="jarvis-typing"><span></span><span></span><span></span></span>
+                    </div>
                   </div>
-                )}
-                {renderMarkdownLite(m.text)}
+                );
+              }
+              return (
+                <div key={m.id} className="jarvis-msg-row">
+                  <span className="jarvis-avatar"><RoviIcon size={15} /></span>
+                  <div className="jarvis-bubble jarvis-bubble--assistant">
+                    {m.toolResults && m.toolResults.length > 0 && (
+                      <div className="jarvis-tool-results">
+                        {m.toolResults.map((tr, i) => <ToolResultCard key={i} result={tr} />)}
+                      </div>
+                    )}
+                    {renderMarkdownLite(m.text)}
+                  </div>
+                </div>
+              );
+            })}
+
+            {messages.length <= 1 && (
+              <div className="jarvis-suggestions">
+                {SUGESTOES.map(s => (
+                  <button key={s.text} className="jarvis-suggestion-card" onClick={() => handleSend(s.text)} disabled={busy}>
+                    <span className="jarvis-suggestion-icon">{s.icon}</span>
+                    <span>{s.text}</span>
+                  </button>
+                ))}
               </div>
-            );
-          })}
-        </div>
+            )}
+          </div>
 
-        <div className="jarvis-suggestions">
-          {SUGESTOES.map(s => (
-            <button key={s} className="jarvis-suggestion-chip" onClick={() => handleSend(s)} disabled={busy}>
-              {s}
-            </button>
-          ))}
-        </div>
-
-        <form
-          className="jarvis-input-row"
-          onSubmit={e => { e.preventDefault(); handleSend(input); }}
-        >
-          <input
-            className="agenda-input jarvis-input"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            placeholder="Pergunte algo pro Jarvis..."
-            disabled={busy}
-          />
-          <button type="submit" className="btn btn-ai" disabled={busy || !input.trim()}>Enviar</button>
-        </form>
-      </div>,
-      document.body
+          <form className="jarvis-input-row" onSubmit={e => { e.preventDefault(); handleSend(input); }}>
+            <input
+              className="jarvis-input"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              placeholder="Pergunte algo pro Rovi..."
+              disabled={busy}
+            />
+            <button type="submit" className="jarvis-send-btn" disabled={busy || !input.trim()} aria-label="Enviar">➤</button>
+          </form>
+        </>
+      )}
+    </div>,
+    document.body
   );
 }

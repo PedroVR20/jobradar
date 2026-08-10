@@ -636,9 +636,10 @@ a:hover { text-decoration: underline; }
   font-weight: 500;
   cursor: pointer;
   border: none;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, transform 0.15s, box-shadow 0.15s;
 }
-.btn:hover:not(:disabled) { opacity: 0.85; }
+.btn:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); box-shadow: 0 3px 10px rgba(0,0,0,0.25); }
+.btn:active:not(:disabled) { transform: translateY(0); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-primary {
@@ -1714,7 +1715,10 @@ a:hover { text-decoration: underline; }
 .interview-questions-list li { font-size: 0.85rem; line-height: 1.5; }
 
 /* Painel Jarvis — gaveta lateral fixa, não é modal (não escurece a tela,
-   fica aberta enquanto você navega o resto do app por trás) */
+   fica aberta enquanto você navega o resto do app por trás). Visual
+   inspirado no Claude Desktop: mensagens do assistente sem bolha pesada
+   (só um avatarzinho + texto fluido), sugestões como cards verticais só na
+   conversa vazia, header com botões circulares. */
 .jarvis-panel {
   position: fixed;
   top: 0;
@@ -1729,9 +1733,16 @@ a:hover { text-decoration: underline; }
   flex-direction: column;
   animation: jarvis-slide-in 0.2s ease-out;
 }
+.jarvis-panel--closing {
+  animation: jarvis-slide-out 0.18s ease-in forwards;
+}
 @keyframes jarvis-slide-in {
-  from { transform: translateX(100%); }
-  to   { transform: translateX(0); }
+  from { transform: translateX(100%); opacity: 0.6; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+@keyframes jarvis-slide-out {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0.6; }
 }
 
 .jarvis-header {
@@ -1742,51 +1753,98 @@ a:hover { text-decoration: underline; }
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-.jarvis-header-title { font-size: 1.05rem; font-weight: 700; }
-.jarvis-header-actions { display: flex; align-items: center; gap: 0.4rem; }
-.jarvis-clear-btn {
+.jarvis-header-title { font-size: 1.05rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.45rem; }
+.jarvis-header-actions { display: flex; align-items: center; gap: 0.3rem; }
+.jarvis-header-icon-btn {
   background: transparent;
-  border: 1px solid var(--border);
+  border: none;
   color: var(--text-muted);
-  border-radius: 6px;
-  width: 28px;
-  height: 28px;
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
+  transition: background 0.15s, color 0.15s;
 }
-.jarvis-clear-btn:hover { color: var(--red); border-color: var(--red); }
+.jarvis-header-icon-btn:hover { background: var(--bg-card2); color: var(--text); }
 
 .jarvis-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 1rem;
+  padding: 1.1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1rem;
+}
+
+.jarvis-msg-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  max-width: 100%;
+  animation: jarvis-msg-in 0.25s ease-out;
+}
+.jarvis-avatar {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+}
+@keyframes jarvis-msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .jarvis-bubble {
   max-width: 88%;
-  padding: 0.65rem 0.85rem;
-  border-radius: 10px;
+  padding: 0.65rem 0.9rem;
+  border-radius: 14px;
   font-size: 0.85rem;
-  line-height: 1.5;
+  line-height: 1.55;
   white-space: pre-line;
+  animation: jarvis-msg-in 0.25s ease-out;
 }
 .jarvis-bubble--user {
   align-self: flex-end;
   background: var(--accent);
   color: #fff;
-  border-bottom-right-radius: 3px;
+  border-bottom-right-radius: 4px;
+  margin-left: auto;
 }
 .jarvis-bubble--assistant {
-  align-self: flex-start;
-  background: var(--bg-card2);
-  border: 1px solid var(--border);
-  border-bottom-left-radius: 3px;
-  max-width: 96%;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 0.2rem 0 0;
+  animation: none; /* já anima via .jarvis-msg-row, que a envolve */
 }
-.jarvis-bubble--loading { color: var(--text-muted); font-style: italic; }
+.jarvis-bubble--loading { padding-top: 0.35rem; }
+
+.jarvis-typing { display: inline-flex; align-items: center; gap: 4px; }
+.jarvis-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  display: inline-block;
+  animation: jarvis-typing-bounce 1.1s infinite ease-in-out;
+}
+.jarvis-typing span:nth-child(2) { animation-delay: 0.15s; }
+.jarvis-typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes jarvis-typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
 
 .jarvis-md-p { margin: 0 0 0.5rem; }
 .jarvis-md-p:last-child { margin-bottom: 0; }
@@ -1802,7 +1860,7 @@ a:hover { text-decoration: underline; }
 
 .jarvis-hits { display: flex; flex-direction: column; gap: 0.6rem; }
 .jarvis-hit {
-  background: var(--bg-card);
+  background: var(--bg-card2);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.6rem 0.75rem;
@@ -1840,7 +1898,7 @@ a:hover { text-decoration: underline; }
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  background: var(--bg-card);
+  background: var(--bg-card2);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.5rem 0.3rem;
@@ -1848,41 +1906,166 @@ a:hover { text-decoration: underline; }
 .jarvis-stat-value { font-size: 1.1rem; font-weight: 800; }
 .jarvis-stat-label { font-size: 0.68rem; color: var(--text-muted); text-align: center; }
 
+/* Sugestões só aparecem na conversa vazia (só a saudação) — como os
+   "example prompts" do Claude Desktop, não ficam grudadas embaixo da tela
+   pra sempre atrapalhando depois que a conversa já engatou. */
 .jarvis-suggestions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  padding: 0 1rem 0.75rem;
-  flex-shrink: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  margin-left: calc(26px + 0.6rem); /* alinha com o texto do avatar acima */
 }
-.jarvis-suggestion-chip {
+.jarvis-suggestion-card {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
   background: var(--bg-card2);
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 5px 11px;
-  font-size: 0.74rem;
+  border-radius: 12px;
+  padding: 0.65rem 0.8rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
+  text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition: border-color 0.15s, color 0.15s, transform 0.15s;
 }
-.jarvis-suggestion-chip:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
-.jarvis-suggestion-chip:disabled { opacity: 0.5; cursor: default; }
+.jarvis-suggestion-card:hover:not(:disabled) { border-color: var(--accent); color: var(--text); transform: translateX(2px); }
+.jarvis-suggestion-card:disabled { opacity: 0.5; cursor: default; }
+.jarvis-suggestion-icon { flex-shrink: 0; font-size: 0.95rem; }
 
 .jarvis-input-row {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
   padding: 0.85rem 1rem;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
-.jarvis-input { flex: 1; }
+.jarvis-input {
+  flex: 1;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.55rem 1rem;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.jarvis-input:focus { outline: none; border-color: var(--accent); }
+.jarvis-send-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.jarvis-send-btn:hover:not(:disabled) { transform: scale(1.05); }
+.jarvis-send-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* Histórico de conversas — lista tipo sidebar do Claude Desktop, mas
+   embutida no mesmo painel (troca de view em vez de sidebar separada,
+   já que o painel inteiro só tem 400px). */
+.jarvis-history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.jarvis-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+.jarvis-history-item:hover { background: var(--bg-card2); }
+.jarvis-history-item--active { background: var(--bg-card2); border-color: var(--border); }
+.jarvis-history-item-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.jarvis-history-item-title {
+  font-size: 0.82rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jarvis-history-item-time { font-size: 0.7rem; color: var(--text-muted); }
+.jarvis-history-item-delete {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.jarvis-history-item-delete:hover { background: var(--red); color: #fff; }
 
 .jarvis-toggle-btn {
   background: #2dd4bf22;
   color: #2dd4bf;
   border: 1px solid #2dd4bf44;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 .jarvis-toggle-btn:hover { background: #2dd4bf33; }
+
+/* ===================== Mascote Rovi (SVG, sem asset externo) ===================== */
+.rovi-icon { flex-shrink: 0; overflow: visible; }
+.rovi-visor { fill: var(--bg); }
+.rovi-eye {
+  fill: #c7d2fe;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.rovi-antenna-tip {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rovi-pulse 2.2s infinite ease-in-out;
+}
+.rovi-gear {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.rovi-gear-body, .rovi-gear-tooth { fill: var(--text-muted); }
+.rovi-gear-hole { fill: var(--bg-card2); }
+
+@keyframes rovi-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+@keyframes rovi-blink {
+  0%, 100% { transform: scaleY(1); }
+  45%, 55% { transform: scaleY(0.15); }
+}
+@keyframes rovi-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(220deg); }
+}
+/* A engrenagem gira e os olhos piscam quando passa o mouse no botão que
+   abre o painel — dá vida ao mascote sem precisar de sprite/GIF animado. */
+.jarvis-toggle-btn:hover .rovi-eye { animation: rovi-blink 0.5s ease-in-out; }
+.jarvis-toggle-btn:hover .rovi-gear { animation: rovi-spin 0.6s ease-out; }
+.jarvis-toggle-btn:hover .rovi-gear-body,
+.jarvis-toggle-btn:hover .rovi-gear-tooth { fill: var(--accent); }
 
 /* Com o Jarvis aberto, empurra o conteúdo principal em vez de deixar o
    painel sobrepor os cards por cima — sem isso, a última coluna da grade
