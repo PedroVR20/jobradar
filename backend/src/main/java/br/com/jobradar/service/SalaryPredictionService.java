@@ -4,9 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
 /**
@@ -27,6 +31,14 @@ import java.util.*;
 @Slf4j
 public class SalaryPredictionService {
 
+    // Onde o modelo retreinado pelo endpoint /admin/retrain-salary-model é
+    // persistido — fora do jar, num volume montado (ver docker-compose.yml),
+    // pra sobreviver a "docker compose up" sem precisar reconstruir a imagem.
+    // Caminho relativo funciona tanto no container (WORKDIR /app) quanto
+    // rodando local (mvn spring-boot:run a partir de backend/).
+    @Value("${salary.model.external-path:data/salary_model.json}")
+    private String externalModelPath;
+
     private boolean loaded = false;
     private double intercept;
     private double[] coefficients;
@@ -36,41 +48,92 @@ public class SalaryPredictionService {
     private List<String> stateVocab = List.of();
     private Set<String> tagVocab = Set.of();
     private ModelInfo modelInfo;
+    private final ObjectMapper mapper = new ObjectMapper();
 
-    public record ModelInfo(int nSamples, double r2, double maePercent) {}
+    public record ModelInfo(int nSamples, double r2, double maeBrl, double maePercent) {}
 
     @PostConstruct
     void loadModel() {
+        // O arquivo externo (resultado do último retreino, se já rodou
+        // algum) tem prioridade sobre o modelo "de fábrica" empacotado no
+        // jar — só cai pro empacotado se ainda não existe um retreino salvo.
+        Path external = Path.of(externalModelPath);
+        if (Files.isReadable(external)) {
+            try (InputStream is = Files.newInputStream(external)) {
+                applyModel(mapper.readTree(is));
+                log.info("=== Modelo de salário carregado do retreino salvo em {}: {} amostras, R² {}, erro médio {}% ===",
+                        external.toAbsolutePath(), modelInfo.nSamples(), modelInfo.r2(), modelInfo.maePercent());
+                return;
+            } catch (Exception e) {
+                log.warn("Não consegui ler o modelo externo em {} ({}), caindo pro modelo empacotado no jar.",
+                        external.toAbsolutePath(), e.getMessage());
+            }
+        }
+
         try (InputStream is = getClass().getResourceAsStream("/salary_model.json")) {
             if (is == null) {
                 log.warn("=== salary_model.json não encontrado — estimativa por modelo treinado ficará indisponível (só a estimativa por vagas parecidas continua funcionando) ===");
                 return;
             }
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(is);
-
-            intercept = root.path("intercept").asDouble();
-            List<String> featureNames = toStringList(root.path("featureNames"));
-            for (int i = 0; i < featureNames.size(); i++) featureIndex.put(featureNames.get(i), i);
-
-            JsonNode coefsNode = root.path("coefficients");
-            coefficients = new double[coefsNode.size()];
-            for (int i = 0; i < coefsNode.size(); i++) coefficients[i] = coefsNode.get(i).asDouble();
-
-            seniorityVocab = toStringList(root.path("seniorityVocab"));
-            workplaceVocab = toStringList(root.path("workplaceVocab"));
-            stateVocab = toStringList(root.path("stateVocab"));
-            tagVocab = new HashSet<>(toStringList(root.path("tagVocab")));
-
-            JsonNode m = root.path("metrics");
-            modelInfo = new ModelInfo(root.path("nSamples").asInt(), m.path("r2LogScale").asDouble(), m.path("maePercent").asDouble());
-
-            loaded = true;
-            log.info("=== Modelo de salário carregado: {} amostras de treino, R² {}, erro médio {}% ===",
+            applyModel(mapper.readTree(is));
+            log.info("=== Modelo de salário carregado (empacotado): {} amostras de treino, R² {}, erro médio {}% ===",
                     modelInfo.nSamples(), modelInfo.r2(), modelInfo.maePercent());
         } catch (Exception e) {
             log.warn("Não foi possível carregar o modelo de salário treinado: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Troca o modelo em uso imediatamente (chamado pelo endpoint de
+     * retreino, depois de {@link SalaryModelTrainerService#treinar()}) e
+     * persiste no caminho externo, pra sobreviver ao próximo restart do
+     * container sem precisar reconstruir a imagem Docker.
+     */
+    public synchronized void reload(JsonNode novoModelo) {
+        applyModel(novoModelo);
+        try {
+            Path external = Path.of(externalModelPath);
+            if (external.getParent() != null) Files.createDirectories(external.getParent());
+            Files.writeString(external, novoModelo.toPrettyString());
+            log.info("Modelo de salário retreinado salvo em {}", external.toAbsolutePath());
+        } catch (IOException e) {
+            log.warn("Modelo retreinado está em uso, mas não consegui persistir em {} — um restart vai voltar pro modelo anterior. Erro: {}",
+                    externalModelPath, e.getMessage());
+        }
+    }
+
+    private void applyModel(JsonNode root) {
+        double newIntercept = root.path("intercept").asDouble();
+        List<String> featureNames = toStringList(root.path("featureNames"));
+        Map<String, Integer> newFeatureIndex = new HashMap<>();
+        for (int i = 0; i < featureNames.size(); i++) newFeatureIndex.put(featureNames.get(i), i);
+
+        JsonNode coefsNode = root.path("coefficients");
+        double[] newCoefficients = new double[coefsNode.size()];
+        for (int i = 0; i < coefsNode.size(); i++) newCoefficients[i] = coefsNode.get(i).asDouble();
+
+        List<String> newSeniorityVocab = toStringList(root.path("seniorityVocab"));
+        List<String> newWorkplaceVocab = toStringList(root.path("workplaceVocab"));
+        List<String> newStateVocab = toStringList(root.path("stateVocab"));
+        Set<String> newTagVocab = new HashSet<>(toStringList(root.path("tagVocab")));
+
+        JsonNode m = root.path("metrics");
+        ModelInfo newModelInfo = new ModelInfo(root.path("nSamples").asInt(), m.path("r2LogScale").asDouble(),
+                m.path("maeBrl").asDouble(), m.path("maePercent").asDouble());
+
+        // Só troca o estado depois de tudo parseado com sucesso — evita
+        // deixar o serviço num estado parcialmente atualizado se o JSON
+        // vier corrompido/incompleto.
+        this.intercept = newIntercept;
+        this.featureIndex.clear();
+        this.featureIndex.putAll(newFeatureIndex);
+        this.coefficients = newCoefficients;
+        this.seniorityVocab = newSeniorityVocab;
+        this.workplaceVocab = newWorkplaceVocab;
+        this.stateVocab = newStateVocab;
+        this.tagVocab = newTagVocab;
+        this.modelInfo = newModelInfo;
+        this.loaded = true;
     }
 
     private List<String> toStringList(JsonNode arr) {

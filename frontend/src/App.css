@@ -1550,6 +1550,25 @@ a:hover { text-decoration: underline; }
 .settings-section-title { font-size: 0.95rem; font-weight: 700; }
 .settings-note { margin-top: 0.9rem; }
 
+/* Modal de retreino do modelo de salário (Configurações → Área avançada) */
+.retrain-modal { max-width: 420px; }
+.retrain-step { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.5rem; }
+.retrain-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.retrain-table th, .retrain-table td {
+  padding: 6px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+.retrain-table th:first-child, .retrain-table td:first-child {
+  text-align: left;
+  color: var(--text-muted);
+}
+.retrain-table th { font-weight: 600; color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; }
+
 .settings-feature-list {
   list-style: none;
   display: flex;

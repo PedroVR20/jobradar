@@ -37,6 +37,14 @@ services:
       # Spring ver a variável, então uma string vazia "encontrada" pisa no
       # default do application.yml em vez de deixar ele agir.
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
+      # Opcional — só o botão "🔒 Retreinar modelo de salário" nas Configurações
+      # funciona com isso preenchido (gate simples, não é segurança de verdade).
+      RETRAIN_SECRET_CODE: ${RETRAIN_SECRET_CODE:-}
+    volumes:
+      # Persiste o modelo de salário retreinado fora da imagem — sem isso,
+      # um "docker compose up --build" voltaria pro modelo empacotado no jar
+      # e o retreino se perderia.
+      - ./data:/app/data
     depends_on:
       postgres:
         condition: service_healthy

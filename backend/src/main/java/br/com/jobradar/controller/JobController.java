@@ -11,9 +11,12 @@ import br.com.jobradar.service.JarvisChatService;
 import br.com.jobradar.service.JobAggregatorService;
 import br.com.jobradar.service.MatchScoreService;
 import br.com.jobradar.service.SalaryEstimateService;
+import br.com.jobradar.service.SalaryModelTrainerService;
 import br.com.jobradar.service.SalaryPredictionService;
 import br.com.jobradar.service.SeniorityClassifier;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -36,11 +39,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @RestController
 @RequestMapping("/api/jobs")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
+@Slf4j
 public class JobController {
 
     private final JobRepository jobRepository;
@@ -51,10 +56,18 @@ public class JobController {
     private final GeminiService geminiService;
     private final SalaryEstimateService salaryEstimateService;
     private final SalaryPredictionService salaryPredictionService;
+    private final SalaryModelTrainerService salaryModelTrainerService;
     private final JarvisAssistantService jarvisAssistantService;
     private final JarvisChatService jarvisChatService;
     private final MatchScoreService matchScoreService;
     private final InterviewQuestionsService interviewQuestionsService;
+
+    // Gate simples (não é segurança de verdade — app pessoal local) pra não
+    // ter um botão de "retreinar" clicável sem querer. Vazio == recurso
+    // desativado (retorna 503 em vez de aceitar qualquer código).
+    @Value("${retrain.secret-code:}")
+    private String retrainSecretCode;
+    private final AtomicBoolean retreinoEmAndamento = new AtomicBoolean(false);
 
     /**
      * Lista todas as vagas com filtros opcionais
@@ -799,6 +812,65 @@ public class JobController {
     @GetMapping("/admin/salary-training-data")
     public List<SalaryEstimateService.TrainingRow> exportSalaryTrainingData() {
         return salaryEstimateService.exportTrainingData();
+    }
+
+    public record RetrainCodeRequest(String code) {}
+
+    private boolean codigoRetreinoBate(String code) {
+        return retrainSecretCode != null && !retrainSecretCode.isBlank()
+                && code != null && code.equals(retrainSecretCode);
+    }
+
+    /**
+     * Passo 1 do fluxo de retreino do frontend: só confirma se o código
+     * digitado bate, sem disparar o treino de verdade — o botão "Retreinar"
+     * só aparece na tela depois de um {@code valid:true} aqui.
+     * POST /api/jobs/admin/verify-retrain-code  Body: { "code": "..." }
+     */
+    @PostMapping("/admin/verify-retrain-code")
+    public ResponseEntity<Map<String, Object>> verificarCodigoRetreino(@RequestBody(required = false) RetrainCodeRequest req) {
+        return ResponseEntity.ok(Map.of("valid", codigoRetreinoBate(req != null ? req.code() : null)));
+    }
+
+    /**
+     * Retreina o modelo de salário na hora (Ridge regression em Java puro,
+     * ver SalaryModelTrainerService) e já troca o modelo em uso — sem
+     * precisar rodar o script Python nem reconstruir o container. O código
+     * é validado de novo aqui (não confia só na checagem do passo 1).
+     * POST /api/jobs/admin/retrain-salary-model  Body: { "code": "..." }
+     */
+    @PostMapping("/admin/retrain-salary-model")
+    public ResponseEntity<Map<String, Object>> retreinarModeloSalario(@RequestBody(required = false) RetrainCodeRequest req) {
+        if (retrainSecretCode == null || retrainSecretCode.isBlank()) {
+            return ResponseEntity.status(503).body(Map.of("error", "RETRAIN_SECRET_CODE não configurado no .env — recurso desativado."));
+        }
+        if (!codigoRetreinoBate(req != null ? req.code() : null)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Código incorreto."));
+        }
+        if (!retreinoEmAndamento.compareAndSet(false, true)) {
+            return ResponseEntity.status(409).body(Map.of("error", "Já tem um retreino em andamento — espera terminar."));
+        }
+        try {
+            SalaryPredictionService.ModelInfo anterior = salaryPredictionService.getModelInfo();
+            SalaryModelTrainerService.TrainResult resultado = salaryModelTrainerService.treinar();
+            salaryPredictionService.reload(resultado.modelJson());
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("previous", anterior == null ? null : Map.of(
+                    "nSamples", anterior.nSamples(), "r2", anterior.r2(),
+                    "maeBrl", anterior.maeBrl(), "maePercent", anterior.maePercent()));
+            body.put("updated", Map.of(
+                    "nSamples", resultado.nSamples(), "r2", resultado.r2(),
+                    "maeBrl", resultado.maeBrl(), "maePercent", resultado.maePercent()));
+            return ResponseEntity.ok(body);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(400).body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Falha ao retreinar modelo de salário", e);
+            return ResponseEntity.status(500).body(Map.of("error", "Erro interno ao retreinar: " + e.getMessage()));
+        } finally {
+            retreinoEmAndamento.set(false);
+        }
     }
 
     public record CandidateProfileRequest(String candidateProfile, String feedbackContext) {}

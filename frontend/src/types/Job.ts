@@ -143,6 +143,19 @@ export interface JarvisChatResponse {
   toolResults: JarvisToolResult[];
 }
 
+// POST /api/jobs/admin/retrain-salary-model — botão "🔒 Retreinar" em Configurações
+export interface RetrainModelSnapshot {
+  nSamples: number;
+  r2: number;
+  maeBrl: number;
+  maePercent: number;
+}
+
+export interface RetrainResult {
+  previous: RetrainModelSnapshot | null;
+  updated: RetrainModelSnapshot;
+}
+
 export interface DuplicateJobRef {
   id: number;
   title: string;

@@ -6,7 +6,23 @@ modelo usado por `SalaryPredictionService` pra estimar faixa salarial.
 quem limpa/converte os dados antes de exportar (parsing de R$/€/$, filtro de
 tags-ruído) — o Python só recebe dado já limpo e faz a parte de matemática.
 
-## Como retreinar (toda vez que quiser)
+## Retreino pelo app (recomendado)
+
+Desde ago/2026 o mesmo treino (Ridge regression + validação cruzada) também
+roda em Java puro dentro do backend — `SalaryModelTrainerService`, um port
+fiel deste script. Configurações → 🔒 Área avançada → 🎓 Retreinar modelo de
+salário, digita o código de `RETRAIN_SECRET_CODE` (`.env`) e clica em
+retreinar — leva menos de 1 segundo, o modelo novo já entra em uso na hora e
+fica salvo em `data/salary_model.json` (fora do jar, sobrevive a
+`docker compose up` sem precisar reconstruir a imagem). O código é só um gate
+simples contra clique acidental, não é segurança de verdade — o app roda
+localhost pra uso pessoal.
+
+O script Python abaixo continua existindo como referência/alternativa manual
+(útil pra inspecionar os dados fora do app, por exemplo), mas deixou de ser
+o único jeito de retreinar.
+
+## Retreino manual via script Python (alternativa)
 
 Com o backend rodando (`docker compose up -d`):
 

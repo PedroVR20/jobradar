@@ -25,3 +25,8 @@ Thumbs.db
 # backend/src/main/resources/salary_model.json, essa sim é versionada.
 scripts/training_data.json
 scripts/salary_model.json
+
+# Volume do modelo retreinado pelo botão "🔒 Retreinar" (SalaryModelTrainerService)
+# — específico de cada máquina/deploy, não é pra versionar; sobrevive a
+# "docker compose up" via bind-mount (ver docker-compose.yml).
+/data/

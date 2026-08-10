@@ -1,6 +1,7 @@
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
 import { AiStatus } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
+import { RetrainModal } from './RetrainModal';
 
 interface Props {
   aiStatus: AiStatus;
@@ -30,6 +31,7 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
 
   const { profile, fileName, setProfile } = useCandidateProfile();
   const [saved, setSaved] = useState(false);
+  const [retrainOpen, setRetrainOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState('');
@@ -99,6 +101,7 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
   };
 
   return (
+    <>
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal settings-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
@@ -258,7 +261,20 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
             />
           )}
         </div>
+
+        <div className="settings-section">
+          <h3 className="settings-section-title">🔒 Área avançada</h3>
+          <p className="agenda-hint">
+            Retreina o modelo de estimativa de salário com as vagas mais recentes do banco — protegido
+            por um código simples pra não ter um botão sensível clicável à toa.
+          </p>
+          <button type="button" className="btn btn-ghost" onClick={() => setRetrainOpen(true)}>
+            🎓 Retreinar modelo de salário
+          </button>
+        </div>
       </div>
     </div>
+    {retrainOpen && <RetrainModal onClose={() => setRetrainOpen(false)} />}
+    </>
   );
 }
