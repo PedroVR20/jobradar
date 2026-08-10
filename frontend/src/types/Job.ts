@@ -162,6 +162,10 @@ export interface RetrainModelSnapshot {
 export interface RetrainResult {
   previous: RetrainModelSnapshot | null;
   updated: RetrainModelSnapshot;
+  // false quando o erro% piorou em relação ao modelo anterior e o backend
+  // manteve o modelo antigo em produção — não troca sozinho por um retreino
+  // pior, só se o usuário confirmar mandando de novo com force.
+  applied: boolean;
 }
 
 export interface DuplicateJobRef {

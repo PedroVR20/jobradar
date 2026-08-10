@@ -34,6 +34,7 @@ export function RetrainModal({ onClose }: Props) {
   const [error, setError] = useState('');
   const [result, setResult] = useState<RetrainResult | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [forcing, setForcing] = useState(false);
 
   const handleVerify = async (e: FormEvent) => {
     e.preventDefault();
@@ -59,14 +60,14 @@ export function RetrainModal({ onClose }: Props) {
     }
   };
 
-  const handleRetrain = async () => {
+  const handleRetrain = async (force = false) => {
     setError('');
-    setStep('loading');
+    if (force) setForcing(true); else setStep('loading');
     try {
       const res = await fetch('/api/jobs/admin/retrain-salary-model', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, force }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -79,6 +80,8 @@ export function RetrainModal({ onClose }: Props) {
     } catch {
       setError('Erro de conexão com o backend.');
       setStep('ready');
+    } finally {
+      setForcing(false);
     }
   };
 
@@ -117,7 +120,7 @@ export function RetrainModal({ onClose }: Props) {
               é substituído se o treino terminar com sucesso.
             </p>
             {error && <p className="agenda-error">{error}</p>}
-            <button type="button" className="btn btn-primary" onClick={handleRetrain} disabled={step === 'loading'}>
+            <button type="button" className="btn btn-primary" onClick={() => handleRetrain()} disabled={step === 'loading'}>
               {step === 'loading' ? '⏳ Treinando...' : '🎓 Retreinar agora'}
             </button>
           </div>
@@ -125,10 +128,19 @@ export function RetrainModal({ onClose }: Props) {
 
         {step === 'result' && result && (
           <div className="retrain-step">
-            <p className="agenda-hint">Retreino concluído — comparação com o modelo anterior:</p>
+            <p className="agenda-hint">
+              {result.applied
+                ? 'Retreino concluído — comparação com o modelo anterior:'
+                : 'Retreino concluído, mas o erro% piorou — mantive o modelo anterior em produção. Comparação:'}
+            </p>
+            {!result.applied && (
+              <p className="agenda-error">
+                ⚠️ Não troquei o modelo automaticamente porque o erro% ficou pior do que o atual.
+              </p>
+            )}
             <table className="retrain-table">
               <thead>
-                <tr><th /><th>Antes</th><th>Agora</th></tr>
+                <tr><th /><th>Antes</th><th>{result.applied ? 'Agora' : 'Se trocar'}</th></tr>
               </thead>
               <tbody>
                 <tr>
@@ -154,11 +166,19 @@ export function RetrainModal({ onClose }: Props) {
               </tbody>
             </table>
             <p className="agenda-hint settings-note">
-              O modelo novo já está em uso — não precisa reiniciar nada. Se algum número piorou, não é
-              necessariamente ruim: pode ser ruído da divisão treino/teste, principalmente quando poucas
-              vagas novas entraram desde o último retreino.
+              {result.applied
+                ? 'O modelo novo já está em uso — não precisa reiniciar nada. Se algum outro número piorou (R²/MAE) mesmo com o erro% melhor, não é necessariamente ruim: pode ser ruído da divisão treino/teste.'
+                : 'Isso pode ser ruído da divisão treino/teste (comum quando poucas vagas novas entraram desde o último retreino) — mas se quiser trocar mesmo assim, o botão abaixo força a troca com esse resultado.'}
             </p>
-            <button type="button" className="btn btn-ghost" onClick={onClose}>Fechar</button>
+            {error && <p className="agenda-error">{error}</p>}
+            <div className="modal-actions">
+              {!result.applied && (
+                <button type="button" className="btn btn-danger" onClick={() => handleRetrain(true)} disabled={forcing}>
+                  {forcing ? 'Aplicando...' : '⚠️ Usar mesmo assim'}
+                </button>
+              )}
+              <button type="button" className="btn btn-ghost" onClick={onClose}>Fechar</button>
+            </div>
           </div>
         )}
       </div>

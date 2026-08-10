@@ -48,6 +48,17 @@ function daysUntilDeletion(rejectedAt: string): number {
   return Math.max(0, Math.round((deleteDate.getTime() - today.getTime()) / 86400000));
 }
 
+// O backend serializa LocalDateTime sem timezone (o container roda em UTC)
+// — ex: "2026-08-10T19:57:00", sem "Z" nem offset. Sem isso, o navegador
+// interpreta a string como hora LOCAL (é o padrão do JS pra ISO sem
+// timezone), o que descolava o horário mostrado do real em até 3h (fuso
+// BR) — reportado: card dizia "19:57" com o relógio real marcando 17:16.
+// Força interpretação como UTC anexando "Z" quando a string ainda não tem
+// timezone explícito (idempotente: se já vier com Z/offset, não mexe).
+function parseBackendIso(iso: string): Date {
+  return new Date(/[Zz]|[+-]\d{2}:\d{2}$/.test(iso) ? iso : `${iso}Z`);
+}
+
 // Com a busca rodando a cada 4h, só a data não diz qual vaga "acabou de
 // chegar" — todo mundo publicado hoje mostrava o mesmo "10 de ago." Se foi
 // hoje, mostra a hora exata em vez da data (mais compacto e mais útil);
@@ -55,7 +66,7 @@ function daysUntilDeletion(rejectedAt: string): number {
 // milhares de cards antigos que não precisam desse nível de detalhe.
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
-  const date = new Date(iso);
+  const date = parseBackendIso(iso);
   const now = new Date();
   const isToday = date.getFullYear() === now.getFullYear()
     && date.getMonth() === now.getMonth()
@@ -73,7 +84,7 @@ function formatDateFull(iso: string | null): string | undefined {
   if (!iso) return undefined;
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-  }).format(new Date(iso));
+  }).format(parseBackendIso(iso));
 }
 
 function highlightTechTag(tag: string): boolean {
@@ -100,7 +111,7 @@ function deadlineInfo(expiresAt: string | null): { label: string; className: str
 function daysUntilIso(iso: string): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const target = new Date(iso);
+  const target = parseBackendIso(iso);
   target.setHours(0, 0, 0, 0);
   return Math.round((target.getTime() - today.getTime()) / 86400000);
 }

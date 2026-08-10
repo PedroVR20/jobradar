@@ -816,7 +816,7 @@ public class JobController {
         return salaryEstimateService.exportTrainingData();
     }
 
-    public record RetrainCodeRequest(String code) {}
+    public record RetrainCodeRequest(String code, Boolean force) {}
 
     private boolean codigoRetreinoBate(String code) {
         return retrainSecretCode != null && !retrainSecretCode.isBlank()
@@ -855,7 +855,20 @@ public class JobController {
         try {
             SalaryPredictionService.ModelInfo anterior = salaryPredictionService.getModelInfo();
             SalaryModelTrainerService.TrainResult resultado = salaryModelTrainerService.treinar();
-            salaryPredictionService.reload(resultado.modelJson());
+
+            // Erro % (maePercent) é o número que a UI destaca em todo lugar
+            // como "margem de erro típica" — é o que o usuário realmente
+            // olha pra saber se piorou ou melhorou. Um retreino que piora
+            // esse número não substitui o modelo em produção sozinho: o
+            // treino em si sempre roda (não tem como saber se piorou sem
+            // treinar), mas só troca o modelo em uso se não piorou, ou se o
+            // usuário mandou forçar mesmo assim depois de ver a comparação.
+            boolean force = req != null && Boolean.TRUE.equals(req.force());
+            boolean piorou = anterior != null && resultado.maePercent() > anterior.maePercent();
+            boolean aplicado = force || !piorou;
+            if (aplicado) {
+                salaryPredictionService.reload(resultado.modelJson());
+            }
 
             Map<String, Object> body = new HashMap<>();
             body.put("previous", anterior == null ? null : Map.of(
@@ -864,6 +877,7 @@ public class JobController {
             body.put("updated", Map.of(
                     "nSamples", resultado.nSamples(), "r2", resultado.r2(),
                     "maeBrl", resultado.maeBrl(), "maePercent", resultado.maePercent()));
+            body.put("applied", aplicado);
             return ResponseEntity.ok(body);
         } catch (IllegalStateException e) {
             return ResponseEntity.status(400).body(Map.of("error", e.getMessage()));
