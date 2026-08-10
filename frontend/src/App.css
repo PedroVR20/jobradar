@@ -1655,6 +1655,10 @@ a:hover { text-decoration: underline; }
 }
 .profile-manual-toggle:hover { color: var(--text); }
 
+/* Campo de usuário do GitHub (Configurações → 🐙 GitHub) */
+.github-input-row { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+.github-input-row .agenda-input { flex: 1; }
+
 /* Cover letter modal */
 .cover-letter-modal { max-width: 560px; }
 .cover-letter-profile-hint { margin-top: -0.4rem; }

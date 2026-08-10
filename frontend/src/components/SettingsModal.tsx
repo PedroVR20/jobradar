@@ -1,6 +1,7 @@
-import { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { AiStatus } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
+import { GitHubFetchError, useGitHubProfile } from '../hooks/useGitHubProfile';
 import { RetrainModal } from './RetrainModal';
 
 interface Props {
@@ -23,6 +24,16 @@ function formatSize(chars: number): string {
   return `${chars.toLocaleString('pt-BR')} caracteres`;
 }
 
+function relativeTime(ts: number): string {
+  const diffMin = Math.floor((Date.now() - ts) / 60000);
+  if (diffMin < 1) return 'agora mesmo';
+  if (diffMin < 60) return `há ${diffMin}min`;
+  const h = Math.floor(diffMin / 60);
+  if (h < 24) return `há ${h}h`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? 'ontem' : `há ${d}d`;
+}
+
 export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose }: Props) {
   useEffect(() => {
     onRefreshAiStatus();
@@ -30,6 +41,10 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
   }, []);
 
   const { profile, fileName, setProfile } = useCandidateProfile();
+  const github = useGitHubProfile();
+  const [githubInput, setGithubInput] = useState('');
+  const [githubLoading, setGithubLoading] = useState(false);
+  const [githubError, setGithubError] = useState('');
   const [saved, setSaved] = useState(false);
   const [retrainOpen, setRetrainOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -98,6 +113,34 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
       setProfile(value);
       flashSaved();
     }, 800);
+  };
+
+  const handleAnalyzeGithub = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!githubInput.trim() || githubLoading) return;
+    setGithubLoading(true);
+    setGithubError('');
+    try {
+      await github.analyze(githubInput);
+      setGithubInput('');
+    } catch (err) {
+      setGithubError(err instanceof GitHubFetchError ? err.message : 'Erro inesperado ao acessar o GitHub.');
+    } finally {
+      setGithubLoading(false);
+    }
+  };
+
+  const handleReanalyzeGithub = async () => {
+    if (githubLoading) return;
+    setGithubLoading(true);
+    setGithubError('');
+    try {
+      await github.analyze(github.username);
+    } catch (err) {
+      setGithubError(err instanceof GitHubFetchError ? err.message : 'Erro inesperado ao acessar o GitHub.');
+    } finally {
+      setGithubLoading(false);
+    }
   };
 
   return (
@@ -260,6 +303,57 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
               rows={6}
             />
           )}
+        </div>
+
+        <div className="settings-section">
+          <h3 className="settings-section-title">🐙 GitHub (opcional)</h3>
+          <p className="agenda-hint">
+            Nem todo projeto seu vai caber no currículo — cole seu usuário ou link do GitHub e o Hunter
+            busca seus repositórios públicos (nome, descrição, linguagem, tags) pra usar como contexto
+            extra nas análises. Só repositórios <strong>públicos</strong>, obviamente — privados a API
+            nem devolve.
+          </p>
+
+          {github.username ? (
+            <div className="profile-file-card">
+              <span className="profile-file-icon">🐙</span>
+              <div className="profile-file-info">
+                <span className="profile-file-name">@{github.username}</span>
+                <span className="profile-file-meta">
+                  {github.repoCount} repositório{github.repoCount === 1 ? '' : 's'} público{github.repoCount === 1 ? '' : 's'}
+                  {github.fetchedAt ? ` · atualizado ${relativeTime(github.fetchedAt)}` : ''}
+                </span>
+              </div>
+              <div className="profile-file-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost profile-file-btn"
+                  onClick={handleReanalyzeGithub}
+                  disabled={githubLoading}
+                >
+                  {githubLoading ? '⏳' : '🔁 Atualizar'}
+                </button>
+                <button type="button" className="btn btn-danger profile-file-btn" onClick={github.clear} disabled={githubLoading}>
+                  🗑
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form className="github-input-row" onSubmit={handleAnalyzeGithub}>
+              <input
+                className="agenda-input"
+                value={githubInput}
+                onChange={e => setGithubInput(e.target.value)}
+                placeholder="seu-usuario ou github.com/seu-usuario"
+                disabled={githubLoading}
+              />
+              <button type="submit" className="btn btn-ai" disabled={githubLoading || !githubInput.trim()}>
+                {githubLoading ? 'Analisando...' : '🔍 Analisar'}
+              </button>
+            </form>
+          )}
+
+          {githubError && <p className="agenda-error">{githubError}</p>}
         </div>
 
         <div className="settings-section">

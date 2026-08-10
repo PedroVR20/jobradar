@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Job, LearningPlan, MatchScoreResult } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
+import { combineWithGitHub, useGitHubProfile } from '../hooks/useGitHubProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { AiFeedbackBox } from './AiFeedbackBox';
 
@@ -82,6 +83,7 @@ function GapItem({ job, gap, candidateProfile, feedbackContext }: GapItemProps) 
 
 export function MatchScoreModal({ job, onClose }: Props) {
   const { profile } = useCandidateProfile();
+  const { summary: githubSummary } = useGitHubProfile();
   const { buildContext } = useAiFeedback('match-score');
   const { buildContext: buildPlanContext } = useAiFeedback('learning-plan');
   const [perfilTexto, setPerfilTexto] = useState(profile);
@@ -96,7 +98,7 @@ export function MatchScoreModal({ job, onClose }: Props) {
       const res = await fetch(`/api/jobs/${job.id}/match-score`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ candidateProfile: perfilTexto, feedbackContext: buildContext() || undefined }),
+        body: JSON.stringify({ candidateProfile: combineWithGitHub(perfilTexto, githubSummary), feedbackContext: buildContext() || undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -167,7 +169,7 @@ export function MatchScoreModal({ job, onClose }: Props) {
                 <h4 className="match-section-title match-section-title--gap">⚠️ Pontos a desenvolver</h4>
                 <ul className="match-list">
                   {result.pontosFaltando.map((p, i) => (
-                    <GapItem key={i} job={job} gap={p} candidateProfile={perfilTexto} feedbackContext={buildPlanContext()} />
+                    <GapItem key={i} job={job} gap={p} candidateProfile={combineWithGitHub(perfilTexto, githubSummary)} feedbackContext={buildPlanContext()} />
                   ))}
                 </ul>
               </div>

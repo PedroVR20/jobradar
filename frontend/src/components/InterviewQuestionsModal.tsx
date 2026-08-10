@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Job } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
+import { combineWithGitHub, useGitHubProfile } from '../hooks/useGitHubProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { AiFeedbackBox } from './AiFeedbackBox';
 
@@ -12,6 +13,7 @@ interface Props {
 
 export function InterviewQuestionsModal({ job, onClose }: Props) {
   const { profile } = useCandidateProfile();
+  const { summary: githubSummary } = useGitHubProfile();
   const { buildContext } = useAiFeedback('interview-questions');
   const [questions, setQuestions] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -24,7 +26,7 @@ export function InterviewQuestionsModal({ job, onClose }: Props) {
       const res = await fetch(`/api/jobs/${job.id}/interview-questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ candidateProfile: profile || undefined, feedbackContext: buildContext() || undefined }),
+        body: JSON.stringify({ candidateProfile: combineWithGitHub(profile, githubSummary) || undefined, feedbackContext: buildContext() || undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
