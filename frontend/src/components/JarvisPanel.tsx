@@ -6,6 +6,8 @@ import {
   JarvisCompatibilidadeHit,
   JarvisListarVagasData,
   JarvisResumoFunilData,
+  JarvisSalarioData,
+  JarvisSalarioVaga,
   JarvisToolResult,
 } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
@@ -46,6 +48,10 @@ function scoreColor(score: number): string {
   if (score >= 70) return 'var(--green)';
   if (score >= 40) return 'var(--yellow)';
   return 'var(--red)';
+}
+
+function formatBRL(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 }
 
 // ===================== Markdown "lite" =====================
@@ -403,6 +409,91 @@ function CompatibilidadeCard({ data }: { data: JarvisCompatibilidadeData }) {
   );
 }
 
+// Mesmo padrão visual do CompatDashboard (cards de estatística + barras),
+// agora pra estimativa salarial — a interface monta esse resumo sozinha a
+// partir de QUALQUER ferramenta que devolva um número comparável por vaga,
+// não é algo específico de compatibilidade (ver SYSTEM_INSTRUCTION no backend).
+function SalarioDashboard({ vagas }: { vagas: JarvisSalarioVaga[] }) {
+  const comEstimativa = vagas.filter((v): v is JarvisSalarioVaga & { estimativa: number } => v.estimativa != null);
+  if (comEstimativa.length < 2) return null;
+
+  const valores = comEstimativa.map(v => v.estimativa);
+  const media = Math.round(valores.reduce((soma, v) => soma + v, 0) / valores.length);
+  const maior = Math.max(...valores);
+  const menor = Math.min(...valores);
+  const ordenados = [...comEstimativa].sort((a, b) => b.estimativa - a.estimativa);
+
+  return (
+    <div className="compat-dashboard">
+      <div className="compat-stats-grid">
+        <div className="jarvis-stat">
+          <span className="jarvis-stat-value">{formatBRL(media)}</span>
+          <span className="jarvis-stat-label">Média</span>
+        </div>
+        <div className="jarvis-stat">
+          <span className="jarvis-stat-value" style={{ color: 'var(--green)' }}>{formatBRL(maior)}</span>
+          <span className="jarvis-stat-label">Maior</span>
+        </div>
+        <div className="jarvis-stat">
+          <span className="jarvis-stat-value" style={{ color: 'var(--yellow)' }}>{formatBRL(menor)}</span>
+          <span className="jarvis-stat-label">Menor</span>
+        </div>
+        <div className="jarvis-stat">
+          <span className="jarvis-stat-value">{comEstimativa.length}/{vagas.length}</span>
+          <span className="jarvis-stat-label">Com estimativa</span>
+        </div>
+      </div>
+      <div className="compat-bars">
+        {ordenados.map(v => (
+          <div className="compat-bar-row" key={v.id}>
+            <div className="compat-bar-head">
+              <span className="compat-bar-label" title={v.titulo}>{v.titulo}</span>
+              <span className="compat-bar-score">{formatBRL(v.estimativa)}</span>
+            </div>
+            <div className="compat-bar-track">
+              <div className="compat-bar-fill" style={{ width: `${Math.max(4, (v.estimativa / maior) * 100)}%`, background: 'var(--accent)' }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SalarioCard({ data }: { data: JarvisSalarioData }) {
+  if (!data.modeloDisponivel) {
+    return <p>Modelo de estimativa salarial ainda não foi treinado — retreine em ⚙️ Configurações.</p>;
+  }
+  if (data.vagas.length === 0) {
+    return <p>Não achei nenhuma vaga nesse filtro pra estimar.</p>;
+  }
+  return (
+    <>
+      <p className="jarvis-scan-intro">
+        Estimei o salário de {data.vagas.length} vaga{data.vagas.length === 1 ? '' : 's'}
+        {data.totalEncontradas > data.vagas.length ? ` (de ${data.totalEncontradas} encontradas)` : ''}:
+      </p>
+      <SalarioDashboard vagas={data.vagas} />
+      <div className="jarvis-hits">
+        {data.vagas.map(v => (
+          <div key={v.id} className="jarvis-hit">
+            <div className="jarvis-hit-head">
+              <span className="jarvis-hit-score" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}>
+                {v.estimativa != null ? formatBRL(v.estimativa) : '—'}
+              </span>
+              <div className="jarvis-hit-title">
+                <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+                <span className="jarvis-hit-company">{v.empresa}</span>
+              </div>
+            </div>
+            {v.salarioInformado && <p className="jarvis-hit-resumo">Salário informado na vaga: {v.salarioInformado}</p>}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function ToolResultCard({ result }: { result: JarvisToolResult }) {
   switch (result.tool) {
     case 'listarVagas':
@@ -412,6 +503,8 @@ function ToolResultCard({ result }: { result: JarvisToolResult }) {
     case 'compatibilidadeComVagasRecentes':
     case 'compatibilidadeComVagasDoFunil':
       return <CompatibilidadeCard data={result.data as JarvisCompatibilidadeData} />;
+    case 'estimativaSalarialDeVagas':
+      return <SalarioCard data={result.data as JarvisSalarioData} />;
     default:
       return null;
   }

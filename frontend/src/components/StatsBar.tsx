@@ -33,11 +33,11 @@ export function StatsBar({ stats, onFetch, fetching, activeSeniority, onSeniorit
           <span className="stat-label">🔴 Não vistas</span>
         </div>
         <div className="stat-card">
-          <span className="stat-value applied">{stats.aplicadas - stats.recusadas}</span>
+          <span className="stat-value applied">{stats.aplicadas - stats.recusadasDeAplicadas}</span>
           <span className="stat-label">✅ Aplicadas</span>
-          {stats.recusadas > 0 && (
+          {stats.recusadasDeAplicadas > 0 && (
             <span className="stat-note">
-              {stats.aplicadas} no total · {stats.recusadas} recusada{stats.recusadas === 1 ? '' : 's'}
+              {stats.aplicadas} no total · {stats.recusadasDeAplicadas} recusada{stats.recusadasDeAplicadas === 1 ? '' : 's'}
             </span>
           )}
         </div>

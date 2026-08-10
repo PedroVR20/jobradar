@@ -33,6 +33,7 @@ public class JarvisChatService {
     private final JobRepository jobRepository;
     private final JarvisAssistantService jarvisAssistantService;
     private final MatchScoreService matchScoreService;
+    private final SalaryPredictionService salaryPredictionService;
 
     // compatibilidadeComVagasDoFunil analisa DIRETO (sem pré-filtro), porque
     // o grupo já vem pequeno por natureza (é o funil curado do próprio
@@ -43,6 +44,12 @@ public class JarvisChatService {
     // errada (a de vagas recentes do feed geral) e varreu 3279 vagas.
     private static final int MAX_COMPAT_FUNIL = 15;
     private static final int DEFAULT_COMPAT_FUNIL = 10;
+
+    // estimativaSalarialDeVagas NÃO gasta IA (é o modelo de regressão puro
+    // Java, ver SalaryPredictionService) — pode ter um teto bem mais folgado
+    // que as ferramentas de compatibilidade sem risco de estourar cota.
+    private static final int MAX_SALARIO_VAGAS = 25;
+    private static final int DEFAULT_SALARIO_VAGAS = 15;
 
     // Limite de rounds de function-calling por mensagem — evita loop
     // infinito ou uma mensagem só disparando dezenas de chamadas de ferramenta.
@@ -88,13 +95,35 @@ public class JarvisChatService {
             vagas eu tenho" ou "quais vagas apliquei" (essas usam listarVagas ou
             resumoFunil, que são gratuitas e não fazem match de compatibilidade).
 
+            estimativaSalarialDeVagas: pra quando o usuário quer COMPARAR ou
+            ENTENDER salário de várias vagas de uma vez (ex: "estima o salário
+            dessas vagas que apliquei", "quanto pagam essas vagas de backend",
+            "compara a faixa salarial das minhas vagas em andamento"). Usa o
+            modelo de regressão próprio do Job Radar, não gasta cota de IA — pode
+            chamar sem economia especial, dentro do limite da ferramenta. Não use
+            listarVagas pra esse tipo de pedido (não traz estimativa nenhuma).
+
+            Sobre dashboards: quando uma ferramenta te devolve vários números
+            comparáveis sobre um grupo de vagas (score de compatibilidade,
+            estimativa de salário, etc.), a interface do Job Radar já monta
+            automaticamente um resumo visual (cards de estatística + barras) a
+            partir do resultado da ferramenta — você não precisa (e não consegue)
+            desenhar esse dashboard, ele aparece sozinho. Isso vale pra QUALQUER
+            ferramenta que devolva uma lista de vagas com um valor numérico por
+            vaga, não só compatibilidade — é um padrão geral da interface, não
+            algo específico de um assunto. Seu trabalho é só escolher a
+            ferramenta certa pro que o usuário pediu e comentar em texto o que os
+            números já visíveis no card não dizem sozinhos (ex: "a faixa ficou
+            concentrada entre 6 e 8 mil, só a vaga X destoa pra cima").
+
             Se o usuário perguntar algo sem relação com o Job Radar (vagas,
             candidatura, perfil, salário), explique educadamente que você só ajuda
             com isso.
 
-            Importante sobre o formato da resposta: quando você chama listarVagas
-            ou compatibilidadeComVagasRecentes, a interface já mostra cada vaga
-            retornada como um card visual (título, empresa, status/score, nota) —
+            Importante sobre o formato da resposta: quando você chama listarVagas,
+            compatibilidadeComVagasRecentes, compatibilidadeComVagasDoFunil ou
+            estimativaSalarialDeVagas, a interface já mostra cada vaga retornada
+            como um card visual (título, empresa, status/score/estimativa, nota) —
             não repita esse mesmo texto agora, com título e empresa de novo,
             listando de novo cada vaga. Sua resposta em texto deve ser só a análise
             síntese (ex: "2 vagas têm pendência, as outras 8 só aguardam retorno")
@@ -195,6 +224,19 @@ public class JarvisChatService {
                 "required", List.of("status")
         );
 
+        Map<String, Object> salarioVagasParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "status", Map.of(
+                                "type", "STRING",
+                                "description", "Filtra pelo status do funil, opcional — mesmo enum de listarVagas.",
+                                "enum", List.of("NOVA", "VISTA", "INTERESSADO", "APLICADA", "ANDAMENTO", "RECUSADA")
+                        ),
+                        "busca", Map.of("type", "STRING", "description", "Termo de busca livre em título/empresa/tags, opcional."),
+                        "limite", Map.of("type", "INTEGER", "description", "Máximo de vagas a estimar. Padrão 15, máximo 25.")
+                )
+        );
+
         return List.of(
                 new GeminiService.FunctionDeclaration("listarVagas",
                         "Lista vagas do usuário, opcionalmente filtradas por status (ex: em andamento, aplicadas), período ou busca por texto. " +
@@ -221,7 +263,15 @@ public class JarvisChatService {
                                 "compatibilidade real (usa IA de verdade, gasta cota — uma chamada por vaga, até o " +
                                 "limite). Use esta ferramenta, não compatibilidadeComVagasRecentes, sempre que o " +
                                 "pedido mencionar um status do funil do usuário em vez de 'vagas recentes' em geral.",
-                        compatibilidadeFunilParams)
+                        compatibilidadeFunilParams),
+                new GeminiService.FunctionDeclaration("estimativaSalarialDeVagas",
+                        "Estima a faixa salarial de um grupo de vagas (opcionalmente filtradas por status do funil " +
+                                "ou busca) e devolve os números pra montar uma comparação visual — use quando o " +
+                                "usuário pedir pra comparar/analisar SALÁRIO de várias vagas de uma vez (ex: 'estima " +
+                                "o salário dessas vagas', 'quanto pagam essas 5 vagas que apliquei'). NÃO usa IA " +
+                                "generativa (é um modelo de regressão treinado, não gasta cota do Gemini) — pode " +
+                                "usar sem economia especial, dentro do limite.",
+                        salarioVagasParams)
         );
     }
 
@@ -231,6 +281,7 @@ public class JarvisChatService {
             case "resumoFunil" -> executarResumoFunil();
             case "compatibilidadeComVagasRecentes" -> executarCompatibilidade(chamada.args(), candidateProfile);
             case "compatibilidadeComVagasDoFunil" -> executarCompatibilidadeFunil(chamada.args(), candidateProfile);
+            case "estimativaSalarialDeVagas" -> executarEstimativaSalarial(chamada.args());
             default -> Map.of("erro", "Ferramenta desconhecida: " + chamada.name());
         };
     }
@@ -412,6 +463,47 @@ public class JarvisChatService {
         if (filtradas.size() > analisar.size()) {
             m.put("erro", "Só analisei as " + analisar.size() + " mais recentes — tinha " + filtradas.size() + " vagas nesse status no total.");
         }
+        return m;
+    }
+
+    // Não usa IA generativa — reaproveita o mesmo modelo de regressão puro
+    // Java que já roda no botão 💰 de cada card (SalaryPredictionService).
+    // Sem custo de cota, então o teto aqui é só sobre "quantidade razoável
+    // pra caber num dashboard", não sobre economizar chamada de IA.
+    private Object executarEstimativaSalarial(Map<String, Object> args) {
+        String status = args.get("status") instanceof String s && !s.isBlank() ? s.toUpperCase() : null;
+        String busca = args.get("busca") instanceof String s && !s.isBlank() ? s : null;
+        int limite = args.get("limite") instanceof Number n
+                ? Math.min(MAX_SALARIO_VAGAS, Math.max(1, n.intValue()))
+                : DEFAULT_SALARIO_VAGAS;
+
+        List<Job> filtradas = jobRepository.findAll().stream()
+                .filter(j -> statusBate(j, status))
+                .filter(j -> busca == null || contemBusca(j, busca))
+                .sorted(Comparator.comparing(Job::getPostedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .limit(limite)
+                .toList();
+
+        List<Map<String, Object>> vagas = new ArrayList<>();
+        for (Job j : filtradas) {
+            List<String> tags = j.getTags() == null || j.getTags().isBlank()
+                    ? List.of() : Arrays.asList(j.getTags().split(","));
+            Optional<Long> estimativa = salaryPredictionService.predict(j.getSeniority(), tags, j.getWorkplaceType(), j.getState());
+
+            Map<String, Object> vaga = new LinkedHashMap<>();
+            vaga.put("id", j.getId());
+            vaga.put("titulo", j.getTitle());
+            vaga.put("empresa", j.getCompany());
+            vaga.put("url", j.getUrl());
+            vaga.put("estimativa", estimativa.orElse(null));
+            vaga.put("salarioInformado", j.getSalary());
+            vagas.add(vaga);
+        }
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("modeloDisponivel", salaryPredictionService.isLoaded());
+        m.put("totalEncontradas", filtradas.size());
+        m.put("vagas", vagas);
         return m;
     }
 }

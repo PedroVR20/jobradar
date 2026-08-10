@@ -214,6 +214,13 @@ public class JobController {
         stats.put("aplicadas", jobRepository.countByAppliedTrue());
         stats.put("emAndamento", jobRepository.countByAppliedTrueAndInProgressTrue());
         stats.put("recusadas", jobRepository.countByRejectedTrue());
+        // Diferente de "recusadas" acima (TODA vaga recusada, aplicada ou
+        // não) — esse é só a recusa de quem realmente tinha sido aplicada.
+        // "aplicadas" - "recusadas" (o campo de cima) dava número negativo
+        // quando a maioria das recusas nunca foi aplicada de verdade — usa
+        // este campo pra qualquer conta que precise só da recusa "dentro"
+        // do funil de aplicadas (bug reportado: "-21 aplicadas" na tela).
+        stats.put("recusadasDeAplicadas", jobRepository.countByAppliedTrueAndRejectedTrue());
         stats.put("hojeCount", jobRepository
                 .findByFetchedAtAfter(LocalDateTime.now().minusHours(24)).size());
         stats.put("porFonte", Map.of(

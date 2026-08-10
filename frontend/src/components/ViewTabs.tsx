@@ -22,7 +22,7 @@ function countFor(tab: ViewMode, stats: Stats | null): number | null {
   switch (tab) {
     case 'novas': return stats.novas;
     case 'interessado': return stats.interessadas;
-    case 'aplicadas': return Math.max(0, stats.aplicadas - stats.emAndamento - stats.recusadas);
+    case 'aplicadas': return Math.max(0, stats.aplicadas - stats.emAndamento - stats.recusadasDeAplicadas);
     case 'andamento': return stats.emAndamento;
     case 'recusadas': return stats.recusadas;
     case 'vistas': return Math.max(0, stats.total - stats.novas - stats.interessadas - stats.aplicadas);

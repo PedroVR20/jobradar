@@ -141,9 +141,26 @@ export interface JarvisCompatibilidadeData {
   erro?: string;
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta
+// estimativaSalarialDeVagas (modelo de regressão próprio, sem custo de IA)
+export interface JarvisSalarioVaga {
+  id: number;
+  titulo: string;
+  empresa: string;
+  url: string;
+  estimativa: number | null;
+  salarioInformado: string | null;
+}
+
+export interface JarvisSalarioData {
+  modeloDisponivel: boolean;
+  totalEncontradas: number;
+  vagas: JarvisSalarioVaga[];
+}
+
 export interface JarvisToolResult {
-  tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil';
-  data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData;
+  tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil' | 'estimativaSalarialDeVagas';
+  data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData;
 }
 
 export interface JarvisChatResponse {
@@ -191,6 +208,11 @@ export interface Stats {
   aplicadas: number;
   emAndamento: number;
   recusadas: number;
+  // Recusa só de vaga que realmente tinha sido aplicada antes — distinto de
+  // "recusadas" acima (TODA vaga recusada, aplicada ou não). Usa este pra
+  // qualquer conta "aplicadas - recusadas", senão dá número negativo quando
+  // a maioria das recusas nunca foi aplicada de verdade.
+  recusadasDeAplicadas: number;
   hojeCount: number;
   porFonte: {
     REMOTIVE: number;

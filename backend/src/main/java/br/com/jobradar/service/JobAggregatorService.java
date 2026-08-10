@@ -44,6 +44,7 @@ public class JobAggregatorService {
         log.info("=== Fetch periódico iniciado ===");
         fetchAllJobs();
         limparVagasRecusadasAntigas();
+        limparVagasAntigasNuncaEngajadas();
     }
 
     // Quantos dias uma vaga fica na aba "Recusadas" antes de ser apagada de vez.
@@ -61,6 +62,32 @@ public class JobAggregatorService {
         if (apagadas > 0) {
             log.info("=== {} vagas recusadas há mais de {} dias foram apagadas ===",
                     apagadas, DIAS_PARA_EXCLUIR_RECUSADAS);
+        }
+    }
+
+    // Janela móvel de retenção pra vaga antiga nunca engajada — hoje remove
+    // tudo publicado antes de ~2 anos atrás; daqui a um ano remove tudo
+    // publicado antes de ~2 anos daquela data, e assim sempre (não é uma
+    // data fixa tipo "antes de 2024", é sempre "há mais de 2 anos").
+    private static final int DIAS_PARA_EXCLUIR_VAGAS_ANTIGAS = 730;
+
+    /**
+     * Apaga permanentemente vaga publicada há mais de
+     * {@link #DIAS_PARA_EXCLUIR_VAGAS_ANTIGAS} dias que o usuário nunca
+     * interagiu de verdade (nunca marcou interesse/aplicou/recusou) e não
+     * fixou — pedido depois do usuário relatar que usava "Recusada" como
+     * workaround só pra sumir com vaga de 2020 parada em "Novas" sem nunca
+     * ter aplicado, o que inflava as métricas de aplicação (ver
+     * aplicarStatus() em JobController). Qualquer vaga que o usuário
+     * realmente tocou (mesmo antiga) nunca é apagada por essa rotina.
+     */
+    @Transactional
+    public void limparVagasAntigasNuncaEngajadas() {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(DIAS_PARA_EXCLUIR_VAGAS_ANTIGAS);
+        int apagadas = jobRepository.deleteOldUnengagedJobs(cutoff);
+        if (apagadas > 0) {
+            log.info("=== {} vagas antigas (publicadas antes de {}) nunca engajadas foram apagadas ===",
+                    apagadas, cutoff.toLocalDate());
         }
     }
 
@@ -89,6 +116,7 @@ public class JobAggregatorService {
         fetchAllJobs();
         enriquecerSalariosGupyAntigas();
         limparVagasRecusadasAntigas();
+        limparVagasAntigasNuncaEngajadas();
     }
 
 // Limita quantas vagas antigas sem salário são checadas por ciclo —
