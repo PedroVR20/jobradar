@@ -8,6 +8,7 @@ import { MatchScoreModal } from './MatchScoreModal';
 import { InterviewQuestionsModal } from './InterviewQuestionsModal';
 import { useAgenda } from '../hooks/useAgenda';
 import { useSourceColors } from '../hooks/useSourceColors';
+import { RoviIcon } from './RoviIcon';
 
 interface Props {
   job: Job;
@@ -486,27 +487,30 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
               onClick={() => setAiMenuOpen(open => !open)}
               title="Recursos de IA pra essa vaga"
             >
-              🤖 IA ▾
+              <RoviIcon size={14} /> IA ▾
             </button>
             {aiMenuOpen && (
               <div className="card-menu-dropdown ai-menu-dropdown">
                 <button
-                  className="card-menu-item"
+                  className="card-menu-item card-menu-item--icon"
                   onClick={() => { setAiMenuOpen(false); setCoverLetterOpen(true); }}
                 >
-                  ✉️ Gerar carta de apresentação
+                  <span className="card-menu-item-badge card-menu-item-badge--accent">✉️</span>
+                  Gerar carta de apresentação
                 </button>
                 <button
-                  className="card-menu-item"
+                  className="card-menu-item card-menu-item--icon"
                   onClick={() => { setAiMenuOpen(false); setMatchScoreOpen(true); }}
                 >
-                  🎯 Compatibilidade com meu perfil
+                  <span className="card-menu-item-badge card-menu-item-badge--green">🎯</span>
+                  Compatibilidade com meu perfil
                 </button>
                 <button
-                  className="card-menu-item"
+                  className="card-menu-item card-menu-item--icon"
                   onClick={() => { setAiMenuOpen(false); setInterviewQuestionsOpen(true); }}
                 >
-                  ❓ Perguntas prováveis de entrevista
+                  <span className="card-menu-item-badge card-menu-item-badge--yellow">❓</span>
+                  Perguntas prováveis de entrevista
                 </button>
               </div>
             )}
