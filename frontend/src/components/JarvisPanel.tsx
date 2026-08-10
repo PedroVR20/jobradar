@@ -8,7 +8,7 @@ import {
   JarvisToolResult,
 } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
-import { RoviIcon } from './RoviIcon';
+import { HunterIcon } from './HunterIcon';
 
 interface Props {
   onClose: () => void;
@@ -156,7 +156,7 @@ function greeting(): Message {
   return {
     id: nextId++,
     role: 'assistant',
-    text: 'Oi! Eu sou o Rovi — pode falar comigo do jeito que quiser, tipo "dê uma olhada nas minhas vagas em andamento" ou "quantas vagas eu tenho hoje". Eu entendo a pergunta e busco o dado real pra responder.',
+    text: 'Oi! Eu sou o Hunter — pode falar comigo do jeito que quiser, tipo "dê uma olhada nas minhas vagas em andamento" ou "quantas vagas eu tenho hoje". Eu entendo a pergunta e busco o dado real pra responder.',
   };
 }
 
@@ -374,7 +374,7 @@ export function JarvisPanel({ onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [closing, setClosing] = useState(false);
   // Recall de mensagens anteriores tipo terminal: seta ↑ traz a última
-  // mensagem enviada de volta pro campo (útil quando o Rovi erra numa
+  // mensagem enviada de volta pro campo (útil quando o Hunter erra numa
   // mensagem enorme e ela já não tá mais no clipboard) e ↓ vai voltando.
   const [historyNav, setHistoryNav] = useState<{ index: number; draft: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -491,7 +491,7 @@ export function JarvisPanel({ onClose }: Props) {
         const err = await res.json().catch(() => null);
         addMessage({
           role: 'assistant',
-          text: err?.error ?? 'Deu erro falando com o Rovi. Tenta de novo?',
+          text: err?.error ?? 'Deu erro falando com o Hunter. Tenta de novo?',
         } as Omit<Message, 'id'>);
         return;
       }
@@ -547,7 +547,7 @@ export function JarvisPanel({ onClose }: Props) {
     <div className={`jarvis-panel ${closing ? 'jarvis-panel--closing' : ''}`}>
       <div className="jarvis-header">
         <span className="jarvis-header-title">
-          {view === 'history' ? '🕘 Histórico' : <><RoviIcon size={19} alive /> Rovi</>}
+          {view === 'history' ? '🕘 Histórico' : <><HunterIcon size={19} alive /> Hunter</>}
         </span>
         <div className="jarvis-header-actions">
           <button
@@ -579,7 +579,7 @@ export function JarvisPanel({ onClose }: Props) {
               if (m.role === 'assistant-loading') {
                 return (
                   <div key={m.id} className="jarvis-msg-row">
-                    <span className="jarvis-avatar"><RoviIcon size={15} alive /></span>
+                    <span className="jarvis-avatar"><HunterIcon size={15} alive /></span>
                     <div className="jarvis-bubble jarvis-bubble--assistant jarvis-bubble--loading">
                       <span className="jarvis-typing"><span></span><span></span><span></span></span>
                     </div>
@@ -588,7 +588,7 @@ export function JarvisPanel({ onClose }: Props) {
               }
               return (
                 <div key={m.id} className="jarvis-msg-row">
-                  <span className="jarvis-avatar"><RoviIcon size={15} alive /></span>
+                  <span className="jarvis-avatar"><HunterIcon size={15} alive /></span>
                   <div className="jarvis-bubble jarvis-bubble--assistant">
                     {m.toolResults && m.toolResults.length > 0 && (
                       <div className="jarvis-tool-results">
@@ -619,7 +619,7 @@ export function JarvisPanel({ onClose }: Props) {
               value={input}
               onChange={e => { setInput(e.target.value); setHistoryNav(null); }}
               onKeyDown={handleInputKeyDown}
-              placeholder="Pergunte algo pro Rovi... (↑ recupera mensagens anteriores)"
+              placeholder="Pergunte algo pro Hunter... (↑ recupera mensagens anteriores)"
               disabled={busy}
             />
             <button type="submit" className="jarvis-send-btn" disabled={busy || !input.trim()} aria-label="Enviar">➤</button>

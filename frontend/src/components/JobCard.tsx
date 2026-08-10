@@ -8,7 +8,7 @@ import { MatchScoreModal } from './MatchScoreModal';
 import { InterviewQuestionsModal } from './InterviewQuestionsModal';
 import { useAgenda } from '../hooks/useAgenda';
 import { useSourceColors } from '../hooks/useSourceColors';
-import { RoviIcon } from './RoviIcon';
+import { HunterIcon } from './HunterIcon';
 
 interface Props {
   job: Job;
@@ -487,7 +487,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
               onClick={() => setAiMenuOpen(open => !open)}
               title="Recursos de IA pra essa vaga"
             >
-              <RoviIcon size={14} /> IA ▾
+              <HunterIcon size={14} /> IA ▾
             </button>
             {aiMenuOpen && (
               <div className="card-menu-dropdown ai-menu-dropdown">

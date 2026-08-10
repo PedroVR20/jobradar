@@ -12,7 +12,7 @@ import { MetricsModal } from './components/MetricsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { DuplicatesModal } from './components/DuplicatesModal';
 import { JarvisPanel } from './components/JarvisPanel';
-import { RoviIcon } from './components/RoviIcon';
+import { HunterIcon } from './components/HunterIcon';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
 import './App.css';
 
@@ -240,7 +240,7 @@ export default function App() {
             </button>
             {aiStatus.enabled && (
               <button className="btn jarvis-toggle-btn" onClick={() => setShowJarvis(o => !o)}>
-                <RoviIcon size={17} alive /> Rovi
+                <HunterIcon size={17} alive /> Hunter
               </button>
             )}
             <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>

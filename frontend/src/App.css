@@ -2124,64 +2124,66 @@ a:hover { text-decoration: underline; }
 }
 .jarvis-toggle-btn:hover { background: #2dd4bf33; }
 
-/* ===================== Mascote Rovi (SVG, sem asset externo) ===================== */
-.rovi-icon { flex-shrink: 0; overflow: visible; }
-.rovi-visor { fill: var(--bg); }
-.rovi-eye {
+/* ===================== Mascote Hunter (SVG, sem asset externo) =====================
+   Nome em homenagem ao cachorro do usuário (rebatizado de "Rovi" pra
+   "Hunter" — combina com o tema do app, já que ele "caça" vagas). */
+.hunter-icon { flex-shrink: 0; overflow: visible; }
+.hunter-visor { fill: var(--bg); }
+.hunter-eye {
   fill: #c7d2fe;
   transform-box: fill-box;
   transform-origin: center;
 }
-.rovi-antenna-tip {
+.hunter-antenna-tip {
   transform-box: fill-box;
   transform-origin: center;
-  animation: rovi-pulse 2.2s infinite ease-in-out;
+  animation: hunter-pulse 2.2s infinite ease-in-out;
 }
-.rovi-gear {
+.hunter-gear {
   transform-box: fill-box;
   transform-origin: center;
 }
-.rovi-gear-body, .rovi-gear-tooth { fill: var(--text-muted); }
-.rovi-gear-hole { fill: var(--bg-card2); }
+.hunter-gear-body, .hunter-gear-tooth { fill: var(--text-muted); }
+.hunter-gear-hole { fill: var(--bg-card2); }
 
-@keyframes rovi-pulse {
+@keyframes hunter-pulse {
   0%, 100% { opacity: 0.55; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.2); }
 }
-@keyframes rovi-blink {
+@keyframes hunter-blink {
   0%, 100% { transform: scaleY(1); }
   45%, 55% { transform: scaleY(0.15); }
 }
-@keyframes rovi-spin {
+@keyframes hunter-spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(220deg); }
 }
 /* A engrenagem gira e os olhos piscam quando passa o mouse no botão que
    abre o painel — dá vida ao mascote sem precisar de sprite/GIF animado. */
-.jarvis-toggle-btn:hover .rovi-eye { animation: rovi-blink 0.5s ease-in-out; }
-.jarvis-toggle-btn:hover .rovi-gear { animation: rovi-spin 0.6s ease-out; }
-.jarvis-toggle-btn:hover .rovi-gear-body,
-.jarvis-toggle-btn:hover .rovi-gear-tooth { fill: var(--accent); }
+.jarvis-toggle-btn:hover .hunter-eye { animation: hunter-blink 0.5s ease-in-out; }
+.jarvis-toggle-btn:hover .hunter-gear { animation: hunter-spin 0.6s ease-out; }
+.jarvis-toggle-btn:hover .hunter-gear-body,
+.jarvis-toggle-btn:hover .hunter-gear-tooth { fill: var(--accent); }
 
 /* Versão "viva" (prop alive={true}) — pisca sozinho o tempo todo, sem
    depender de hover. Usado no botão do header, no cabeçalho do painel e nos
-   avatares do chat (inclusive enquanto o Rovi está "pensando" — mesma
+   avatares do chat (inclusive enquanto o Hunter está "pensando" — mesma
    animação, não é só os 3 pontinhos). Ciclo de 4,5s com a maior parte do
    tempo de olho aberto e um piscar rápido, pra parecer natural, não um
    metrônomo piscando sem parar. */
-@keyframes rovi-blink-loop {
+@keyframes hunter-blink-loop {
   0%, 88%, 100% { transform: scaleY(1); }
   92%, 96% { transform: scaleY(0.15); }
 }
-.rovi-icon--alive .rovi-eye { animation: rovi-blink-loop 4.5s infinite ease-in-out; }
-.rovi-icon--alive .rovi-eye:last-of-type { animation-delay: 0.06s; }
+.hunter-icon--alive .hunter-eye { animation: hunter-blink-loop 4.5s infinite ease-in-out; }
+.hunter-icon--alive .hunter-eye:last-of-type { animation-delay: 0.06s; }
 /* Engrenagem "cochicha" de leve, contínuo — sutil, bem diferente do giro
    rápido no hover, só pra não ficar 100% estática enquanto os olhos piscam. */
-@keyframes rovi-gear-idle {
+@keyframes hunter-gear-idle {
   0%, 100% { transform: rotate(0deg); }
   50% { transform: rotate(18deg); }
 }
-.rovi-icon--alive .rovi-gear { animation: rovi-gear-idle 3.6s infinite ease-in-out; }
+.hunter-icon--alive .hunter-gear { animation: hunter-gear-idle 3.6s infinite ease-in-out; }
 
 /* Com o Jarvis aberto, empurra o conteúdo principal em vez de deixar o
    painel sobrepor os cards por cima — sem isso, a última coluna da grade
