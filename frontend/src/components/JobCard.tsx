@@ -48,10 +48,31 @@ function daysUntilDeletion(rejectedAt: string): number {
   return Math.max(0, Math.round((deleteDate.getTime() - today.getTime()) / 86400000));
 }
 
+// Com a busca rodando a cada 4h, só a data não diz qual vaga "acabou de
+// chegar" — todo mundo publicado hoje mostrava o mesmo "10 de ago." Se foi
+// hoje, mostra a hora exata em vez da data (mais compacto e mais útil);
+// vagas mais antigas continuam só com a data, sem virar bagunça em
+// milhares de cards antigos que não precisam desse nível de detalhe.
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
+  const date = new Date(iso);
+  const now = new Date();
+  const isToday = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  if (isToday) {
+    const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date);
+    return `Hoje, ${hora}`;
+  }
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit', month: 'short', year: 'numeric'
+  }).format(date);
+}
+
+function formatDateFull(iso: string | null): string | undefined {
+  if (!iso) return undefined;
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   }).format(new Date(iso));
 }
 
@@ -275,7 +296,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
           </div>
         </div>
         <div className="card-header-right">
-          <span className="card-date">📅 {formatDate(job.postedAt)}</span>
+          <span className="card-date" title={formatDateFull(job.postedAt)}>📅 {formatDate(job.postedAt)}</span>
 
           {/* Botão fixar — oculto em vagas recusadas */}
           {!job.rejected && (
