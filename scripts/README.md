@@ -86,10 +86,9 @@ Compare sempre os três números juntos, não só um isolado.
 
 ## Métricas do modelo atual
 
-- **400 amostras de treino** (359 em R$ direto + 41 convertidas de €/$ via
-  câmbio do dia, `ExchangeRateService`), após filtrar outliers [R$300, R$60.000]
-- R² (escala log): **0,68**
-- Erro médio: **~55%** do valor real
+- **410 amostras de treino** (após filtrar outliers [R$300, R$60.000])
+- R² (escala log): **0,78**
+- Erro médio: **~34%** do valor real
 - Cobertura: 100% (sempre dá uma estimativa, diferente da mediana por vagas
   parecidas que só cobre uma fração dos casos, a que exige amostra mínima)
 
@@ -99,6 +98,12 @@ a incerteza.
 
 ## Changelog
 
+- **2026-08-10 (v3)**: retreino simples após um fetch novo (+15 vagas, 11
+  delas elegíveis pro treino) — amostra 400 → **410**. Dessa vez melhorou
+  nas três métricas ao mesmo tempo (sem o trade-off do v2): R² 0,68 → **0,78**,
+  MAE R$3.089 → **R$2.747**, erro percentual 55% → **34%**. Confirma o padrão
+  esperado: conforme o banco acumula vagas de verdade (não só conversão de
+  moeda nova), o modelo tende a melhorar de forma direta.
 - **2026-08-09 (v2)**: adicionada conversão de câmbio (€/$ → R$, cotação do
   dia via `ExchangeRateService`) — amostra foi de 359 pra 400, vocabulário
   de tags de 27 pra 33 termos (ganhou termos que só apareciam em vagas
