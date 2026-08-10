@@ -68,6 +68,17 @@ public class JarvisChatService {
             Se o usuário perguntar algo sem relação com o Job Radar (vagas,
             candidatura, perfil, salário), explique educadamente que você só ajuda
             com isso.
+
+            Importante sobre o formato da resposta: quando você chama listarVagas
+            ou compatibilidadeComVagasRecentes, a interface já mostra cada vaga
+            retornada como um card visual (título, empresa, status/score, nota) —
+            não repita esse mesmo texto agora, com título e empresa de novo,
+            listando de novo cada vaga. Sua resposta em texto deve ser só a análise
+            síntese (ex: "2 vagas têm pendência, as outras 8 só aguardam retorno")
+            e comentar casos específicos apenas se agregar algo que o card não
+            mostra. Escreva como uma mensagem de chat curta — pode usar **negrito**
+            e listas com "-", mas não use títulos markdown (#, ##, ###) nem
+            separadores "---", isso é formatação de documento, não de chat.
             """;
 
     public record ChatMessage(String role, String text) {} // role: "user" | "assistant"

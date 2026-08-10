@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   JarvisChatResponse,
@@ -37,6 +37,93 @@ function scoreColor(score: number): string {
   if (score >= 70) return 'var(--green)';
   if (score >= 40) return 'var(--yellow)';
   return 'var(--red)';
+}
+
+// Renderizador de markdown "lite" — a instrução de sistema pede pro Gemini
+// não usar títulos/separadores num chat, mas ele nem sempre obedece à risca,
+// e mesmo **negrito**/listas simples (que a instrução permite) precisam ser
+// interpretados, senão aparecem como asteriscos crus na tela. Sem trazer uma
+// lib de markdown pro bundle — só cobre o que o Jarvis realmente usa:
+// **negrito**, [link](url), listas com "-"/"*"/"1.", e títulos "#" (caso
+// escape a instrução, ainda assim fica legível em vez de "### texto" cru).
+function renderInline(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const re = /\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\)/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let i = 0;
+  while ((match = re.exec(text))) {
+    if (match.index > last) nodes.push(text.slice(last, match.index));
+    if (match[1] !== undefined) {
+      nodes.push(<strong key={`${keyPrefix}-b${i++}`}>{match[1]}</strong>);
+    } else {
+      nodes.push(
+        <a key={`${keyPrefix}-l${i++}`} href={match[3]} target="_blank" rel="noopener noreferrer">{match[2]}</a>
+      );
+    }
+    last = re.lastIndex;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+function renderMarkdownLite(text: string): ReactNode {
+  const lines = text.split('\n');
+  const blocks: ReactNode[] = [];
+  let listItems: string[] = [];
+  let listOrdered = false;
+  let paraLines: string[] = [];
+  let key = 0;
+
+  const flushList = () => {
+    if (listItems.length === 0) return;
+    const items = listItems;
+    const ordered = listOrdered;
+    const ListTag = ordered ? 'ol' : 'ul';
+    blocks.push(
+      <ListTag className="jarvis-md-list" key={`list-${key++}`}>
+        {items.map((li, i) => <li key={i}>{renderInline(li, `li${key}-${i}`)}</li>)}
+      </ListTag>
+    );
+    listItems = [];
+  };
+  const flushPara = () => {
+    if (paraLines.length === 0) return;
+    const joined = paraLines.join(' ');
+    blocks.push(<p className="jarvis-md-p" key={`p-${key++}`}>{renderInline(joined, `p${key}`)}</p>);
+    paraLines = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line === '') { flushList(); flushPara(); continue; }
+    if (line === '---' || line === '***') { flushList(); flushPara(); continue; }
+
+    const headerMatch = /^#{1,4}\s+(.*)$/.exec(line);
+    if (headerMatch) {
+      flushList(); flushPara();
+      blocks.push(<p className="jarvis-md-heading" key={`h-${key++}`}>{renderInline(headerMatch[1], `h${key}`)}</p>);
+      continue;
+    }
+
+    const orderedMatch = /^\d+[.)]\s+(.*)$/.exec(line);
+    const bulletMatch = /^[-*]\s+(.*)$/.exec(line);
+    if (orderedMatch || bulletMatch) {
+      flushPara();
+      const isOrdered = !!orderedMatch;
+      if (listItems.length > 0 && listOrdered !== isOrdered) flushList();
+      listOrdered = isOrdered;
+      listItems.push((orderedMatch ?? bulletMatch)![1]);
+      continue;
+    }
+
+    flushList();
+    paraLines.push(rawLine);
+  }
+  flushList();
+  flushPara();
+
+  return <>{blocks}</>;
 }
 
 // Histórico persistido no navegador — antes o painel perdia a conversa toda
@@ -263,7 +350,7 @@ export function JarvisPanel({ onClose }: Props) {
                     {m.toolResults.map((tr, i) => <ToolResultCard key={i} result={tr} />)}
                   </div>
                 )}
-                {m.text}
+                {renderMarkdownLite(m.text)}
               </div>
             );
           })}
