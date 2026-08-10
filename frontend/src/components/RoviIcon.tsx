@@ -5,11 +5,21 @@
 // em qualquer tamanho e — o motivo principal — permite animar de verdade
 // os "olhos" piscando e a engrenagem girando via CSS, o que um PNG estático
 // não faria sem múltiplos frames.
-export function RoviIcon({ size = 20 }: { size?: number }) {
+interface Props {
+  size?: number;
+  // Pisca continuamente sozinho, sem precisar de hover — usado nos lugares
+  // onde o Rovi "é o personagem" (botão do header, painel de chat) pra dar
+  // vida mesmo parado. Fica de fora por padrão no ícone pequeno repetido em
+  // cada card de vaga (menu 🤖 IA) — dezenas piscando ao mesmo tempo na tela
+  // seria barulho visual, não charme.
+  alive?: boolean;
+}
+
+export function RoviIcon({ size = 20, alive = false }: Props) {
   const teeth = Array.from({ length: 8 });
   return (
     <svg
-      className="rovi-icon"
+      className={`rovi-icon ${alive ? 'rovi-icon--alive' : ''}`}
       width={size}
       height={size}
       viewBox="0 0 32 32"

@@ -2163,6 +2163,26 @@ a:hover { text-decoration: underline; }
 .jarvis-toggle-btn:hover .rovi-gear-body,
 .jarvis-toggle-btn:hover .rovi-gear-tooth { fill: var(--accent); }
 
+/* Versão "viva" (prop alive={true}) — pisca sozinho o tempo todo, sem
+   depender de hover. Usado no botão do header, no cabeçalho do painel e nos
+   avatares do chat (inclusive enquanto o Rovi está "pensando" — mesma
+   animação, não é só os 3 pontinhos). Ciclo de 4,5s com a maior parte do
+   tempo de olho aberto e um piscar rápido, pra parecer natural, não um
+   metrônomo piscando sem parar. */
+@keyframes rovi-blink-loop {
+  0%, 88%, 100% { transform: scaleY(1); }
+  92%, 96% { transform: scaleY(0.15); }
+}
+.rovi-icon--alive .rovi-eye { animation: rovi-blink-loop 4.5s infinite ease-in-out; }
+.rovi-icon--alive .rovi-eye:last-of-type { animation-delay: 0.06s; }
+/* Engrenagem "cochicha" de leve, contínuo — sutil, bem diferente do giro
+   rápido no hover, só pra não ficar 100% estática enquanto os olhos piscam. */
+@keyframes rovi-gear-idle {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(18deg); }
+}
+.rovi-icon--alive .rovi-gear { animation: rovi-gear-idle 3.6s infinite ease-in-out; }
+
 /* Com o Jarvis aberto, empurra o conteúdo principal em vez de deixar o
    painel sobrepor os cards por cima — sem isso, a última coluna da grade
    ficava escondida atrás da gaveta fixa. */

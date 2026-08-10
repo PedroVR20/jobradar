@@ -240,7 +240,7 @@ export default function App() {
             </button>
             {aiStatus.enabled && (
               <button className="btn jarvis-toggle-btn" onClick={() => setShowJarvis(o => !o)}>
-                <RoviIcon size={17} /> Rovi
+                <RoviIcon size={17} alive /> Rovi
               </button>
             )}
             <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>

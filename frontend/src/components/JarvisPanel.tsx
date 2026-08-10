@@ -547,7 +547,7 @@ export function JarvisPanel({ onClose }: Props) {
     <div className={`jarvis-panel ${closing ? 'jarvis-panel--closing' : ''}`}>
       <div className="jarvis-header">
         <span className="jarvis-header-title">
-          {view === 'history' ? '🕘 Histórico' : <><RoviIcon size={19} /> Rovi</>}
+          {view === 'history' ? '🕘 Histórico' : <><RoviIcon size={19} alive /> Rovi</>}
         </span>
         <div className="jarvis-header-actions">
           <button
@@ -579,7 +579,7 @@ export function JarvisPanel({ onClose }: Props) {
               if (m.role === 'assistant-loading') {
                 return (
                   <div key={m.id} className="jarvis-msg-row">
-                    <span className="jarvis-avatar"><RoviIcon size={15} /></span>
+                    <span className="jarvis-avatar"><RoviIcon size={15} alive /></span>
                     <div className="jarvis-bubble jarvis-bubble--assistant jarvis-bubble--loading">
                       <span className="jarvis-typing"><span></span><span></span><span></span></span>
                     </div>
@@ -588,7 +588,7 @@ export function JarvisPanel({ onClose }: Props) {
               }
               return (
                 <div key={m.id} className="jarvis-msg-row">
-                  <span className="jarvis-avatar"><RoviIcon size={15} /></span>
+                  <span className="jarvis-avatar"><RoviIcon size={15} alive /></span>
                   <div className="jarvis-bubble jarvis-bubble--assistant">
                     {m.toolResults && m.toolResults.length > 0 && (
                       <div className="jarvis-tool-results">
