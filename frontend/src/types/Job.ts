@@ -108,10 +108,12 @@ export interface JarvisListarVagasData {
 export interface JarvisResumoFunilData {
   total: number;
   novas: number;
+  vistas: number;
   interessadas: number;
   aplicadas: number;
   emAndamento: number;
   recusadas: number;
+  totalHistoricoAplicadas: number;
 }
 
 export interface JarvisCompatibilidadeHit {

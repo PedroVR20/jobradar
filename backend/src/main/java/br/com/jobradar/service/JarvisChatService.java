@@ -167,7 +167,11 @@ public class JarvisChatService {
                                 "fonte real, não invente etapas genéricas de plataforma quando a nota já diz o que falta (ou que não falta nada).",
                         listarVagasParams),
                 new GeminiService.FunctionDeclaration("resumoFunil",
-                        "Estatísticas gerais do funil de vagas do usuário (total, novas, aplicadas, em andamento, recusadas). Não usa IA, é gratuito.",
+                        "Estatísticas gerais do funil de vagas do usuário. Não usa IA, é gratuito. Cada vaga conta em " +
+                                "só um bucket (aplicadas/emAndamento/recusadas são mutuamente exclusivos e batem " +
+                                "exatamente com as abas do app) — se o usuário perguntar 'quantas vezes já apliquei " +
+                                "no total' (contando as que hoje estão em andamento ou já foram recusadas), use o " +
+                                "campo totalHistoricoAplicadas, não o campo aplicadas.",
                         semParametros),
                 new GeminiService.FunctionDeclaration("compatibilidadeComVagasRecentes",
                         "Compara o perfil/currículo salvo do usuário com vagas publicadas recentemente e avalia compatibilidade real (usa IA de verdade, gasta cota).",
@@ -253,13 +257,35 @@ public class JarvisChatService {
     }
 
     private Object executarResumoFunil() {
+        // Cada vaga cai em EXATAMENTE um bucket (statusDe), o mesmo critério
+        // que listarVagas usa e que as abas do funil no frontend usam pra
+        // filtrar — por isso os números aqui batem com o que o usuário vê
+        // clicando em cada aba. Antes essa contagem usava countByAppliedTrue()
+        // (bruto, conta toda vaga que já foi aplicada alguma vez, incluindo as
+        // que hoje estão "em andamento" ou foram recusadas depois) — o usuário
+        // reportou exatamente essa confusão: Jarvis dizia "46 aplicadas" com a
+        // aba "Aplicadas" mostrando só 1 (as outras 45 já migraram pra "em
+        // andamento" ou "recusada"). Mantemos o bruto num campo à parte,
+        // explicitamente rotulado, pra quem perguntar "quantas vezes já
+        // apliquei no total".
+        List<Job> todas = jobRepository.findAll();
+        Map<String, Long> porBucket = new LinkedHashMap<>();
+        for (String bucket : List.of("NOVA", "VISTA", "INTERESSADO", "APLICADA", "ANDAMENTO", "RECUSADA")) {
+            porBucket.put(bucket, 0L);
+        }
+        for (Job j : todas) {
+            porBucket.merge(statusDe(j), 1L, Long::sum);
+        }
+
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("total", jobRepository.count());
-        m.put("novas", jobRepository.countBySeenFalse());
-        m.put("interessadas", jobRepository.countByInterestedTrue());
-        m.put("aplicadas", jobRepository.countByAppliedTrue());
-        m.put("emAndamento", jobRepository.countByAppliedTrueAndInProgressTrue());
-        m.put("recusadas", jobRepository.countByRejectedTrue());
+        m.put("total", (long) todas.size());
+        m.put("novas", porBucket.get("NOVA"));
+        m.put("vistas", porBucket.get("VISTA"));
+        m.put("interessadas", porBucket.get("INTERESSADO"));
+        m.put("aplicadas", porBucket.get("APLICADA"));
+        m.put("emAndamento", porBucket.get("ANDAMENTO"));
+        m.put("recusadas", porBucket.get("RECUSADA"));
+        m.put("totalHistoricoAplicadas", todas.stream().filter(Job::isApplied).count());
         return m;
     }
 
