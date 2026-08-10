@@ -51,6 +51,14 @@ public class JarvisChatService {
             nunca invente números, vagas ou empresas que você não buscou de verdade
             através de uma ferramenta.
 
+            Pra perguntas sobre pendência/próximo passo/o que falta em cada
+            candidatura (ex: "quais preciso fazer teste ainda", "o que falta pra
+            fechar"), a fonte de verdade é o campo 'notes' de cada vaga retornado
+            por listarVagas — é a anotação que o próprio usuário escreveu naquele
+            card. Responda com base no que cada nota diz (ou avise que a vaga não
+            tem nota registrada), nunca com passos genéricos de plataforma
+            (Gupy/Eureca/etc.) que você não confirmou pela nota real.
+
             A ferramenta compatibilidadeComVagasRecentes gasta chamadas reais de IA
             (cota limitada do free tier) — só use quando o usuário pedir de verdade
             uma comparação de compatibilidade/match com o perfil dele, não para
@@ -141,7 +149,11 @@ public class JarvisChatService {
 
         return List.of(
                 new GeminiService.FunctionDeclaration("listarVagas",
-                        "Lista vagas do usuário, opcionalmente filtradas por status (ex: em andamento, aplicadas), período ou busca por texto.",
+                        "Lista vagas do usuário, opcionalmente filtradas por status (ex: em andamento, aplicadas), período ou busca por texto. " +
+                                "Cada vaga vem com o campo 'notes' — a anotação pessoal que o próprio usuário escreveu naquele card " +
+                                "(ex: 'preciso enviar currículo amanhã', 'só esperar retorno', 'fazer teste lógico'). Use esse campo " +
+                                "pra responder qualquer pergunta sobre pendência/próximo passo/o que falta em cada candidatura — é a " +
+                                "fonte real, não invente etapas genéricas de plataforma quando a nota já diz o que falta (ou que não falta nada).",
                         listarVagasParams),
                 new GeminiService.FunctionDeclaration("resumoFunil",
                         "Estatísticas gerais do funil de vagas do usuário (total, novas, aplicadas, em andamento, recusadas). Não usa IA, é gratuito.",
@@ -188,6 +200,10 @@ public class JarvisChatService {
                     m.put("status", statusDe(j));
                     m.put("url", j.getUrl());
                     m.put("postedAt", j.getPostedAt() != null ? j.getPostedAt().toString() : null);
+                    // Anotação pessoal que o próprio usuário escreveu no card da vaga
+                    // (campo "📝 Adicionar nota" no frontend) — é a fonte real de
+                    // pendência/próximo passo de cada candidatura, não invente.
+                    m.put("notes", j.getNotes());
                     return (Map<String, Object>) m;
                 })
                 .toList();

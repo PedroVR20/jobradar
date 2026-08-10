@@ -87,6 +87,7 @@ function ListarVagasCard({ data }: { data: JarvisListarVagasData }) {
                 <span className="jarvis-hit-company">{v.company}</span>
               </div>
             </div>
+            {v.notes && <p className="jarvis-hit-resumo">📝 {v.notes}</p>}
           </div>
         );
       })}

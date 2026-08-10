@@ -97,6 +97,7 @@ export interface JarvisVagaResumo {
   status: string;
   url: string;
   postedAt: string | null;
+  notes: string | null;
 }
 
 export interface JarvisListarVagasData {
