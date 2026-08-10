@@ -87,6 +87,14 @@ export interface MatchScoreResult {
   resumo: string;
 }
 
+// POST /api/jobs/{id}/learning-plan — botão "📚 Plano de ação" em cada
+// ponto a desenvolver da análise de compatibilidade
+export interface LearningPlan {
+  resumo: string;
+  tempoEstimado: string;
+  passos: string[];
+}
+
 // POST /api/jobs/assistant/chat — chat livre do 🤖 Jarvis (function-calling
 // de verdade: o Gemini decide sozinho quais ferramentas chamar a partir da
 // mensagem em linguagem natural, sem roteamento por palavra-chave).

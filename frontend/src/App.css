@@ -1750,6 +1750,55 @@ a:hover { text-decoration: underline; }
   padding: 6px 10px;
 }
 
+/* "Contramedida" — plano de ação sob demanda pra cada ponto a desenvolver */
+.match-gap-item { display: flex; flex-direction: column; gap: 0.4rem; }
+.match-plan-btn {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--yellow);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.match-plan-btn:hover:not(:disabled) { border-color: var(--yellow); background: #f59e0b1a; }
+.match-plan-btn:disabled { opacity: 0.6; cursor: default; }
+.match-gap-error { font-size: 0.75rem; }
+.match-plan {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  animation: card-menu-in 0.15s ease-out;
+}
+.match-plan-resumo { font-size: 0.8rem; color: var(--text); margin: 0; }
+.match-plan-tempo {
+  align-self: flex-start;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: var(--bg-card2);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.match-plan-steps { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
+/* .match-list li (nas linhas acima) empresta o visual "caixa" pro
+   ⚠️ Pontos a desenvolver — sem esses resets, os passos numerados aqui
+   dentro herdariam o mesmo fundo/borda, virando caixa dentro de caixa. */
+.match-plan-steps li {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+
 /* Interview questions modal */
 .interview-questions-modal { max-width: 560px; }
 .interview-questions-list {

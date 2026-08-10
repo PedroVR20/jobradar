@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Job, MatchScoreResult } from '../types/Job';
+import { Job, LearningPlan, MatchScoreResult } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { AiFeedbackBox } from './AiFeedbackBox';
@@ -16,9 +16,74 @@ function scoreColor(score: number): string {
   return 'var(--red)';
 }
 
+interface GapItemProps {
+  job: Job;
+  gap: string;
+  candidateProfile: string;
+  feedbackContext: string;
+}
+
+// Cada "ponto a desenvolver" vira uma contramedida sob demanda — só chama a
+// IA de novo se o usuário realmente clicar em "Plano de ação" nesse item
+// específico, não gera plano pra todas as lacunas de uma vez (gastaria cota
+// à toa em pontos que o usuário nem tá interessado em desenvolver agora).
+function GapItem({ job, gap, candidateProfile, feedbackContext }: GapItemProps) {
+  const [plan, setPlan] = useState<LearningPlan | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const handleGeneratePlan = async () => {
+    if (plan) { setOpen(o => !o); return; }
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/learning-plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gap, candidateProfile, feedbackContext: feedbackContext || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Não foi possível gerar o plano agora. Tente de novo.');
+        return;
+      }
+      setPlan(data as LearningPlan);
+      setOpen(true);
+    } catch {
+      setError('Erro de conexão com o backend.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <li className="match-gap-item">
+      <span className="match-gap-text">{gap}</span>
+      <button type="button" className="match-plan-btn" onClick={handleGeneratePlan} disabled={loading}>
+        {loading ? '⏳ Gerando plano...' : plan ? (open ? '📚 Ocultar plano' : '📚 Ver plano') : '📚 Plano de ação'}
+      </button>
+      {error && <p className="agenda-error match-gap-error">{error}</p>}
+      {plan && open && (
+        <div className="match-plan">
+          {plan.resumo && <p className="match-plan-resumo">{plan.resumo}</p>}
+          {plan.tempoEstimado && <span className="match-plan-tempo">⏱ {plan.tempoEstimado}</span>}
+          {plan.passos.length > 0 && (
+            <ol className="match-plan-steps">
+              {plan.passos.map((passo, i) => <li key={i}>{passo}</li>)}
+            </ol>
+          )}
+          <AiFeedbackBox featureKey="learning-plan" label="Esse plano ficou bom?" />
+        </div>
+      )}
+    </li>
+  );
+}
+
 export function MatchScoreModal({ job, onClose }: Props) {
   const { profile } = useCandidateProfile();
   const { buildContext } = useAiFeedback('match-score');
+  const { buildContext: buildPlanContext } = useAiFeedback('learning-plan');
   const [perfilTexto, setPerfilTexto] = useState(profile);
   const [result, setResult] = useState<MatchScoreResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -101,7 +166,9 @@ export function MatchScoreModal({ job, onClose }: Props) {
               <div className="match-section">
                 <h4 className="match-section-title match-section-title--gap">⚠️ Pontos a desenvolver</h4>
                 <ul className="match-list">
-                  {result.pontosFaltando.map((p, i) => <li key={i}>{p}</li>)}
+                  {result.pontosFaltando.map((p, i) => (
+                    <GapItem key={i} job={job} gap={p} candidateProfile={perfilTexto} feedbackContext={buildPlanContext()} />
+                  ))}
                 </ul>
               </div>
             )}

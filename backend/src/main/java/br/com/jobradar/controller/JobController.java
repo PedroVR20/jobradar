@@ -9,6 +9,7 @@ import br.com.jobradar.service.InterviewQuestionsService;
 import br.com.jobradar.service.JarvisAssistantService;
 import br.com.jobradar.service.JarvisChatService;
 import br.com.jobradar.service.JobAggregatorService;
+import br.com.jobradar.service.LearningPlanService;
 import br.com.jobradar.service.MatchScoreService;
 import br.com.jobradar.service.SalaryEstimateService;
 import br.com.jobradar.service.SalaryModelTrainerService;
@@ -60,6 +61,7 @@ public class JobController {
     private final JarvisAssistantService jarvisAssistantService;
     private final JarvisChatService jarvisChatService;
     private final MatchScoreService matchScoreService;
+    private final LearningPlanService learningPlanService;
     private final InterviewQuestionsService interviewQuestionsService;
 
     // Gate simples (não é segurança de verdade — app pessoal local) pra não
@@ -903,6 +905,41 @@ public class JobController {
             body.put("pontosFortes", r.pontosFortes());
             body.put("pontosFaltando", r.pontosFaltando());
             body.put("resumo", r.resumo());
+            return ResponseEntity.ok(body);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    public record LearningPlanRequest(String gap, String candidateProfile, String feedbackContext) {}
+
+    /**
+     * "Contramedida" pra um ponto a desenvolver específico apontado pela
+     * análise de compatibilidade (match-score) — plano de ação prático pra
+     * fechar aquela lacuna, considerando o perfil atual do candidato como
+     * ponto de partida. Mesma regra de privacidade das outras rotas de IA:
+     * perfil nunca é persistido no backend, só chega junto do request.
+     * POST /api/jobs/{id}/learning-plan  Body: { "gap": "...", "candidateProfile": "...", "feedbackContext": "..." }
+     */
+    @PostMapping("/{id}/learning-plan")
+    public ResponseEntity<Map<String, Object>> gerarPlanoDeAprendizado(
+            @PathVariable Long id, @RequestBody(required = false) LearningPlanRequest req) {
+        if (!geminiService.isEnabled()) {
+            return ResponseEntity.status(503)
+                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+        }
+        if (req == null || req.gap() == null || req.gap().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Informe qual ponto a desenvolver quer um plano."));
+        }
+        return jobRepository.findById(id).map(job -> {
+            LearningPlanService.PlanOutcome resultado = learningPlanService.gerar(job, req.gap(), req.candidateProfile(), req.feedbackContext());
+            if (!resultado.ok()) {
+                return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
+                        .body(Map.<String, Object>of("error", resultado.errorMessage()));
+            }
+            LearningPlanService.LearningPlan p = resultado.plan();
+            Map<String, Object> body = new HashMap<>();
+            body.put("resumo", p.resumo());
+            body.put("tempoEstimado", p.tempoEstimado());
+            body.put("passos", p.passos());
             return ResponseEntity.ok(body);
         }).orElse(ResponseEntity.notFound().build());
     }
