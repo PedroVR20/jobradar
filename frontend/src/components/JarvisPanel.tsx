@@ -177,6 +177,22 @@ function computeNextId(conversations: Conversation[]): number {
   return max + 1;
 }
 
+// Conversas salvas antes da troca de nome (primeiro "Jarvis", depois "Rovi",
+// agora "Hunter") têm mensagens do próprio assistente com o nome antigo
+// gravado no texto — a saudação, mensagens de erro, ou uma resposta onde ele
+// se apresentou. Só corrige mensagens DO assistente (nunca mexe no que o
+// usuário escreveu) trocando o nome como palavra inteira.
+function migrateAssistantText(text: string): string {
+  return text.replace(/\bRovi\b/g, 'Hunter').replace(/\bJarvis\b/g, 'Hunter');
+}
+
+function migrateConversations(conversations: Conversation[]): Conversation[] {
+  return conversations.map(c => ({
+    ...c,
+    messages: c.messages.map(m => m.role === 'assistant' ? { ...m, text: migrateAssistantText(m.text) } : m),
+  }));
+}
+
 function loadConversations(): Conversation[] {
   try {
     const raw = localStorage.getItem(CONVERSATIONS_KEY);
@@ -184,7 +200,7 @@ function loadConversations(): Conversation[] {
       const parsed = JSON.parse(raw) as Conversation[];
       if (Array.isArray(parsed) && parsed.length > 0) {
         nextId = computeNextId(parsed);
-        return parsed;
+        return migrateConversations(parsed);
       }
     }
   } catch { /* ignore, cai pro fallback abaixo */ }
@@ -197,7 +213,8 @@ function loadConversations(): Conversation[] {
       localStorage.removeItem(LEGACY_KEY);
       if (Array.isArray(legacyMessages) && legacyMessages.length > 0) {
         nextId = computeNextId([{ id: '', title: '', messages: legacyMessages, updatedAt: 0 }]);
-        return [{ id: generateId(), title: deriveTitle(legacyMessages), messages: legacyMessages, updatedAt: Date.now() }];
+        const migratedMessages = legacyMessages.map(m => m.role === 'assistant' ? { ...m, text: migrateAssistantText(m.text) } : m);
+        return [{ id: generateId(), title: deriveTitle(migratedMessages), messages: migratedMessages, updatedAt: Date.now() }];
       }
     }
   } catch { /* ignore */ }
@@ -579,7 +596,7 @@ export function JarvisPanel({ onClose }: Props) {
               if (m.role === 'assistant-loading') {
                 return (
                   <div key={m.id} className="jarvis-msg-row">
-                    <span className="jarvis-avatar"><HunterIcon size={15} alive /></span>
+                    <span className="jarvis-avatar"><HunterIcon size={22} alive /></span>
                     <div className="jarvis-bubble jarvis-bubble--assistant jarvis-bubble--loading">
                       <span className="jarvis-typing"><span></span><span></span><span></span></span>
                     </div>
@@ -588,7 +605,7 @@ export function JarvisPanel({ onClose }: Props) {
               }
               return (
                 <div key={m.id} className="jarvis-msg-row">
-                  <span className="jarvis-avatar"><HunterIcon size={15} alive /></span>
+                  <span className="jarvis-avatar"><HunterIcon size={22} alive /></span>
                   <div className="jarvis-bubble jarvis-bubble--assistant">
                     {m.toolResults && m.toolResults.length > 0 && (
                       <div className="jarvis-tool-results">

@@ -1883,17 +1883,24 @@ a:hover { text-decoration: underline; }
   max-width: 100%;
   animation: jarvis-msg-in 0.25s ease-out;
 }
+/* Avatar do chat — só o ícone, sem bolinha de fundo (achou que a engrenagem
+   minúscula + o círculo atrás ficavam poluídos nesse tamanho pequeno). Flutua
+   sozinho pra cima e pra baixo, contínuo — só aqui, não no botão do header
+   (esse já ficou bom do jeito que tava). */
 .jarvis-avatar {
   flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  background: var(--bg-card2);
-  border: 1px solid var(--border);
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0.85rem;
+  animation: jarvis-avatar-float 3.2s infinite ease-in-out;
+}
+.jarvis-avatar .hunter-gear { display: none; }
+@keyframes jarvis-avatar-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
 }
 @keyframes jarvis-msg-in {
   from { opacity: 0; transform: translateY(6px); }
