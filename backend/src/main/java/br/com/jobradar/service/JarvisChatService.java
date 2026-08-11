@@ -54,6 +54,11 @@ public class JarvisChatService {
     private static final int MAX_SALARIO_VAGAS = 25;
     private static final int DEFAULT_SALARIO_VAGAS = 15;
 
+    // Mercado de vagas/salário muda com o tempo — um modelo treinado há mais
+    // de 90 dias provavelmente já não reflete a faixa atual tão bem quanto
+    // logo depois do treino, mesmo sem nada estar "quebrado" tecnicamente.
+    private static final long MODELO_SALARIO_DIAS_DESATUALIZADO = 90;
+
     // Limite de rounds de function-calling por mensagem — evita loop
     // infinito ou uma mensagem só disparando dezenas de chamadas de ferramenta.
     private static final int MAX_TOOL_ROUNDS = 4;
@@ -107,6 +112,12 @@ public class JarvisChatService {
             modelo de regressão próprio do Job Radar, não gasta cota de IA — pode
             chamar sem economia especial, dentro do limite da ferramenta. Não use
             listarVagas pra esse tipo de pedido (não traz estimativa nenhuma).
+            O resultado vem com margemErroPercent (erro médio real do modelo,
+            normalmente ~40%) — a interface já mostra essa margem em cada card,
+            mas SEMPRE mencione em texto que é uma estimativa aproximada, nunca
+            trate o número como exato. Se vier modeloDesatualizado=true, avise
+            que o modelo não é retreinado há mais de modeloDiasDesdeTreino dias
+            e pode estar defasado em relação ao mercado atual.
 
             Sobre dashboards: quando uma ferramenta te devolve vários números
             comparáveis sobre um grupo de vagas (score de compatibilidade,
@@ -936,6 +947,26 @@ public class JarvisChatService {
         m.put("modeloDisponivel", salaryPredictionService.isLoaded());
         m.put("totalEncontradas", filtradas.size());
         m.put("vagas", vagas);
+
+        // Honestidade sobre a incerteza: erro médio real do modelo (ver
+        // comentário na classe do serviço — ~43%, bem longe de exato) e
+        // avisa se o modelo tá velho (nunca foi retreinado desde que os
+        // dados do feed provavelmente mudaram de mercado/faixa salarial).
+        SalaryPredictionService.ModelInfo info = salaryPredictionService.getModelInfo();
+        if (info != null) {
+            m.put("margemErroPercent", Math.round(info.maePercent()));
+            m.put("modeloTreinadoEm", info.trainedAt());
+            if (info.trainedAt() != null) {
+                try {
+                    long dias = java.time.temporal.ChronoUnit.DAYS.between(
+                            java.time.LocalDate.parse(info.trainedAt()), java.time.LocalDate.now());
+                    m.put("modeloDesatualizado", dias > MODELO_SALARIO_DIAS_DESATUALIZADO);
+                    m.put("modeloDiasDesdeTreino", dias);
+                } catch (Exception ignored) {
+                    // trainedAt em formato inesperado — não trava a resposta por isso
+                }
+            }
+        }
         return m;
     }
 

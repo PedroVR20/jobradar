@@ -158,6 +158,11 @@ export interface JarvisSalarioData {
   modeloDisponivel: boolean;
   totalEncontradas: number;
   vagas: JarvisSalarioVaga[];
+  // Honestidade sobre a incerteza do modelo — ver SalaryPredictionService.
+  margemErroPercent?: number;
+  modeloTreinadoEm?: string | null;
+  modeloDesatualizado?: boolean;
+  modeloDiasDesdeTreino?: number;
 }
 
 // POST /api/jobs/assistant/chat — resultado da ferramenta detalharVagas

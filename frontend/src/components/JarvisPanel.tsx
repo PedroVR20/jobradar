@@ -731,8 +731,15 @@ function SalarioCard({ data }: { data: JarvisSalarioData }) {
     <>
       <p className="jarvis-scan-intro">
         Estimei o salário de {data.vagas.length} vaga{data.vagas.length === 1 ? '' : 's'}
-        {data.totalEncontradas > data.vagas.length ? ` (de ${data.totalEncontradas} encontradas)` : ''}:
+        {data.totalEncontradas > data.vagas.length ? ` (de ${data.totalEncontradas} encontradas)` : ''}
+        {data.margemErroPercent != null ? ` — estimativa aproximada, margem de erro média de ±${data.margemErroPercent}%` : ''}:
       </p>
+      {data.modeloDesatualizado && (
+        <p className="jarvis-scan-warning">
+          <WarningIcon /> Modelo não é retreinado há {data.modeloDiasDesdeTreino} dias — pode estar defasado em
+          relação ao mercado atual.
+        </p>
+      )}
       <SalarioDashboard vagas={data.vagas} />
       <div className="jarvis-hits">
         {data.vagas.map(v => (
@@ -746,6 +753,12 @@ function SalarioCard({ data }: { data: JarvisSalarioData }) {
                 <span className="jarvis-hit-company">{v.empresa}</span>
               </div>
             </div>
+            {v.estimativa != null && data.margemErroPercent != null && (
+              <p className="jarvis-hit-resumo" style={{ color: 'var(--text-muted)' }}>
+                Provável faixa: {formatBRL(Math.round(v.estimativa * (1 - data.margemErroPercent / 100)))} –{' '}
+                {formatBRL(Math.round(v.estimativa * (1 + data.margemErroPercent / 100)))}
+              </p>
+            )}
             {v.salarioInformado && <p className="jarvis-hit-resumo">Salário informado na vaga: {v.salarioInformado}</p>}
           </div>
         ))}
