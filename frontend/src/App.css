@@ -2387,6 +2387,19 @@ a:hover { text-decoration: underline; }
 .jarvis-suggestion-card:disabled { opacity: 0.5; cursor: default; }
 .jarvis-suggestion-icon { flex-shrink: 0; display: flex; align-items: center; }
 
+.jarvis-followups { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+.jarvis-followup-chip {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.jarvis-followup-chip:hover { border-color: var(--accent); color: var(--text); }
+
 .jarvis-input-row {
   display: flex;
   align-items: flex-end; /* textarea cresce pra cima — botões ficam ancorados embaixo */

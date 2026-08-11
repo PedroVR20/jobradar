@@ -1407,6 +1407,45 @@ const TOOL_PHRASES: Record<string, string> = {
   perguntarUsuario: 'Preparando uma pergunta...',
 };
 
+// Sugestões de próximo passo depois de uma resposta — derivadas da
+// ferramenta que acabou de rodar, sem gastar IA nenhuma (é só uma tabela
+// fixa). Só aparece na ÚLTIMA mensagem da conversa (ver isLastMsg no
+// render) — sugestão numa resposta antiga já não faz sentido depois que a
+// conversa seguiu adiante.
+const FOLLOWUP_SUGGESTIONS: Record<string, string[]> = {
+  resumoFunil: ['Quais vagas estão paradas?', 'Compara meu perfil com o mercado'],
+  listarVagas: ['Estima o salário dessas vagas', 'Alguma parece com essa?'],
+  vagasParadas: ['Quais estão mais próximas do prazo?', 'O que eu faço agora?'],
+  vagasComPrazoProximo: ['Quais dessas estão paradas?', 'Detalha a primeira'],
+  compatibilidadeComVagasRecentes: ['Gera uma carta pra melhor vaga', 'Quais pontos preciso desenvolver?'],
+  compatibilidadeComVagasDoFunil: ['Gera uma carta pra melhor vaga', 'Cria um lembrete pra dar follow-up'],
+  estimativaSalarialDeVagas: ['Essas vagas batem com meu perfil?', 'Quais estão paradas?'],
+  metricasDeDesempenho: ['Quais vagas estão paradas?', 'Cruza com desempenho por fonte'],
+  detectarDuplicatas: ['Resumo do funil', 'Quais vagas fecham logo?'],
+  desempenhoPorFonte: ['Resumo do funil', 'O que eu faço agora?'],
+  historicoDaEmpresa: ['Detalha a mais recente', 'Já apliquei de novo lá?'],
+  oQueFazerAgora: ['Compara meu perfil com o mercado', 'Cria um lembrete pra hoje'],
+  compararStackComMercado: ['Busca vaga com essa tecnologia', 'O que eu faço agora?'],
+  buscarVagasPorSignificado: ['Detalha a primeira', 'Essas batem com meu perfil?'],
+  vagasParecidas: ['Compara essas duas', 'Estima o salário delas'],
+  detalharVagas: ['Gera uma carta pra essa vaga', 'Tem vaga parecida?'],
+};
+
+function FollowUpSuggestions({ toolResults, onPick }: { toolResults?: JarvisToolResult[]; onPick: (text: string) => void }) {
+  if (!toolResults || toolResults.length === 0) return null;
+  const sugestoes = toolResults.map(tr => FOLLOWUP_SUGGESTIONS[tr.tool]).find(s => s);
+  if (!sugestoes) return null;
+  return (
+    <div className="jarvis-followups">
+      {sugestoes.map(texto => (
+        <button key={texto} type="button" className="jarvis-followup-chip" onClick={() => onPick(texto)}>
+          {texto}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // Frases que revezam enquanto espera a resposta — mesma ideia do texto de
 // status que o Claude Code mostra enquanto trabalha. É o FALLBACK: usado
 // antes do primeiro evento SSE chegar, ou se o navegador cair pro caminho
@@ -2524,6 +2563,9 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                       <>
                         {renderMarkdownLite(m.text)}
                         {!m.isGreeting && <ChatMessageActions text={m.text} featureKey="jarvis-chat" />}
+                        {isLastMsg && !busy && (
+                          <FollowUpSuggestions toolResults={m.toolResults} onPick={handleSend} />
+                        )}
                       </>
                     )}
                   </div>
