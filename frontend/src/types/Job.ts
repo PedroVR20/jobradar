@@ -225,6 +225,86 @@ export interface JarvisAtualizarNotaData {
   erro?: string;
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta gerarCartaDeApresentacao
+export interface JarvisCartaData {
+  vagaId?: number;
+  titulo?: string;
+  empresa?: string;
+  carta?: string;
+  erro?: string;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta metricasDeDesempenho
+export interface JarvisMetricasData {
+  totalAplicadas: number;
+  emAndamento: number;
+  recusadas: number;
+  aguardandoRetorno: number;
+  taxaRespostaPercent: number | null;
+  tempoMedioAteAndamentoDias: number | null;
+  tempoMedioAteRecusaDias: number | null;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta vagasComPrazoProximo
+export interface JarvisVagaComPrazo {
+  id: number;
+  titulo: string;
+  empresa: string;
+  url: string;
+  status: string;
+  fechaEm: string;
+  diasRestantes: number;
+}
+
+export interface JarvisPrazoData {
+  diasMaximo: number;
+  vagas: JarvisVagaComPrazo[];
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta detectarDuplicatas
+export interface JarvisDuplicataRef {
+  id: number;
+  titulo: string;
+  fonte: string;
+  url: string;
+}
+
+export interface JarvisDuplicataGrupo {
+  empresa: string;
+  vagas: JarvisDuplicataRef[];
+}
+
+export interface JarvisDuplicatasData {
+  grupos: JarvisDuplicataGrupo[];
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta desempenhoPorFonte
+export interface JarvisFonteDesempenho {
+  fonte: string;
+  totalVagas: number;
+  aplicadas: number;
+  emAndamento: number;
+}
+
+export interface JarvisFontesData {
+  fontes: JarvisFonteDesempenho[];
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta historicoDaEmpresa
+export interface JarvisVagaHistorico {
+  id: number;
+  titulo: string;
+  empresa: string;
+  status: string;
+  url: string;
+  postedAt: string | null;
+}
+
+export interface JarvisHistoricoEmpresaData {
+  totalEncontradas: number;
+  vagas: JarvisVagaHistorico[];
+}
+
 // POST /api/jobs/assistant/chat — resultado da ferramenta vagasParadas
 export interface JarvisVagaParada {
   id: number;

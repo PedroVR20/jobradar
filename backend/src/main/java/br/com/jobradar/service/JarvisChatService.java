@@ -845,6 +845,208 @@ public class JarvisChatService {
         return m;
     }
 
+    // Usa IA de verdade (1 chamada) — mesmo serviço do botão "Carta" de cada
+    // card. candidateProfile/feedbackContext já chegam prontos (mesmo
+    // caminho que compatibilidade/carta usam nos outros lugares do app).
+    private Object executarGerarCarta(Map<String, Object> args, String candidateProfile, String feedbackContext) {
+        Long vagaId = args.get("vagaId") instanceof Number n ? n.longValue() : null;
+        String contextoExtra = args.get("contextoExtra") instanceof String s ? s : null;
+        if (vagaId == null) {
+            return Map.of("erro", "Preciso do id da vaga — chame listarVagas primeiro se só tiver título/empresa.");
+        }
+        Optional<Job> jobOpt = jobRepository.findById(vagaId);
+        if (jobOpt.isEmpty()) {
+            return Map.of("erro", "Não achei a vaga de id " + vagaId + " — pode ter sido apagada.");
+        }
+        Job job = jobOpt.get();
+        String extra = contextoExtra != null && candidateProfile != null
+                ? candidateProfile + "\n\n" + contextoExtra
+                : (contextoExtra != null ? contextoExtra : candidateProfile);
+        GeminiService.GeminiResult resultado = coverLetterService.gerar(job, extra, feedbackContext);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("vagaId", vagaId);
+        m.put("titulo", job.getTitle());
+        m.put("empresa", job.getCompany());
+        if (!resultado.ok()) {
+            m.put("erro", resultado.errorMessage());
+        } else {
+            m.put("carta", resultado.text());
+        }
+        return m;
+    }
+
+    // Não usa IA — mesma conta que /api/jobs/metrics já faz pro dashboard de
+    // métricas, só reimplementada aqui porque esse cálculo vive dentro do
+    // controller (não dá pra injetar controller num service). Fica curto o
+    // bastante pra não valer a pena um refactor de extrair um serviço à
+    // parte só por causa disso.
+    private Object executarMetricasDeDesempenho() {
+        List<Job> aplicadas = jobRepository.findByAppliedTrue();
+        long total = aplicadas.size();
+        long emAndamento = aplicadas.stream().filter(Job::isInProgress).count();
+        long recusadas = aplicadas.stream().filter(Job::isRejected).count();
+        long aguardandoRetorno = Math.max(0, total - emAndamento - recusadas);
+        Double taxaResposta = total == 0 ? null : Math.round((emAndamento + recusadas) * 1000.0 / total) / 10.0;
+
+        OptionalDouble avgAndamento = aplicadas.stream()
+                .filter(j -> j.getAppliedAt() != null && j.getInProgressAt() != null)
+                .mapToLong(j -> java.time.Duration.between(j.getAppliedAt(), j.getInProgressAt()).toDays())
+                .average();
+        OptionalDouble avgRecusa = aplicadas.stream()
+                .filter(j -> j.getAppliedAt() != null && j.getRejectedAt() != null)
+                .mapToLong(j -> java.time.Duration.between(j.getAppliedAt(), j.getRejectedAt()).toDays())
+                .average();
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("totalAplicadas", total);
+        m.put("emAndamento", emAndamento);
+        m.put("recusadas", recusadas);
+        m.put("aguardandoRetorno", aguardandoRetorno);
+        m.put("taxaRespostaPercent", taxaResposta);
+        m.put("tempoMedioAteAndamentoDias", avgAndamento.isPresent() ? Math.round(avgAndamento.getAsDouble() * 10) / 10.0 : null);
+        m.put("tempoMedioAteRecusaDias", avgRecusa.isPresent() ? Math.round(avgRecusa.getAsDouble() * 10) / 10.0 : null);
+        return m;
+    }
+
+    // Não usa IA — expiresAt é LocalDate (data, sem hora), já existe no
+    // model e aparece nos cards ("Fecha em Xd"), só nunca tinha ferramenta
+    // pro Hunter enxergar.
+    private Object executarVagasComPrazoProximo(Map<String, Object> args) {
+        int diasMaximo = args.get("diasMaximo") instanceof Number n ? Math.max(1, n.intValue()) : 7;
+        java.time.LocalDate limite = java.time.LocalDate.now().plusDays(diasMaximo);
+
+        List<Job> comPrazo = jobRepository.findAll().stream()
+                .filter(j -> !j.isRejected())
+                .filter(j -> j.getExpiresAt() != null && !j.getExpiresAt().isAfter(limite) && !j.getExpiresAt().isBefore(java.time.LocalDate.now()))
+                .sorted(Comparator.comparing(Job::getExpiresAt))
+                .toList();
+
+        List<Map<String, Object>> vagas = comPrazo.stream().map(j -> {
+            Map<String, Object> v = new LinkedHashMap<>();
+            v.put("id", j.getId());
+            v.put("titulo", j.getTitle());
+            v.put("empresa", j.getCompany());
+            v.put("url", j.getUrl());
+            v.put("status", statusDe(j));
+            v.put("fechaEm", j.getExpiresAt().toString());
+            v.put("diasRestantes", java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(), j.getExpiresAt()));
+            return (Map<String, Object>) v;
+        }).toList();
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("diasMaximo", diasMaximo);
+        m.put("vagas", vagas);
+        return m;
+    }
+
+    // Não usa IA generativa de propósito (diferente do endpoint /duplicates
+    // da UI, que faz uma segunda checagem via Gemini) — versão enxuta só de
+    // similaridade de texto pra não gastar cota numa ferramenta de chat que
+    // o modelo pode decidir chamar sem querer. Falso positivo ocasional é
+    // aceitável aqui — o resultado já avisa que é só indício.
+    private Object executarDetectarDuplicatas() {
+        List<Job> ativas = jobRepository.findAll().stream().filter(j -> !j.isRejected()).toList();
+        Map<String, List<Job>> porEmpresa = new LinkedHashMap<>();
+        for (Job j : ativas) {
+            String chave = j.getCompany() == null ? "" : j.getCompany().trim().toLowerCase();
+            if (chave.isBlank()) continue;
+            porEmpresa.computeIfAbsent(chave, k -> new ArrayList<>()).add(j);
+        }
+
+        List<Map<String, Object>> grupos = new ArrayList<>();
+        for (List<Job> candidatas : porEmpresa.values()) {
+            if (candidatas.size() < 2) continue;
+            for (int i = 0; i < candidatas.size(); i++) {
+                for (int k = i + 1; k < candidatas.size(); k++) {
+                    Job a = candidatas.get(i);
+                    Job b = candidatas.get(k);
+                    if (!Objects.equals(a.getSeniority(), b.getSeniority())) continue;
+                    double sim = jaccardSimples(a.getTitle(), b.getTitle());
+                    if (sim < 0.6) continue;
+                    Map<String, Object> grupo = new LinkedHashMap<>();
+                    grupo.put("empresa", a.getCompany());
+                    grupo.put("vagas", List.of(
+                            Map.of("id", a.getId(), "titulo", a.getTitle(), "fonte", a.getSource(), "url", a.getUrl()),
+                            Map.of("id", b.getId(), "titulo", b.getTitle(), "fonte", b.getSource(), "url", b.getUrl())
+                    ));
+                    grupos.add(grupo);
+                }
+            }
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("grupos", grupos);
+        return m;
+    }
+
+    private double jaccardSimples(String tituloA, String tituloB) {
+        Set<String> a = new HashSet<>(Arrays.asList((tituloA == null ? "" : tituloA.toLowerCase()).split("\\s+")));
+        Set<String> b = new HashSet<>(Arrays.asList((tituloB == null ? "" : tituloB.toLowerCase()).split("\\s+")));
+        if (a.isEmpty() || b.isEmpty()) return 0;
+        Set<String> inter = new HashSet<>(a);
+        inter.retainAll(b);
+        Set<String> uniao = new HashSet<>(a);
+        uniao.addAll(b);
+        return (double) inter.size() / uniao.size();
+    }
+
+    // Não usa IA — cruza fonte × status pra ver de onde vêm as vagas que
+    // realmente avançam (aplicadas e, dentro dessas, quantas viraram
+    // andamento) — não é só "quantas vagas cada fonte tem".
+    private Object executarDesempenhoPorFonte() {
+        List<Job> todas = jobRepository.findAll();
+        Map<String, long[]> porFonte = new LinkedHashMap<>(); // [total, aplicadas, emAndamento]
+        for (Job j : todas) {
+            String fonte = j.getSource() == null ? "DESCONHECIDA" : j.getSource();
+            long[] cont = porFonte.computeIfAbsent(fonte, k -> new long[3]);
+            cont[0]++;
+            if (j.isApplied()) {
+                cont[1]++;
+                if (j.isInProgress()) cont[2]++;
+            }
+        }
+        List<Map<String, Object>> fontes = porFonte.entrySet().stream()
+                .map(e -> {
+                    Map<String, Object> f = new LinkedHashMap<>();
+                    f.put("fonte", e.getKey());
+                    f.put("totalVagas", e.getValue()[0]);
+                    f.put("aplicadas", e.getValue()[1]);
+                    f.put("emAndamento", e.getValue()[2]);
+                    return (Map<String, Object>) f;
+                })
+                .sorted((a, b) -> Long.compare((long) b.get("emAndamento"), (long) a.get("emAndamento")))
+                .toList();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("fontes", fontes);
+        return m;
+    }
+
+    // Não usa IA — busca livre por nome de empresa (contains, case-insensitive),
+    // qualquer status inclusive recusada, pra dar contexto de histórico.
+    private Object executarHistoricoDaEmpresa(Map<String, Object> args) {
+        String empresa = args.get("empresa") instanceof String s && !s.isBlank() ? s.toLowerCase() : null;
+        if (empresa == null) {
+            return Map.of("erro", "Preciso do nome da empresa.");
+        }
+        List<Job> encontradas = jobRepository.findAll().stream()
+                .filter(j -> j.getCompany() != null && j.getCompany().toLowerCase().contains(empresa))
+                .sorted(Comparator.comparing(Job::getPostedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+        List<Map<String, Object>> vagas = encontradas.stream().map(j -> {
+            Map<String, Object> v = new LinkedHashMap<>();
+            v.put("id", j.getId());
+            v.put("titulo", j.getTitle());
+            v.put("empresa", j.getCompany());
+            v.put("status", statusDe(j));
+            v.put("url", j.getUrl());
+            v.put("postedAt", j.getPostedAt() != null ? j.getPostedAt().toString() : null);
+            return (Map<String, Object>) v;
+        }).toList();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("totalEncontradas", vagas.size());
+        m.put("vagas", vagas);
+        return m;
+    }
+
     // Não usa IA — só devolve tudo que já está salvo sobre cada vaga (mais a
     // estimativa salarial gratuita, mesmo modelo do botão 💰). Cobre tanto
     // "detalha essa vaga" (1 id) quanto "compara essas vagas" (2+ ids) — o
