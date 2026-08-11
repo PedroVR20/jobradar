@@ -1655,6 +1655,8 @@ a:hover { text-decoration: underline; }
 }
 .profile-file-meta { font-size: 0.72rem; color: var(--text-muted); }
 .profile-file-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+.settings-export-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.settings-export-actions a.btn { text-decoration: none; }
 .profile-file-btn { font-size: 0.75rem; padding: 5px 9px; }
 
 .profile-manual-toggle {

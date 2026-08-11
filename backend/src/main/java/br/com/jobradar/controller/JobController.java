@@ -625,6 +625,58 @@ public class JobController {
     }
 
     /**
+     * Backup/export de todas as vagas — GET /api/jobs/export?format=json|csv
+     * (padrão json). Sem filtro nenhum: é o banco inteiro, pensado pra
+     * "salva tudo antes de mexer" ou levar os dados pra outra ferramenta,
+     * não pra visualização filtrada (isso já é o GET / normal).
+     */
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(@RequestParam(required = false, defaultValue = "json") String format) {
+        List<Map<String, Object>> vagas = jobRepository.findAll().stream()
+                .sorted(Comparator.comparing(Job::getId))
+                .map(this::toDto)
+                .toList();
+        String stamp = LocalDate.now().toString();
+
+        if ("csv".equalsIgnoreCase(format)) {
+            String[] colunas = {
+                    "id", "title", "company", "url", "source", "seniority", "salary", "workplaceType",
+                    "state", "city", "postedAt", "seen", "interested", "applied", "inProgress", "rejected",
+                    "pinned", "notes", "tags"
+            };
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.join(",", colunas)).append('\n');
+            for (Map<String, Object> v : vagas) {
+                for (int i = 0; i < colunas.length; i++) {
+                    if (i > 0) sb.append(',');
+                    Object val = v.get(colunas[i]);
+                    String texto = val instanceof List<?> lista ? String.join(";", lista.stream().map(String::valueOf).toList())
+                            : (val != null ? String.valueOf(val) : "");
+                    sb.append('"').append(texto.replace("\"", "\"\"")).append('"');
+                }
+                sb.append('\n');
+            }
+            byte[] bytes = sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            return ResponseEntity.ok()
+                    .header("Content-Type", "text/csv; charset=UTF-8")
+                    .header("Content-Disposition", "attachment; filename=\"job-radar-export-" + stamp + ".csv\"")
+                    .body(bytes);
+        }
+
+        try {
+            byte[] bytes = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsBytes(vagas);
+            return ResponseEntity.ok()
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Content-Disposition", "attachment; filename=\"job-radar-export-" + stamp + ".json\"")
+                    .body(bytes);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
      * Status da integração com IA (Gemini) — o frontend usa isso pra mostrar
      * se os recursos de IA (carta de apresentação, duplicatas, classificação)
      * estão ativos, sem nunca expor a key.
