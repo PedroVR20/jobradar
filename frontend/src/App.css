@@ -2231,6 +2231,7 @@ a:hover { text-decoration: underline; }
   transition: color 0.15s, background 0.15s;
 }
 .jarvis-msg-action-btn:hover { color: var(--text); background: var(--bg-card2); }
+.jarvis-msg-action-btn--active { color: var(--accent); }
 
 .jarvis-compact-feedback { display: flex; align-items: center; gap: 0.3rem; }
 .jarvis-compact-feedback-btn {

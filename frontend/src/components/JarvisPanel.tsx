@@ -41,7 +41,8 @@ import { HunterIcon } from './HunterIcon';
 import {
   BookIcon, ChartIcon, ChatBubbleIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon,
   CycleIcon, DownloadIcon, HistoryIcon, MicIcon, NoteIcon, PencilIcon, PlusIcon, SearchIcon,
-  SuccessIcon, TargetIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, TimerIcon, TrashIcon, WarningIcon,
+  SpeakerIcon, SpeakerMuteIcon, SuccessIcon, TargetIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon,
+  TimerIcon, TrashIcon, WarningIcon,
 } from './HunterMiniIcons';
 
 // Preferência de "modo compacto" (esconde os cards visuais, só texto) —
@@ -1609,8 +1610,11 @@ function PendingQuestionCard({ question, locked, answeredWith, onAnswer }: {
 
 // Barra de ações embaixo de cada resposta do Hunter — copiar mensagem +
 // feedback compacto, igual ao rodapé de mensagem do próprio Claude Code.
+const ttsSupported = typeof window !== 'undefined' && !!window.speechSynthesis;
+
 function ChatMessageActions({ text, featureKey }: { text: string; featureKey: string }) {
   const [copied, setCopied] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(text).then(() => {
@@ -1619,11 +1623,48 @@ function ChatMessageActions({ text, featureKey }: { text: string; featureKey: st
     });
   };
 
+  // Fecha o ciclo de voz que já tinha só entrada (ditado, ver MicIcon no
+  // input) — speechSynthesis é nativo do navegador, custo zero, sem passar
+  // pela cota do Gemini nenhuma. Remove markdown "lite" antes de ler (senão
+  // o TTS lê "asterisco asterisco negrito asterisco asterisco" literalmente).
+  const handleSpeak = () => {
+    if (!ttsSupported) return;
+    if (speaking) {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+      return;
+    }
+    window.speechSynthesis.cancel(); // só uma leitura de cada vez
+    const textoLimpo = text.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\[(.+?)\]\(.+?\)/g, '$1');
+    const utterance = new SpeechSynthesisUtterance(textoLimpo);
+    utterance.lang = 'pt-BR';
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => () => {
+    if (speaking) window.speechSynthesis.cancel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="jarvis-msg-actions">
       <button type="button" className="jarvis-msg-action-btn" onClick={handleCopy} title="Copiar mensagem" aria-label="Copiar mensagem">
         {copied ? <CheckIcon /> : <CopyIcon />}
       </button>
+      {ttsSupported && (
+        <button
+          type="button"
+          className={`jarvis-msg-action-btn ${speaking ? 'jarvis-msg-action-btn--active' : ''}`}
+          onClick={handleSpeak}
+          title={speaking ? 'Parar leitura' : 'Ouvir resposta'}
+          aria-label={speaking ? 'Parar leitura' : 'Ouvir resposta'}
+        >
+          {speaking ? <SpeakerMuteIcon /> : <SpeakerIcon />}
+        </button>
+      )}
       <CompactFeedback featureKey={featureKey} />
     </div>
   );
