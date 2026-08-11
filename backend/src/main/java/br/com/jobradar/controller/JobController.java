@@ -1288,6 +1288,11 @@ public class JobController {
                             public boolean isCancelled() {
                                 return cancelado.get();
                             }
+
+                            @Override
+                            public void onAnswerChunk(String chunk) {
+                                sendSseEvent(emitter, "answer_chunk", Map.of("text", chunk));
+                            }
                         });
 
                 if (cancelado.get()) {

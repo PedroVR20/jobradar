@@ -306,6 +306,14 @@ public class JarvisChatService {
         default boolean isCancelled() {
             return false;
         }
+
+        // Pedaço de TEXTO da resposta final assim que chega do Gemini (ver
+        // GeminiService.chatStream) — só dispara na rodada que termina em
+        // texto (não em rodada de function-calling, que não tem texto
+        // incremental de verdade pra narrar). Default no-op preserva o
+        // comportamento de sempre pra quem não passa listener nenhum.
+        default void onAnswerChunk(String chunk) {
+        }
     }
 
     private static final ChatProgressListener NOOP_LISTENER = toolName -> { };
@@ -406,7 +414,9 @@ public class JarvisChatService {
             if (listener.isCancelled()) {
                 return new ChatOutcome(null, null, toolResults, "Interrompido pelo usuário.", false);
             }
-            GeminiService.ChatResult resultado = geminiService.chat(systemInstructionFinal, contents, tools, true);
+            ChatProgressListener listenerFinal = listener;
+            GeminiService.ChatResult resultado = geminiService.chatStream(
+                    systemInstructionFinal, contents, tools, true, listenerFinal::onAnswerChunk);
             if (!resultado.ok()) {
                 return new ChatOutcome(null, null, toolResults, resultado.errorMessage(), resultado.rateLimited());
             }

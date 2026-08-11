@@ -2065,16 +2065,35 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       }
 
       // Consome o stream — "tool_call" narra em tempo real (ver TOOL_PHRASES/
-      // setLoadingPhase); "final" traz o mesmo payload que a resposta síncrona
-      // de antes trazia inteiro de uma vez. Se a conexão cair no meio sem
-      // nenhum evento "final" chegar, finalData fica null e cai no aviso de
-      // erro abaixo, em vez de travar esperando pra sempre.
+      // setLoadingPhase); "answer_chunk" vai construindo a resposta AO VIVO,
+      // pedaço por pedaço, conforme o Gemini gera de verdade (ver
+      // GeminiService.chatStream) — a bolha de loading vira uma mensagem de
+      // verdade assim que o primeiro pedaço chega; "final" traz metadata
+      // (toolResults/thinking/pendingQuestion) pra completar essa mesma
+      // mensagem, sem duplicar o texto que já foi streamado. Se a conexão
+      // cair no meio sem nenhum "final" chegar, finalData fica null e cai no
+      // aviso de erro abaixo, em vez de travar esperando pra sempre.
       let finalData: JarvisChatResponse | null = null;
       let streamErrorMsg: string | null = null;
+      let streamedMessageId: number | null = null;
+      let streamedText = '';
       await consumeSseStream(res, (eventName, raw) => {
         if (eventName === 'tool_call') {
           const tool = (raw as { tool?: string }).tool;
           if (tool) setLoadingPhase(TOOL_PHRASES[tool] ?? `Usando ${tool}...`);
+        } else if (eventName === 'answer_chunk') {
+          const chunk = (raw as { text?: string }).text ?? '';
+          streamedText += chunk;
+          if (streamedMessageId === null) {
+            removeLoading();
+            const id = nextId++;
+            streamedMessageId = id;
+            patchActive(msgs => [...msgs, { id, role: 'assistant', text: streamedText } as Message]);
+          } else {
+            const id = streamedMessageId;
+            const textoAtual = streamedText;
+            patchActive(msgs => msgs.map(m => (m.id === id ? { ...m, text: textoAtual } : m)));
+          }
         } else if (eventName === 'final') {
           finalData = raw as JarvisChatResponse;
         } else if (eventName === 'error') {
@@ -2082,34 +2101,47 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
         }
       });
 
-      removeLoading();
-
       if (streamErrorMsg) {
+        removeLoading();
         addMessage({ role: 'assistant', text: streamErrorMsg } as Omit<Message, 'id'>);
         return;
       }
       if (!finalData) {
+        removeLoading();
         addMessage({ role: 'assistant', text: 'A conexão caiu no meio da resposta — tenta de novo?' } as Omit<Message, 'id'>);
         return;
       }
 
       const data = finalData as JarvisChatResponse;
-      addMessage({
-        role: 'assistant',
-        // BUG corrigido: quando tinha pendingQuestion, text ficava vazio —
-        // a pergunta só existia visualmente (via PendingQuestionCard), nunca
-        // ia pro histórico de texto puro que volta pro backend na PRÓXIMA
-        // chamada (ver handleSend/historicoAnterior). Resultado: o Hunter
-        // "esquecia" que tinha perguntado algo, porque a mensagem dele no
-        // histórico aparecia como se não tivesse dito nada — daí ele
-        // perguntava de novo e de novo, achando que ainda não tinha
-        // perguntado. Agora o texto da pergunta vai pro histórico também,
-        // só a INTERFACE prioriza mostrar o card em vez do texto solto.
-        text: data.pendingQuestion ? data.pendingQuestion.pergunta : (data.reply ?? 'Não consegui gerar uma resposta dessa vez — tenta reformular?'),
-        toolResults: data.toolResults,
-        thinking: data.thinking,
-        pendingQuestion: data.pendingQuestion,
-      } as Omit<Message, 'id'>);
+      if (streamedMessageId !== null) {
+        // Texto já foi construído ao vivo pelos "answer_chunk" — só completa
+        // essa MESMA mensagem com a metadata, sem duplicar o texto.
+        const id = streamedMessageId;
+        patchActive(msgs => msgs.map(m => (m.id === id
+          ? { ...m, toolResults: data.toolResults, thinking: data.thinking, pendingQuestion: data.pendingQuestion } as Message
+          : m)));
+      } else {
+        // Nenhum "answer_chunk" chegou (ex: chatStream caiu pro modo
+        // não-streaming internamente, ou a resposta foi um pendingQuestion,
+        // que nunca é texto incremental) — mesmo caminho de sempre.
+        removeLoading();
+        addMessage({
+          role: 'assistant',
+          // BUG corrigido: quando tinha pendingQuestion, text ficava vazio —
+          // a pergunta só existia visualmente (via PendingQuestionCard), nunca
+          // ia pro histórico de texto puro que volta pro backend na PRÓXIMA
+          // chamada (ver handleSend/historicoAnterior). Resultado: o Hunter
+          // "esquecia" que tinha perguntado algo, porque a mensagem dele no
+          // histórico aparecia como se não tivesse dito nada — daí ele
+          // perguntava de novo e de novo, achando que ainda não tinha
+          // perguntado. Agora o texto da pergunta vai pro histórico também,
+          // só a INTERFACE prioriza mostrar o card em vez do texto solto.
+          text: data.pendingQuestion ? data.pendingQuestion.pergunta : (data.reply ?? 'Não consegui gerar uma resposta dessa vez — tenta reformular?'),
+          toolResults: data.toolResults,
+          thinking: data.thinking,
+          pendingQuestion: data.pendingQuestion,
+        } as Omit<Message, 'id'>);
+      }
 
       // Ferramentas que mudam dado de verdade no banco — avisa o App.tsx pra
       // recarregar a lista, senão o card só refletiria após um F5. Passa o
