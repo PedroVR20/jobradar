@@ -14,9 +14,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class JobStatusServiceTest {
 
-    // aplicarStatus não toca no JobRepository (só aplicarEsalvar salva) —
-    // dá pra testar sem mock nenhum.
-    private final JobStatusService service = new JobStatusService(null);
+    // aplicarStatus só grava evento (JobEventRepository) pra Job já
+    // persistido (id != null) — os fixtures do teste nunca têm id, então dá
+    // pra testar sem mock nenhum dos dois repositórios.
+    private final JobStatusService service = new JobStatusService(null, null);
 
     private Job novaVaga() {
         return Job.builder().title("Dev").company("Acme").url("https://x/1").source("MANUAL").build();

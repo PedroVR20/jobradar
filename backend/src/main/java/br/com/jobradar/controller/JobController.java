@@ -1,6 +1,8 @@
 package br.com.jobradar.controller;
 
 import br.com.jobradar.model.Job;
+import br.com.jobradar.model.JobEvent;
+import br.com.jobradar.repository.JobEventRepository;
 import br.com.jobradar.repository.JobRepository;
 import br.com.jobradar.repository.JobSpecifications;
 import br.com.jobradar.service.AiDuplicateVerifierService;
@@ -53,6 +55,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class JobController {
 
     private final JobRepository jobRepository;
+    private final JobEventRepository jobEventRepository;
     private final JobAggregatorService aggregatorService;
     private final SeniorityClassifier seniorityClassifier;
     private final AiDuplicateVerifierService aiDuplicateVerifierService;
@@ -682,6 +685,30 @@ public class JobController {
         } catch (Exception e) {
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    /**
+     * Timeline de status de uma vaga (ver model JobEvent) — "vista em 3/8 →
+     * interesse em 5/8 → aplicada em 6/8", em vez de só os 3 timestamps
+     * soltos que já existiam (appliedAt/inProgressAt/rejectedAt). Só tem
+     * evento a partir de quando essa tabela foi criada — vaga antiga não
+     * ganha histórico retroativo, começa a acumular dali pra frente.
+     * GET /api/jobs/{id}/events
+     */
+    @GetMapping("/{id}/events")
+    public ResponseEntity<List<Map<String, Object>>> getEvents(@PathVariable Long id) {
+        if (jobRepository.findById(id).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        List<Map<String, Object>> eventos = jobEventRepository.findByJobIdOrderByOccurredAtAsc(id).stream()
+                .map(e -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("status", e.getStatus());
+                    m.put("occurredAt", e.getOccurredAt().toString());
+                    return m;
+                })
+                .toList();
+        return ResponseEntity.ok(eventos);
     }
 
     /**

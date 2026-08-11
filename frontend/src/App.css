@@ -1158,6 +1158,25 @@ a:hover { text-decoration: underline; }
   gap: 6px;
 }
 
+.card-history-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.card-history-empty { font-size: 0.76rem; color: var(--text-muted); margin: 0; }
+.card-history-list { display: flex; flex-direction: column; gap: 4px; }
+.card-history-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.76rem;
+}
+.card-history-status { color: var(--text); font-weight: 600; }
+.card-history-date { color: var(--text-muted); flex-shrink: 0; }
+
 .notes-toggle {
   display: flex;
   align-items: center;

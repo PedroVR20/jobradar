@@ -40,6 +40,11 @@ const techTags = [
 
 const ALL_STATUSES: JobStatus[] = ['NOVA', 'VISTA', 'INTERESSADO', 'APLICADA', 'ANDAMENTO', 'RECUSADA'];
 
+// GET /api/jobs/{id}/events — timeline de status (ver model JobEvent no
+// backend). Só existe evento a partir de quando essa tabela foi criada,
+// vaga antiga não tem histórico retroativo.
+interface JobEventDto { status: JobStatus; occurredAt: string }
+
 function currentStatus(job: Job): JobStatus {
   if (job.rejected) return 'RECUSADA';
   if (job.inProgress) return 'ANDAMENTO';
@@ -253,6 +258,9 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const [menuOpen, setMenuOpen] = useState(false);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<JobEventDto[] | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
   const [coverLetterOpen, setCoverLetterOpen] = useState(false);
@@ -313,6 +321,21 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
       if (savedTimeout.current) clearTimeout(savedTimeout.current);
       savedTimeout.current = setTimeout(() => setNotesSaved(false), 2000);
     }, 800);
+  };
+
+  // Busca sob demanda (não no carregamento da lista inteira) — evita N+1
+  // requisições disparando pra cada card visível de uma vez.
+  const handleToggleHistory = () => {
+    const abrindo = !historyOpen;
+    setHistoryOpen(abrindo);
+    if (abrindo && history === null) {
+      setHistoryLoading(true);
+      fetch(`/api/jobs/${job.id}/events`)
+        .then(r => r.json())
+        .then((data: JobEventDto[]) => setHistory(data))
+        .catch(() => setHistory([]))
+        .finally(() => setHistoryLoading(false));
+    }
   };
 
   return (
@@ -425,6 +448,15 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             </button>
           )}
 
+          <button
+            className={`btn-pin ${historyOpen ? 'btn-pin--active' : ''}`}
+            onClick={handleToggleHistory}
+            title="Histórico de status dessa vaga"
+            aria-label="Ver histórico de status"
+          >
+            📜
+          </button>
+
           <div className="card-menu" ref={menuRef}>
             <button
               className="card-menu-btn"
@@ -496,6 +528,25 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
               {tag}
             </span>
           ))}
+        </div>
+      )}
+
+      {historyOpen && (
+        <div className="card-history-panel">
+          {historyLoading ? (
+            <p className="card-history-empty">Carregando...</p>
+          ) : !history || history.length === 0 ? (
+            <p className="card-history-empty">Sem histórico registrado ainda (só a partir de quando essa vaga mudar de status de novo).</p>
+          ) : (
+            <ul className="card-history-list">
+              {history.map((ev, i) => (
+                <li key={i}>
+                  <span className="card-history-status">{statusMeta[ev.status] ?? ev.status}</span>
+                  <span className="card-history-date">{formatDateFull(ev.occurredAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
