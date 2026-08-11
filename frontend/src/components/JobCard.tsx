@@ -21,6 +21,10 @@ interface Props {
   onToast: (msg: string) => void;
   aiEnabled: boolean;
   sortMode: SortOption;
+  // Pulso temporário quando essa vaga acabou de mudar via chat do Hunter
+  // (marcarStatusDeVaga/atualizarNotaDeVaga) — ajuda a notar a mudança sem
+  // precisar procurar o card na lista depois de mexer pelo chat.
+  highlighted?: boolean;
 }
 
 const techTags = [
@@ -168,7 +172,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode, highlighted }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -257,7 +261,8 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
   return (
     <div
-      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''}`}
+      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''}`}
+      id={`job-card-${job.id}`}
       draggable={job.applied}
       onDragStart={job.applied ? handleDragStart : undefined}
       title={job.applied ? 'Arraste pra outra aba, ou use o menu ⋮' : undefined}

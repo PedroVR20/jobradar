@@ -35,6 +35,7 @@ public class JarvisChatService {
     private final MatchScoreService matchScoreService;
     private final SalaryPredictionService salaryPredictionService;
     private final JobStatusService jobStatusService;
+    private final CoverLetterService coverLetterService;
 
     // compatibilidadeComVagasDoFunil analisa DIRETO (sem pré-filtro), porque
     // o grupo já vem pequeno por natureza (é o funil curado do próprio
@@ -403,6 +404,36 @@ public class JarvisChatService {
                 "required", List.of("vagaId", "status")
         );
 
+        Map<String, Object> cartaParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "vagaId", Map.of("type", "INTEGER", "description", "ID da vaga (peça pra listarVagas primeiro se só tiver título/empresa)."),
+                        "contextoExtra", Map.of("type", "STRING", "description", "Detalhe pontual pra essa carta, opcional (ex: 'mencionar que topo trabalho híbrido').")
+                ),
+                "required", List.of("vagaId")
+        );
+
+        Map<String, Object> semParametrosMetricas = Map.of("type", "OBJECT", "properties", Map.of());
+
+        Map<String, Object> prazoParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "diasMaximo", Map.of("type", "INTEGER", "description", "Fecha em até quantos dias. Padrão 7.")
+                )
+        );
+
+        Map<String, Object> duplicatasParams = Map.of("type", "OBJECT", "properties", Map.of());
+
+        Map<String, Object> fontesParams = Map.of("type", "OBJECT", "properties", Map.of());
+
+        Map<String, Object> historicoEmpresaParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "empresa", Map.of("type", "STRING", "description", "Nome (ou parte do nome) da empresa.")
+                ),
+                "required", List.of("empresa")
+        );
+
         Map<String, Object> atualizarNotaParams = Map.of(
                 "type", "OBJECT",
                 "properties", Map.of(
@@ -474,6 +505,37 @@ public class JarvisChatService {
                                 "generativa (é um modelo de regressão treinado, não gasta cota do Gemini) — pode " +
                                 "usar sem economia especial, dentro do limite.",
                         salarioVagasParams),
+                new GeminiService.FunctionDeclaration("gerarCartaDeApresentacao",
+                        "Gera uma carta de apresentação personalizada pra uma vaga específica — a MESMA função do " +
+                                "botão 'Carta' de cada card. USA IA de verdade, gasta cota — só chame quando o usuário " +
+                                "pedir claramente uma carta pra UMA vaga identificada.",
+                        cartaParams),
+                new GeminiService.FunctionDeclaration("metricasDeDesempenho",
+                        "Métricas de desempenho das candidaturas: taxa de resposta, tempo médio até virar 'em " +
+                                "andamento' ou ser recusada, aplicações por semana. Diferente de resumoFunil (que só " +
+                                "conta quantas vagas tem em cada bucket agora) — essa fala de VELOCIDADE/EFICÁCIA ao " +
+                                "longo do tempo. Use pra 'como anda meu desempenho', 'minha taxa de resposta'. Não usa IA.",
+                        semParametrosMetricas),
+                new GeminiService.FunctionDeclaration("vagasComPrazoProximo",
+                        "Vagas (não recusadas) cujo prazo de candidatura fecha em breve — use pra 'quais vagas fecham " +
+                                "essa semana', 'o que tá acabando o prazo'. Não usa IA, só compara a data de expiração " +
+                                "salva com hoje (vaga sem prazo informado não aparece).",
+                        prazoParams),
+                new GeminiService.FunctionDeclaration("detectarDuplicatas",
+                        "Acha grupos de vagas prováveis duplicatas (mesma empresa + título muito parecido, vindas de " +
+                                "fontes diferentes) — use pra 'tem vaga duplicada', 'será que essas duas são a mesma " +
+                                "vaga'. Não usa IA generativa (só similaridade de texto), pode dar falso positivo " +
+                                "ocasional — avise que é só um indício, não certeza.",
+                        duplicatasParams),
+                new GeminiService.FunctionDeclaration("desempenhoPorFonte",
+                        "Cruza a fonte de cada vaga (Gupy, Remotive, etc.) com o quanto avançou no funil — use pra " +
+                                "'qual fonte dá mais retorno', 'de onde vêm minhas vagas que avançam mais'. Não usa IA.",
+                        fontesParams),
+                new GeminiService.FunctionDeclaration("historicoDaEmpresa",
+                        "Busca vagas antigas (de qualquer status, inclusive recusadas) da MESMA empresa — use quando " +
+                                "o usuário perguntar 'já apliquei nessa empresa antes' ou quando uma vaga nova aparecer " +
+                                "e valer avisar sobre histórico anterior com aquela empresa. Não usa IA.",
+                        historicoEmpresaParams),
                 new GeminiService.FunctionDeclaration("detalharVagas",
                         "Traz TODOS os dados salvos de uma ou mais vagas específicas (salário informado/estimado, " +
                                 "modalidade, cidade/estado, tags, prazo, nota pessoal, status atual) — use quando o " +
@@ -540,6 +602,12 @@ public class JarvisChatService {
             case "compatibilidadeComVagasRecentes" -> executarCompatibilidade(chamada.args(), candidateProfile, feedbackContext);
             case "compatibilidadeComVagasDoFunil" -> executarCompatibilidadeFunil(chamada.args(), candidateProfile, feedbackContext);
             case "estimativaSalarialDeVagas" -> executarEstimativaSalarial(chamada.args());
+            case "gerarCartaDeApresentacao" -> executarGerarCarta(chamada.args(), candidateProfile, feedbackContext);
+            case "metricasDeDesempenho" -> executarMetricasDeDesempenho();
+            case "vagasComPrazoProximo" -> executarVagasComPrazoProximo(chamada.args());
+            case "detectarDuplicatas" -> executarDetectarDuplicatas();
+            case "desempenhoPorFonte" -> executarDesempenhoPorFonte();
+            case "historicoDaEmpresa" -> executarHistoricoDaEmpresa(chamada.args());
             case "detalharVagas" -> executarDetalharVagas(chamada.args());
             case "vagasParecidas" -> executarVagasParecidas(chamada.args());
             case "vagasParadas" -> executarVagasParadas(chamada.args());

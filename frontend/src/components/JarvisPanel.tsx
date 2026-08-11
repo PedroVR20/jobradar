@@ -20,7 +20,11 @@ import {
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { HunterIcon } from './HunterIcon';
-import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon, MicIcon, NoteIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
+import {
+  BookIcon, ChartIcon, ChatBubbleIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon,
+  CycleIcon, HistoryIcon, MicIcon, NoteIcon, PlusIcon, SuccessIcon, TargetIcon, ThinkingIcon,
+  ThumbDownIcon, ThumbUpIcon, TimerIcon, TrashIcon, WarningIcon,
+} from './HunterMiniIcons';
 
 // Preferência de "modo compacto" (esconde os cards visuais, só texto) —
 // persistida à parte do resto do estado do chat, é uma preferência de
@@ -59,9 +63,10 @@ declare global {
 interface Props {
   onClose: () => void;
   // Avisa o App.tsx pra recarregar a lista de vagas quando o Hunter mudou
-  // algo de verdade (hoje só marcarStatusDeVaga) — sem isso o card mudado
-  // só refletiria depois de um F5, mesmo a mudança já valendo no banco.
-  onJobsChanged?: () => void;
+  // algo de verdade — sem isso o card mudado só refletiria depois de um F5,
+  // mesmo a mudança já valendo no banco. vagaId (quando dá pra saber qual
+  // vaga foi) liga o pulso visual nesse card específico (ver App.tsx).
+  onJobsChanged?: (vagaId?: number) => void;
 }
 
 type Message =
@@ -89,9 +94,9 @@ interface Conversation {
 }
 
 const SUGESTOES = [
-  { icon: '🎯', text: 'Compatibilidade com vagas de hoje' },
-  { icon: '🔄', text: 'Dê uma olhada nas minhas vagas em andamento' },
-  { icon: '📊', text: 'Resumo rápido do meu funil' },
+  { Icon: TargetIcon, text: 'Compatibilidade com vagas de hoje' },
+  { Icon: CycleIcon, text: 'Dê uma olhada nas minhas vagas em andamento' },
+  { Icon: ChartIcon, text: 'Resumo rápido do meu funil' },
 ];
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
@@ -383,7 +388,7 @@ function ListarVagasCard({ data }: { data: JarvisListarVagasData }) {
                 <span className="jarvis-hit-company">{v.company}</span>
               </div>
             </div>
-            {v.notes && <p className="jarvis-hit-resumo">📝 {v.notes}</p>}
+            {v.notes && <p className="jarvis-hit-resumo jarvis-hit-resumo--flex"><NoteIcon /> {v.notes}</p>}
           </div>
         );
       })}
@@ -582,7 +587,7 @@ function ChatGapItem({ jobId, gap, candidateProfile, feedbackContext }: {
       {plan && open && (
         <div className="match-plan">
           {plan.resumo && <p className="match-plan-resumo">{plan.resumo}</p>}
-          {plan.tempoEstimado && <span className="match-plan-tempo">⏱ {plan.tempoEstimado}</span>}
+          {plan.tempoEstimado && <span className="match-plan-tempo"><TimerIcon /> {plan.tempoEstimado}</span>}
           {plan.passos.length > 0 && (
             <ol className="match-plan-steps">
               {plan.passos.map((passo, i) => <li key={i}>{passo}</li>)}
@@ -769,7 +774,7 @@ function DetalharVagasCard({ data }: { data: JarvisDetalharVagasData }) {
                   {v.tags.map(t => <span key={t} className="jarvis-tag-pill">{t}</span>)}
                 </div>
               )}
-              {v.notas && <p className="jarvis-hit-resumo">📝 {v.notas}</p>}
+              {v.notas && <p className="jarvis-hit-resumo jarvis-hit-resumo--flex"><NoteIcon /> {v.notas}</p>}
             </div>
           );
         })}
@@ -800,7 +805,7 @@ function DetalharVagasCard({ data }: { data: JarvisDetalharVagasData }) {
           {v.tags.map(t => <span key={t} className="jarvis-tag-pill">{t}</span>)}
         </div>
       )}
-      {v.notas && <p className="jarvis-hit-resumo">📝 {v.notas}</p>}
+      {v.notas && <p className="jarvis-hit-resumo jarvis-hit-resumo--flex"><NoteIcon /> {v.notas}</p>}
     </div>
   );
 }
@@ -1144,7 +1149,7 @@ function HistoryView({
             aria-label="Apagar conversa"
             onClick={e => onDelete(c.id, e)}
           >
-            🗑
+            <TrashIcon />
           </span>
         </button>
       ))}
@@ -1398,11 +1403,12 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
 
       // marcarStatusDeVaga/atualizarNotaDeVaga mudam dado de verdade no banco
       // — avisa o App.tsx pra recarregar a lista, senão o card só refletiria
-      // após um F5.
-      const mudouAlgo = data.toolResults?.some(
+      // após um F5. Passa o vagaId (quando a ferramenta devolveu) pra ligar
+      // o pulso visual naquele card específico.
+      const escritaOk = data.toolResults?.find(
         tr => (tr.tool === 'marcarStatusDeVaga' || tr.tool === 'atualizarNotaDeVaga') && (tr.data as { sucesso?: boolean })?.sucesso
       );
-      if (mudouAlgo) onJobsChanged?.();
+      if (escritaOk) onJobsChanged?.((escritaOk.data as { vagaId?: number }).vagaId);
     } catch {
       removeLoading();
       addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);
@@ -1551,7 +1557,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       />
       <div className="jarvis-header">
         <span className="jarvis-header-title">
-          {view === 'history' ? '🕘 Histórico' : <><HunterIcon size={19} alive /> Hunter</>}
+          {view === 'history' ? <><HistoryIcon size={16} /> Histórico</> : <><HunterIcon size={19} alive /> Hunter</>}
         </span>
         <div className="jarvis-header-actions">
           <button
@@ -1559,7 +1565,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
             onClick={() => setView(v => (v === 'history' ? 'chat' : 'history'))}
             title={view === 'history' ? 'Voltar pro chat' : 'Ver conversas anteriores'}
           >
-            {view === 'history' ? '💬' : '🕘'}
+            {view === 'history' ? <ChatBubbleIcon /> : <HistoryIcon />}
           </button>
           <button
             className={`jarvis-header-icon-btn ${compactMode ? 'jarvis-header-icon-btn--active' : ''}`}
@@ -1569,7 +1575,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           >
             <CompactIcon />
           </button>
-          <button className="jarvis-header-icon-btn" onClick={handleNewConversation} title="Nova conversa">➕</button>
+          <button className="jarvis-header-icon-btn" onClick={handleNewConversation} title="Nova conversa"><PlusIcon /></button>
           <button className="jarvis-header-icon-btn" onClick={handleRequestClose} aria-label="Fechar"><CloseIcon size={13} /></button>
         </div>
       </div>
@@ -1684,7 +1690,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
               <div className="jarvis-suggestions">
                 {SUGESTOES.map(s => (
                   <button key={s.text} className="jarvis-suggestion-card" onClick={() => handleSend(s.text)} disabled={busy}>
-                    <span className="jarvis-suggestion-icon">{s.icon}</span>
+                    <span className="jarvis-suggestion-icon"><s.Icon /></span>
                     <span>{s.text}</span>
                   </button>
                 ))}

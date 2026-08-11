@@ -64,6 +64,10 @@ export default function App() {
   const [showMetrics, setShowMetrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showJarvis, setShowJarvis] = useState(false);
+  // Pulso temporário no card real da vaga que o Hunter acabou de mudar
+  // (marcarStatusDeVaga/atualizarNotaDeVaga) — ver job-card--highlighted no
+  // App.css. Desliga sozinho depois de alguns segundos.
+  const [highlightedJobId, setHighlightedJobId] = useState<number | null>(null);
 
   const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reload } =
     useJobs(filters);
@@ -245,7 +249,23 @@ export default function App() {
         </div>
       </header>
 
-      {showJarvis && <JarvisPanel onClose={() => setShowJarvis(false)} onJobsChanged={() => reload(true)} />}
+      {showJarvis && (
+        <JarvisPanel
+          onClose={() => setShowJarvis(false)}
+          onJobsChanged={vagaId => {
+            reload(true);
+            if (vagaId != null) {
+              setHighlightedJobId(vagaId);
+              window.setTimeout(() => setHighlightedJobId(null), 3600);
+              // Rola até o card se ele já estiver na lista visível — só
+              // depois do reload terminar de atualizar o DOM.
+              window.setTimeout(() => {
+                document.getElementById(`job-card-${vagaId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 200);
+            }
+          }}
+        />
+      )}
 
       {showAddModal && (
         <AddJobModal onClose={() => setShowAddModal(false)} onSubmit={handleAddManual} />
@@ -329,6 +349,7 @@ export default function App() {
                   onToast={showToast}
                   aiEnabled={aiStatus.enabled}
                   sortMode={filters.sort}
+                  highlighted={job.id === highlightedJobId}
                 />
               ))}
             </div>
