@@ -40,9 +40,9 @@ import { useAgenda } from '../hooks/useAgenda';
 import { HunterIcon } from './HunterIcon';
 import {
   BookIcon, ChartIcon, ChatBubbleIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon,
-  CycleIcon, DownloadIcon, HistoryIcon, MicIcon, NoteIcon, PencilIcon, PlusIcon, SearchIcon,
-  LightningIcon, SpeakerIcon, SpeakerMuteIcon, SuccessIcon, TargetIcon, ThinkingIcon, ThumbDownIcon,
-  ThumbUpIcon, TimerIcon, TrashIcon, WarningIcon,
+  CycleIcon, DownloadIcon, ForkIcon, HistoryIcon, MicIcon, MoreIcon, NoteIcon, PencilIcon, PinIcon,
+  PlusIcon, RetryIcon, SearchIcon, LightningIcon, SpeakerIcon, SpeakerMuteIcon, SuccessIcon,
+  TargetIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, TimerIcon, TrashIcon, WarningIcon,
 } from './HunterMiniIcons';
 
 // Preferência de "modo compacto" (esconde os cards visuais, só texto) —
@@ -91,7 +91,10 @@ interface Props {
 
 type Message =
   | { id: number; role: 'user'; text: string; imageDataUrl?: string }
-  | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[]; thinking?: string | null; pendingQuestion?: JarvisPendingQuestion | null; isGreeting?: boolean }
+  // isError: só marcado quando a mensagem é um AVISO DE FALHA (conexão caiu,
+  // backend deu erro, cota estourou) — não uma resposta de verdade. Só nesse
+  // caso a bolha ganha o botão "tentar de novo" (ver handleRetry).
+  | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[]; thinking?: string | null; pendingQuestion?: JarvisPendingQuestion | null; isGreeting?: boolean; isError?: boolean }
   // livePhrase: preenchido em tempo real pelos eventos SSE (ver
   // /assistant/chat/stream) — quando presente, LoadingPhrase mostra a
   // narração REAL do passo atual em vez do ciclo de frases genéricas.
@@ -114,7 +117,35 @@ interface Conversation {
   title: string;
   messages: Message[];
   updatedAt: number;
+  // Fixada no topo do histórico, na frente de "mais recente primeiro" — como
+  // o pin de thread do ChatGPT. Opcional pra não quebrar conversas salvas
+  // antes dessa feature existir (undefined === não fixada).
+  pinned?: boolean;
 }
+
+// Atalhos de barra "/" — digitando "/" no campo abre um menu com as
+// perguntas mais comuns, sem precisar escrever a frase inteira toda vez
+// (mesma ideia do "/" do Claude/ChatGPT, aqui ligado direto nas ferramentas
+// que o Hunter já tem em vez de abrir um app separado).
+const SLASH_COMMANDS: { cmd: string; label: string; phrase: string }[] = [
+  { cmd: '/funil', label: 'Resumo do funil', phrase: 'Me dê um resumo rápido do meu funil de candidaturas' },
+  { cmd: '/paradas', label: 'Candidaturas paradas', phrase: 'Quais candidaturas minhas estão paradas sem retorno?' },
+  { cmd: '/triagem', label: 'Triagem rápida', phrase: 'Bora fazer uma triagem rápida das vagas novas' },
+  { cmd: '/compatibilidade', label: 'Compatibilidade de hoje', phrase: 'Qual minha compatibilidade com as vagas de hoje?' },
+  { cmd: '/prazos', label: 'Prazos próximos', phrase: 'Quais vagas têm prazo próximo do fim?' },
+  { cmd: '/agora', label: 'O que fazer agora', phrase: 'O que eu deveria fazer agora, priorizando o que importa?' },
+];
+
+// Estilo de resposta — presets de tom (Normal/Conciso/Formal), inspirado nos
+// presets de estilo do Claude. Só muda uma instrução extra mandada junto
+// pro backend (ver JarvisChatService), nenhuma ferramenta nova.
+type ReplyStyle = 'normal' | 'conciso' | 'formal';
+const REPLY_STYLE_KEY = 'jobradar:jarvis-reply-style';
+const REPLY_STYLE_META: Record<ReplyStyle, string> = {
+  normal: 'Normal',
+  conciso: 'Conciso',
+  formal: 'Formal',
+};
 
 const SUGESTOES = [
   { Icon: TargetIcon, text: 'Compatibilidade com vagas de hoje' },
@@ -1733,6 +1764,19 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
   }
 }
 
+// Categoria visual de cada ferramenta — border-left colorida no card (ver
+// .jarvis-tool-card--* no CSS), pra escanear rápido "isso mudou dado no
+// banco" (âmbar) vs "isso gastou uma chamada extra de IA" (roxo) vs leitura
+// simples (sem destaque, cor neutra padrão).
+const TOOL_CATEGORY: Record<string, 'escrita' | 'ia'> = {
+  marcarStatusDeVaga: 'escrita', atualizarNotaDeVaga: 'escrita', fixarVaga: 'escrita',
+  adicionarVagaManual: 'escrita', apagarVaga: 'escrita', criarLembreteNaAgenda: 'escrita',
+  lembrarPreferencia: 'escrita',
+  compatibilidadeComVagasRecentes: 'ia', compatibilidadeComVagasDoFunil: 'ia',
+  estimativaSalarialDeVagas: 'ia', gerarCartaDeApresentacao: 'ia', oQueFazerAgora: 'ia',
+  compararStackComMercado: 'ia', buscarVagasPorSignificado: 'ia',
+};
+
 // ===================== Histórico de conversas =====================
 
 // Só ativa o modo de edição do título quando clica no lápis (não no botão
@@ -1779,7 +1823,7 @@ function EditableTitle({ title, onRename }: { title: string; onRename: (novo: st
 }
 
 function HistoryView({
-  conversations, activeId, onSelect, onDelete, onRename, onExport,
+  conversations, activeId, onSelect, onDelete, onRename, onExport, onTogglePin,
 }: {
   conversations: Conversation[];
   activeId: string;
@@ -1787,9 +1831,15 @@ function HistoryView({
   onDelete: (id: string, e: React.MouseEvent) => void;
   onRename: (id: string, title: string) => void;
   onExport: (c: Conversation) => void;
+  onTogglePin: (id: string, e: React.MouseEvent) => void;
 }) {
   const [busca, setBusca] = useState('');
-  const ordered = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+  // Fixadas primeiro (igual pin de thread do ChatGPT), dentro de cada grupo
+  // ordena por mais recente.
+  const ordered = [...conversations].sort((a, b) => {
+    if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+    return b.updatedAt - a.updatedAt;
+  });
   const termo = busca.trim().toLowerCase();
   // Busca no título E no texto das mensagens — não só no título, senão não
   // acha uma conversa antiga só porque não lembra o nome dela.
@@ -1818,13 +1868,22 @@ function HistoryView({
         {filtradas.map(c => (
           <button
             key={c.id}
-            className={`jarvis-history-item ${c.id === activeId ? 'jarvis-history-item--active' : ''}`}
+            className={`jarvis-history-item ${c.id === activeId ? 'jarvis-history-item--active' : ''} ${c.pinned ? 'jarvis-history-item--pinned' : ''}`}
             onClick={() => onSelect(c.id)}
           >
             <div className="jarvis-history-item-main">
               <EditableTitle title={c.title} onRename={novo => onRename(c.id, novo)} />
               <span className="jarvis-history-item-time">{relativeTime(c.updatedAt)}</span>
             </div>
+            <span
+              className={`jarvis-history-item-pin ${c.pinned ? 'jarvis-history-item-pin--active' : ''}`}
+              role="button"
+              aria-label={c.pinned ? 'Desafixar conversa' : 'Fixar conversa no topo'}
+              title={c.pinned ? 'Desafixar' : 'Fixar no topo'}
+              onClick={e => onTogglePin(c.id, e)}
+            >
+              <PinIcon />
+            </span>
             <span
               className="jarvis-history-item-export"
               role="button"
@@ -1896,6 +1955,18 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   const [fastMode, setFastMode] = useState(() => {
     try { return localStorage.getItem(FAST_MODE_KEY) === '1'; } catch { return false; }
   });
+  // Preset de tom da resposta (Normal/Conciso/Formal) — persiste entre
+  // conversas igual fastMode, mas não é sobre economizar cota, é sobre
+  // como o Hunter escreve (ver REPLY_STYLE_META e o corpo de handleSend).
+  const [replyStyle, setReplyStyle] = useState<ReplyStyle>(() => {
+    try {
+      const raw = localStorage.getItem(REPLY_STYLE_KEY);
+      return raw === 'conciso' || raw === 'formal' ? raw : 'normal';
+    } catch { return 'normal'; }
+  });
+  // Menu de "/" — aberto sempre que o campo começa com "/" e ainda não virou
+  // uma frase normal (sem espaço), filtra os slash commands por prefixo.
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1914,6 +1985,10 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   useEffect(() => {
     try { localStorage.setItem(FAST_MODE_KEY, fastMode ? '1' : '0'); } catch { /* ignore */ }
   }, [fastMode]);
+
+  useEffect(() => {
+    try { localStorage.setItem(REPLY_STYLE_KEY, replyStyle); } catch { /* ignore */ }
+  }, [replyStyle]);
 
   // loadConversations() e loadActiveId() são inicializadores independentes
   // do useState (cada um roda separado) — quando o localStorage começa
@@ -2065,6 +2140,52 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
     setConversations(prev => prev.map(c => (c.id === id ? { ...c, title: trimmed } : c)));
   };
 
+  // Fixar/desafixar — a lista (HistoryView) já ordena pinned primeiro, então
+  // só precisa virar o booleano.
+  const handleTogglePin = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConversations(prev => prev.map(c => (c.id === id ? { ...c, pinned: !c.pinned } : c)));
+  };
+
+  // Fork: clona a conversa ativa até (e incluindo) a mensagem clicada, numa
+  // conversa nova independente — a original continua intacta, dá pra seguir
+  // as duas em paralelo. Título ganha um "(fork)" pra diferenciar na lista.
+  const handleForkConversation = (messageId: number) => {
+    const idx = messages.findIndex(m => m.id === messageId);
+    if (idx === -1) return;
+    const cloned = messages.slice(0, idx + 1).map(m => ({ ...m }));
+    const fork: Conversation = {
+      id: generateId(),
+      title: `${active.title} (fork)`,
+      messages: cloned,
+      updatedAt: Date.now(),
+    };
+    setConversations(prev => [fork, ...prev]);
+    setActiveId(fork.id);
+    setView('chat');
+  };
+
+  // Retry — reenvia a última mensagem do usuário anterior ao aviso de erro
+  // clicado, sem precisar redigitar. Diferente de "editar": não mexe no
+  // texto, só tenta a mesma pergunta de novo (útil pra falha de rede/cota
+  // passageira, não pra pergunta mal formulada).
+  const handleRetryMessage = (messageId: number) => {
+    if (busy) return;
+    const idx = messages.findIndex(m => m.id === messageId);
+    if (idx === -1) return;
+    let userIdx = -1;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') { userIdx = i; break; }
+    }
+    if (userIdx === -1) return;
+    const lastUser = messages[userIdx] as Extract<Message, { role: 'user' }>;
+    // Corta a pergunta original + o aviso de erro (handleSend recria a
+    // bolha do usuário do zero) — imagem anexada não é reenviada no retry
+    // (só o dataUrl de pré-visualização ficou salvo, não o base64 original).
+    patchActive(msgs => msgs.filter((_, i) => i < userIdx));
+    handleSend(lastUser.text);
+  };
+
   // Exporta a conversa inteira como .md — ignora mensagens de "carregando"
   // (não tem texto de verdade) e a pergunta interativa vira só o texto da
   // pergunta em si (o card com botões não faz sentido fora do app).
@@ -2143,6 +2264,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
         body: JSON.stringify({
           history, candidateProfile: profile, feedbackContext: combinedFeedbackContext(),
           memoryContext: hunterMemory.buildContext(), fastMode,
+          replyStyle: replyStyle === 'normal' ? undefined : replyStyle,
         }),
       });
 
@@ -2152,6 +2274,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
         addMessage({
           role: 'assistant',
           text: err?.error ?? 'Deu erro falando com o Hunter. Tenta de novo?',
+          isError: true,
         } as Omit<Message, 'id'>);
         return;
       }
@@ -2195,12 +2318,12 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
 
       if (streamErrorMsg) {
         removeLoading();
-        addMessage({ role: 'assistant', text: streamErrorMsg } as Omit<Message, 'id'>);
+        addMessage({ role: 'assistant', text: streamErrorMsg, isError: true } as Omit<Message, 'id'>);
         return;
       }
       if (!finalData) {
         removeLoading();
-        addMessage({ role: 'assistant', text: 'A conexão caiu no meio da resposta — tenta de novo?' } as Omit<Message, 'id'>);
+        addMessage({ role: 'assistant', text: 'A conexão caiu no meio da resposta — tenta de novo?', isError: true } as Omit<Message, 'id'>);
         return;
       }
 
@@ -2261,7 +2384,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         addMessage({ role: 'assistant', text: 'Interrompido.' } as Omit<Message, 'id'>);
       } else {
-        addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);
+        addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?', isError: true } as Omit<Message, 'id'>);
       }
     } finally {
       setBusy(false);
@@ -2440,63 +2563,81 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           >
             {view === 'history' ? <ChatBubbleIcon /> : <HistoryIcon />}
           </button>
-          <button
-            className={`jarvis-header-icon-btn ${compactMode ? 'jarvis-header-icon-btn--active' : ''}`}
-            onClick={() => setCompactMode(c => !c)}
-            title={compactMode ? 'Mostrar cards visuais' : 'Modo compacto (só texto)'}
-            aria-label="Alternar modo compacto"
-          >
-            <CompactIcon />
-          </button>
-          <button
-            className={`jarvis-header-icon-btn ${fastMode ? 'jarvis-header-icon-btn--active' : ''}`}
-            onClick={() => setFastMode(f => !f)}
-            title={fastMode ? 'Modo rápido ativado (⚡ economiza cota — desliga o raciocínio e evita ferramentas caras). Clique pra voltar ao modo profundo.' : 'Modo profundo (padrão). Clique pra ativar o modo rápido ⚡'}
-            aria-label="Alternar modo rápido"
-          >
-            <LightningIcon />
-          </button>
-          {hunterMemory.items.length > 0 && (
-            <div className="jarvis-memory-wrap">
-              <button
-                className={`jarvis-header-icon-btn ${memoryOpen ? 'jarvis-header-icon-btn--active' : ''}`}
-                onClick={() => setMemoryOpen(o => !o)}
-                title="Preferências que o Hunter lembra entre conversas"
-                aria-label="Ver preferências lembradas"
-              >
-                <ThinkingIcon />
-              </button>
-              {memoryOpen && (
-                <div className="jarvis-memory-popover">
-                  <div className="jarvis-memory-popover-head">
-                    <span>O que o Hunter lembra</span>
+          {/* Compacto/rápido/memória agrupados num menu "⋯" — cada Lote foi
+              somando um ícone novo na fileira até virar 6 botões espremidos;
+              só histórico/nova conversa/fechar (uso constante) ficam sempre
+              visíveis, o resto vira menu (ver .jarvis-more-menu no CSS). */}
+          <div className="jarvis-more-wrap">
+            <button
+              className={`jarvis-header-icon-btn ${headerMenuOpen ? 'jarvis-header-icon-btn--active' : ''}`}
+              onClick={() => setHeaderMenuOpen(o => !o)}
+              title="Mais opções"
+              aria-label="Mais opções"
+            >
+              <MoreIcon />
+            </button>
+            {headerMenuOpen && (
+              <div className="jarvis-more-menu">
+                <button
+                  type="button"
+                  className={`jarvis-more-item ${compactMode ? 'jarvis-more-item--active' : ''}`}
+                  onClick={() => setCompactMode(c => !c)}
+                >
+                  <CompactIcon /> <span>Modo compacto</span>
+                  {compactMode && <CheckIcon size={12} />}
+                </button>
+                <button
+                  type="button"
+                  className={`jarvis-more-item ${fastMode ? 'jarvis-more-item--active' : ''}`}
+                  onClick={() => setFastMode(f => !f)}
+                  title="Economiza cota — desliga o raciocínio e evita ferramentas caras"
+                >
+                  <LightningIcon /> <span>Modo rápido ⚡</span>
+                  {fastMode && <CheckIcon size={12} />}
+                </button>
+                {hunterMemory.items.length > 0 && (
+                  <div className="jarvis-memory-wrap">
                     <button
-                      className="jarvis-history-item-delete"
-                      onClick={hunterMemory.clear}
-                      title="Esquecer tudo"
-                      aria-label="Esquecer tudo"
+                      type="button"
+                      className={`jarvis-more-item ${memoryOpen ? 'jarvis-more-item--active' : ''}`}
+                      onClick={() => setMemoryOpen(o => !o)}
                     >
-                      <TrashIcon />
+                      <ThinkingIcon /> <span>O que o Hunter lembra</span>
                     </button>
+                    {memoryOpen && (
+                      <div className="jarvis-memory-popover">
+                        <div className="jarvis-memory-popover-head">
+                          <span>O que o Hunter lembra</span>
+                          <button
+                            className="jarvis-history-item-delete"
+                            onClick={hunterMemory.clear}
+                            title="Esquecer tudo"
+                            aria-label="Esquecer tudo"
+                          >
+                            <TrashIcon />
+                          </button>
+                        </div>
+                        <ul className="jarvis-memory-list">
+                          {hunterMemory.items.map(item => (
+                            <li key={item.texto}>
+                              <span>{item.texto}</span>
+                              <button
+                                className="jarvis-memory-remove"
+                                onClick={() => hunterMemory.remove(item.texto)}
+                                aria-label={`Esquecer "${item.texto}"`}
+                              >
+                                <CloseIcon size={10} />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
-                  <ul className="jarvis-memory-list">
-                    {hunterMemory.items.map(item => (
-                      <li key={item.texto}>
-                        <span>{item.texto}</span>
-                        <button
-                          className="jarvis-memory-remove"
-                          onClick={() => hunterMemory.remove(item.texto)}
-                          aria-label={`Esquecer "${item.texto}"`}
-                        >
-                          <CloseIcon size={10} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
+          </div>
           <button className="jarvis-header-icon-btn" onClick={handleNewConversation} title="Nova conversa"><PlusIcon /></button>
           <button className="jarvis-header-icon-btn" onClick={handleRequestClose} aria-label="Fechar"><CloseIcon size={13} /></button>
         </div>
@@ -2517,6 +2658,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           onDelete={handleDeleteConversation}
           onRename={handleRenameConversation}
           onExport={handleExportConversation}
+          onTogglePin={handleTogglePin}
         />
       ) : (
         <>
@@ -2603,14 +2745,18 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                         interface de resposta, não um "extra" decorativo. */}
                     {!compactMode && m.toolResults && m.toolResults.length > 0 && (
                       <div className="jarvis-tool-results">
-                        {m.toolResults.map((tr, i) => (
-                          <ToolResultCard
-                            key={i}
-                            result={tr}
-                            candidateProfile={profile}
-                            planFeedbackContext={buildPlanFeedbackContext()}
-                          />
-                        ))}
+                        {m.toolResults.map((tr, i) => {
+                          const categoria = TOOL_CATEGORY[tr.tool];
+                          return (
+                            <div key={i} className={categoria ? `jarvis-tool-card--${categoria}` : undefined}>
+                              <ToolResultCard
+                                result={tr}
+                                candidateProfile={profile}
+                                planFeedbackContext={buildPlanFeedbackContext()}
+                              />
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     {m.pendingQuestion ? (
@@ -2623,7 +2769,31 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                     ) : (
                       <>
                         {renderMarkdownLite(m.text)}
-                        {!m.isGreeting && <ChatMessageActions text={m.text} featureKey="jarvis-chat" />}
+                        {m.isError && !busy && (
+                          <button
+                            type="button"
+                            className="jarvis-retry-btn"
+                            onClick={() => handleRetryMessage(m.id)}
+                          >
+                            <RetryIcon /> Tentar de novo
+                          </button>
+                        )}
+                        {!m.isGreeting && (
+                          <div className="jarvis-msg-actions-row">
+                            <ChatMessageActions text={m.text} featureKey="jarvis-chat" />
+                            {!m.isError && (
+                              <button
+                                type="button"
+                                className="jarvis-msg-action-btn"
+                                onClick={() => handleForkConversation(m.id)}
+                                title="Continuar a partir daqui numa conversa nova"
+                                aria-label="Fork: continuar a partir daqui"
+                              >
+                                <ForkIcon />
+                              </button>
+                            )}
+                          </div>
+                        )}
                         {isLastMsg && !busy && (
                           <FollowUpSuggestions toolResults={m.toolResults} onPick={handleSend} />
                         )}
@@ -2654,6 +2824,51 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
               <button type="button" className="jarvis-attach-remove" onClick={() => setAttachedImage(null)} aria-label="Remover imagem"><CloseIcon /></button>
             </div>
           )}
+
+          {/* Digitar "/" sozinho (sem espaço ainda) abre o menu de atalhos —
+              clicar num item substitui o campo pela pergunta pronta, sem
+              enviar sozinho (dá tempo de revisar/editar antes do Enter). */}
+          {input.startsWith('/') && !input.includes(' ') && (() => {
+            const termo = input.slice(1).toLowerCase();
+            const matches = SLASH_COMMANDS.filter(s => s.cmd.slice(1).startsWith(termo));
+            if (matches.length === 0) return null;
+            return (
+              <div className="jarvis-slash-menu">
+                {matches.map(s => (
+                  <button
+                    key={s.cmd}
+                    type="button"
+                    className="jarvis-slash-item"
+                    onClick={() => { setInput(s.phrase); textareaRef.current?.focus(); }}
+                  >
+                    <span className="jarvis-slash-cmd">{s.cmd}</span>
+                    <span className="jarvis-slash-label">{s.label}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+
+          <div className="jarvis-input-toolbar">
+            <div className="jarvis-style-chips">
+              {(Object.keys(REPLY_STYLE_META) as ReplyStyle[]).map(s => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`jarvis-style-chip ${replyStyle === s ? 'jarvis-style-chip--active' : ''}`}
+                  onClick={() => setReplyStyle(s)}
+                  title={`Estilo de resposta: ${REPLY_STYLE_META[s]}`}
+                >
+                  {REPLY_STYLE_META[s]}
+                </button>
+              ))}
+            </div>
+            {messages.length > 2 && (
+              <span className="jarvis-msg-counter">
+                {messages.filter(m => m.role === 'user' || m.role === 'assistant').length} mensagens
+              </span>
+            )}
+          </div>
 
           <form className="jarvis-input-row" onSubmit={e => { e.preventDefault(); handleSend(input, attachedImage); }}>
             <input

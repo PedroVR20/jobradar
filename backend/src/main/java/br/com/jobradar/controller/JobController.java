@@ -1184,8 +1184,11 @@ public class JobController {
     // feedbackContext: 👍/👎 salvos pelo usuário nos cards de compatibilidade/
     // plano de ação (useAiFeedback no frontend) — mesmo texto que já
     // alimenta match-score e learning-plan, agora também chega no chat.
+    // replyStyle: preset de tom escolhido nos chips do rodapé do chat
+    // ("conciso"/"formal"), null = padrão. Ver comentário do parâmetro
+    // homônimo em JarvisChatService.conversar.
     public record ChatRequest(List<ChatMessageDto> history, String candidateProfile, String feedbackContext, String memoryContext,
-                               Boolean fastMode) {}
+                               Boolean fastMode, String replyStyle) {}
 
     /**
      * Chat livre do Jarvis — diferente do compatibility-scan (ação fixa),
@@ -1264,6 +1267,7 @@ public class JobController {
         String feedbackContext = req != null ? req.feedbackContext() : null;
         String memoryContext = req != null ? req.memoryContext() : null;
         boolean fastMode = req != null && Boolean.TRUE.equals(req.fastMode());
+        String replyStyle = req != null ? req.replyStyle() : null;
 
         // "Parar" (botão no frontend, ver AbortController em handleSend):
         // fechar a conexão dispara onCompletion/onError aqui — o mais cedo
@@ -1295,7 +1299,7 @@ public class JobController {
                             public void onAnswerChunk(String chunk) {
                                 sendSseEvent(emitter, "answer_chunk", Map.of("text", chunk));
                             }
-                        }, fastMode);
+                        }, fastMode, replyStyle);
 
                 if (cancelado.get()) {
                     // Já não tem mais ninguém ouvindo do outro lado — não
