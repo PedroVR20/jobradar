@@ -699,7 +699,11 @@ public class JarvisChatService {
                         "consulta", Map.of("type", "STRING", "description",
                                 "O que pesquisar, em linguagem natural (ex: 'faixa salarial de desenvolvedor pleno " +
                                         "React em 2026', 'reviews da empresa X no Glassdoor', 'o que é a metodologia Y'). " +
-                                        "Vira uma busca de verdade na internet, não é um palpite do modelo.")
+                                        "Vira uma busca de verdade na internet, não é um palpite do modelo. Se o " +
+                                        "usuário colou uma URL específica (ex: link de uma vaga fora do Job Radar, " +
+                                        "site de uma empresa), inclua a URL dentro da própria consulta — o Gemini " +
+                                        "consegue ABRIR e LER o conteúdo dela de verdade (ferramenta urlContext), não " +
+                                        "só pesquisar sobre o domínio.")
                 ),
                 "required", List.of("consulta")
         );
