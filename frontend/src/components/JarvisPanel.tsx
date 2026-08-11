@@ -18,7 +18,36 @@ import {
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { HunterIcon } from './HunterIcon';
-import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CopyIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
+import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CopyIcon, MicIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
+
+// Ditado por voz (Web Speech API) — só Chrome/Edge/derivados suportam hoje
+// (window.SpeechRecognition ainda não existe no lib.dom.d.ts do TypeScript
+// padrão, daí a declaração manual aqui). Nada de biblioteca externa — é uma
+// API nativa do navegador, só falta o tipo.
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  0: { transcript: string };
+}
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+interface SpeechRecognitionInstance extends EventTarget {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start(): void;
+  stop(): void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+}
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => SpeechRecognitionInstance;
+    webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
+  }
+}
 
 interface Props {
   onClose: () => void;
@@ -1061,9 +1090,12 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   const [historyNav, setHistoryNav] = useState<{ index: number; draft: string } | null>(null);
   const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
   const [attachError, setAttachError] = useState('');
+  const [listening, setListening] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const micSupported = typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   // loadConversations() e loadActiveId() são inicializadores independentes
   // do useState (cada um roda separado) — quando o localStorage começa
@@ -1354,6 +1386,44 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
     handleAttachFile(file);
   };
 
+  // Ditado por voz: clica, fala, o texto vai aparecendo no campo em tempo
+  // real (resultados "interim" vão sendo substituídos até o trecho fechar
+  // como "final"). Soma em cima do que já tinha digitado, não substitui.
+  const handleToggleMic = () => {
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    if (!Ctor) return;
+    const recognition = new Ctor();
+    recognition.lang = 'pt-BR';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    let textoBase = input;
+    recognition.onresult = event => {
+      let interim = '';
+      let final = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const resultado = event.results[i];
+        if (resultado.isFinal) final += resultado[0].transcript;
+        else interim += resultado[0].transcript;
+      }
+      if (final) textoBase = (textoBase ? textoBase + ' ' : '') + final.trim();
+      setInput((textoBase + (interim ? ' ' + interim : '')).trim());
+      setHistoryNav(null);
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  };
+
+  // Se o painel fechar/desmontar enquanto ainda está ouvindo, para o
+  // microfone junto — senão fica gravando escondido sem o usuário perceber.
+  useEffect(() => () => { recognitionRef.current?.stop(); }, []);
+
   return createPortal(
     <div className={`jarvis-panel ${closing ? 'jarvis-panel--closing' : ''}`}>
       <div
@@ -1499,6 +1569,18 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
             >
               <ClipIcon />
             </button>
+            {micSupported && (
+              <button
+                type="button"
+                className={`jarvis-mic-btn ${listening ? 'jarvis-mic-btn--active' : ''}`}
+                onClick={handleToggleMic}
+                disabled={busy}
+                aria-label={listening ? 'Parar ditado' : 'Ditar por voz'}
+                title={listening ? 'Parar ditado' : 'Ditar por voz'}
+              >
+                <MicIcon />
+              </button>
+            )}
             <textarea
               ref={textareaRef}
               className="jarvis-input"

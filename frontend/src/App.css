@@ -2317,6 +2317,33 @@ a:hover { text-decoration: underline; }
 .jarvis-attach-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
 .jarvis-attach-btn:disabled { opacity: 0.4; cursor: default; }
 
+.jarvis-mic-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--bg-card2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.jarvis-mic-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.jarvis-mic-btn:disabled { opacity: 0.4; cursor: default; }
+.jarvis-mic-btn--active {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+  animation: jarvis-mic-pulse 1.4s infinite ease-in-out;
+}
+@keyframes jarvis-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 #ef444455; }
+  50% { box-shadow: 0 0 0 6px #ef444400; }
+}
+
 .jarvis-attach-error {
   margin: 0 1rem;
   color: var(--red);

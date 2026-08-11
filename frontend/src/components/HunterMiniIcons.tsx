@@ -86,6 +86,17 @@ export function ClipIcon({ size = 14 }: IconProps) {
   );
 }
 
+export function MicIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="7" y="2.5" width="6" height="10" rx="3" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M4.5 9.5C4.5 12.8 7 15.2 10 15.2C13 15.2 15.5 12.8 15.5 9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="10" y1="15.2" x2="10" y2="17.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="6.8" y1="17.8" x2="13.2" y2="17.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function CloseIcon({ size = 12 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
