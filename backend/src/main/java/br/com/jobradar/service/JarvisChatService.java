@@ -735,7 +735,9 @@ public class JarvisChatService {
         return new PendingQuestion(pergunta, opcoes, permiteOutro);
     }
 
-    private Object executarFerramenta(GeminiService.FunctionCallRequest chamada, String candidateProfile, String feedbackContext) {
+    // Package-private de propósito — testa o DISPATCH em JarvisChatServiceTest
+    // sem precisar montar uma conversa inteira com Gemini mockado.
+    Object executarFerramenta(GeminiService.FunctionCallRequest chamada, String candidateProfile, String feedbackContext) {
         return switch (chamada.name()) {
             case "listarVagas" -> executarListarVagas(chamada.args());
             case "resumoFunil" -> executarResumoFunil();
@@ -809,7 +811,10 @@ public class JarvisChatService {
         return out;
     }
 
-    private boolean statusBate(Job j, String status) {
+    // Sem modificador de acesso (package-private) de propósito — permite
+    // teste unitário direto de JarvisChatServiceTest sem precisar expor isso
+    // como API pública nem recorrer a reflection.
+    boolean statusBate(Job j, String status) {
         if (status == null) return true;
         return switch (status) {
             case "NOVA" -> !j.isSeen() && !j.isRejected();
@@ -831,7 +836,7 @@ public class JarvisChatService {
         return "NOVA";
     }
 
-    private boolean contemBusca(Job j, String busca) {
+    boolean contemBusca(Job j, String busca) {
         String haystack = (j.getTitle() + " " + j.getCompany() + " " + (j.getTags() != null ? j.getTags() : "")).toLowerCase();
         return haystack.contains(busca.toLowerCase());
     }
@@ -1457,7 +1462,9 @@ public class JarvisChatService {
     // propósito — não tem timestamp próprio (Job não guarda "interestedAt"),
     // e "interessado há muito tempo" não é bem o mesmo problema de "apliquei
     // e não veio resposta".
-    private Object executarVagasParadas(Map<String, Object> args) {
+    // Package-private de propósito, mesmo motivo de statusBate — testável
+    // direto por JarvisChatServiceTest.
+    Object executarVagasParadas(Map<String, Object> args) {
         int diasMinimo = args.get("diasMinimo") instanceof Number n ? Math.max(1, n.intValue()) : 10;
         LocalDateTime limite = LocalDateTime.now().minusDays(diasMinimo);
 
