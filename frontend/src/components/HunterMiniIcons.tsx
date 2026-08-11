@@ -235,3 +235,31 @@ export function ThinkingIcon({ size = 13 }: IconProps) {
     </svg>
   );
 }
+
+export function PencilIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M12.5 4L16 7.5L7 16.5H3.5V13L12.5 4Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M10.7 5.8L14.2 9.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function DownloadIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M10 3.5V12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M6.2 9.2L10 13L13.8 9.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 15.5H16" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function SearchIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="9" cy="9" r="5.5" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M13.2 13.2L16.5 16.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}

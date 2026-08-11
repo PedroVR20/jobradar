@@ -2461,6 +2461,65 @@ a:hover { text-decoration: underline; }
   font-size: 0.8rem;
 }
 .jarvis-history-item-delete:hover { background: var(--red); color: #fff; }
+.jarvis-history-item-export {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+.jarvis-history-item-export:hover { background: var(--bg-card); color: var(--accent); }
+
+.jarvis-history-wrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.jarvis-history-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.6rem 0.6rem 0;
+  padding: 0.45rem 0.7rem;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-muted);
+}
+.jarvis-history-search input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+.jarvis-history-empty { padding: 1rem 0.75rem; color: var(--text-muted); font-size: 0.82rem; }
+
+.jarvis-history-item-title-row { display: flex; align-items: center; gap: 0.3rem; min-width: 0; }
+.jarvis-history-item-rename {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.jarvis-history-item:hover .jarvis-history-item-rename { opacity: 1; }
+.jarvis-history-item-rename:hover { background: var(--bg-card); color: var(--accent); }
+.jarvis-history-item-title-input {
+  font-size: 0.82rem;
+  color: var(--text);
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 1px 5px;
+  width: 100%;
+  outline: none;
+}
 
 .jarvis-toggle-btn {
   background: #2dd4bf22;

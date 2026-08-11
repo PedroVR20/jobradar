@@ -31,8 +31,8 @@ import { useAiFeedback } from '../hooks/useAiFeedback';
 import { HunterIcon } from './HunterIcon';
 import {
   BookIcon, ChartIcon, ChatBubbleIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon,
-  CycleIcon, HistoryIcon, MicIcon, NoteIcon, PlusIcon, SuccessIcon, TargetIcon, ThinkingIcon,
-  ThumbDownIcon, ThumbUpIcon, TimerIcon, TrashIcon, WarningIcon,
+  CycleIcon, DownloadIcon, HistoryIcon, MicIcon, NoteIcon, PencilIcon, PlusIcon, SearchIcon,
+  SuccessIcon, TargetIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, TimerIcon, TrashIcon, WarningIcon,
 } from './HunterMiniIcons';
 
 // Preferência de "modo compacto" (esconde os cards visuais, só texto) —
@@ -1337,37 +1337,115 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
 
 // ===================== Histórico de conversas =====================
 
+// Só ativa o modo de edição do título quando clica no lápis (não no botão
+// inteiro, que já serve pra abrir a conversa) — Enter/blur salva, Escape
+// cancela sem mudar nada.
+function EditableTitle({ title, onRename }: { title: string; onRename: (novo: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) { setDraft(title); inputRef.current?.focus(); inputRef.current?.select(); }
+  }, [editing, title]);
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        className="jarvis-history-item-title-input"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onClick={e => e.stopPropagation()}
+        onBlur={() => { onRename(draft); setEditing(false); }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { onRename(draft); setEditing(false); }
+          if (e.key === 'Escape') setEditing(false);
+        }}
+      />
+    );
+  }
+  return (
+    <span className="jarvis-history-item-title-row">
+      <span className="jarvis-history-item-title">{title}</span>
+      <span
+        className="jarvis-history-item-rename"
+        role="button"
+        aria-label="Renomear conversa"
+        onClick={e => { e.stopPropagation(); setEditing(true); }}
+      >
+        <PencilIcon />
+      </span>
+    </span>
+  );
+}
+
 function HistoryView({
-  conversations, activeId, onSelect, onDelete,
+  conversations, activeId, onSelect, onDelete, onRename, onExport,
 }: {
   conversations: Conversation[];
   activeId: string;
   onSelect: (id: string) => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
+  onRename: (id: string, title: string) => void;
+  onExport: (c: Conversation) => void;
 }) {
+  const [busca, setBusca] = useState('');
   const ordered = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+  const termo = busca.trim().toLowerCase();
+  // Busca no título E no texto das mensagens — não só no título, senão não
+  // acha uma conversa antiga só porque não lembra o nome dela.
+  const filtradas = termo
+    ? ordered.filter(c =>
+        c.title.toLowerCase().includes(termo)
+        || c.messages.some(m => 'text' in m && m.text?.toLowerCase().includes(termo)))
+    : ordered;
   return (
-    <div className="jarvis-history-list">
-      {ordered.map(c => (
-        <button
-          key={c.id}
-          className={`jarvis-history-item ${c.id === activeId ? 'jarvis-history-item--active' : ''}`}
-          onClick={() => onSelect(c.id)}
-        >
-          <div className="jarvis-history-item-main">
-            <span className="jarvis-history-item-title">{c.title}</span>
-            <span className="jarvis-history-item-time">{relativeTime(c.updatedAt)}</span>
-          </div>
-          <span
-            className="jarvis-history-item-delete"
-            role="button"
-            aria-label="Apagar conversa"
-            onClick={e => onDelete(c.id, e)}
+    <div className="jarvis-history-wrap">
+      {conversations.length > 4 && (
+        <div className="jarvis-history-search">
+          <SearchIcon />
+          <input
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar nas conversas..."
+            aria-label="Buscar nas conversas"
+          />
+        </div>
+      )}
+      <div className="jarvis-history-list">
+        {filtradas.length === 0 && (
+          <p className="jarvis-history-empty">Nenhuma conversa encontrada.</p>
+        )}
+        {filtradas.map(c => (
+          <button
+            key={c.id}
+            className={`jarvis-history-item ${c.id === activeId ? 'jarvis-history-item--active' : ''}`}
+            onClick={() => onSelect(c.id)}
           >
-            <TrashIcon />
-          </span>
-        </button>
-      ))}
+            <div className="jarvis-history-item-main">
+              <EditableTitle title={c.title} onRename={novo => onRename(c.id, novo)} />
+              <span className="jarvis-history-item-time">{relativeTime(c.updatedAt)}</span>
+            </div>
+            <span
+              className="jarvis-history-item-export"
+              role="button"
+              aria-label="Exportar conversa em markdown"
+              onClick={e => { e.stopPropagation(); onExport(c); }}
+            >
+              <DownloadIcon />
+            </span>
+            <span
+              className="jarvis-history-item-delete"
+              role="button"
+              aria-label="Apagar conversa"
+              onClick={e => onDelete(c.id, e)}
+            >
+              <TrashIcon />
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1550,6 +1628,52 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
     setClosing(true);
     window.setTimeout(onClose, 180); // acompanha a duração da animação de saída
   };
+
+  // Renomear conversa — usado pelo clique no lápis de cada item do histórico
+  // (ver EditableTitle em HistoryView). Título vazio não salva (mantém o
+  // anterior), evita ficar com item sem nome nenhum na lista.
+  const handleRenameConversation = (id: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    setConversations(prev => prev.map(c => (c.id === id ? { ...c, title: trimmed } : c)));
+  };
+
+  // Exporta a conversa inteira como .md — ignora mensagens de "carregando"
+  // (não tem texto de verdade) e a pergunta interativa vira só o texto da
+  // pergunta em si (o card com botões não faz sentido fora do app).
+  const handleExportConversation = (c: Conversation) => {
+    const corpo = c.messages
+      .filter((m): m is Extract<Message, { role: 'user' | 'assistant' }> =>
+        (m.role === 'user' || m.role === 'assistant') && !!m.text.trim())
+      .map(m => `**${m.role === 'user' ? 'Você' : 'Hunter'}:**\n\n${m.text}`)
+      .join('\n\n---\n\n');
+    const md = `# ${c.title}\n\n${corpo}\n`;
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${c.title.replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 60) || 'conversa'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Esc fecha o painel de qualquer lugar (mesmo com foco no textarea) —
+  // padrão comum de modal/painel lateral. Ctrl+K (App.tsx) faz o toggle;
+  // aqui só o fechar mesmo.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleRequestClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Foco automático no campo de mensagem assim que o painel abre — evita ter
+  // que clicar no campo toda vez que abre com Ctrl+K ou pelo botão.
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
 
   // Chat livre com function-calling de verdade: manda o histórico da
   // conversa ativa inteiro pro backend, e é o próprio Gemini que decide se e
@@ -1766,7 +1890,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   useEffect(() => () => { recognitionRef.current?.stop(); }, []);
 
   return createPortal(
-    <div className={`jarvis-panel ${closing ? 'jarvis-panel--closing' : ''}`}>
+    <div className={`jarvis-panel ${closing ? 'jarvis-panel--closing' : ''}`} role="dialog" aria-modal="false" aria-label="Hunter, assistente do Job Radar">
       <div
         className={`jarvis-resize-handle ${resizing ? 'jarvis-resize-handle--active' : ''}`}
         onPointerDown={handleResizeStart}
@@ -1803,10 +1927,12 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           activeId={resolvedActiveId}
           onSelect={handleSelectConversation}
           onDelete={handleDeleteConversation}
+          onRename={handleRenameConversation}
+          onExport={handleExportConversation}
         />
       ) : (
         <>
-          <div className="jarvis-messages" ref={scrollRef}>
+          <div className="jarvis-messages" ref={scrollRef} role="log" aria-live="polite" aria-relevant="additions">
             {messages.map((m, idx) => {
               // "Novo turno" = mudou quem está falando (ou é a primeira
               // mensagem) — só nesse caso soma o respiro extra entre bolhas.

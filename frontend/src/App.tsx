@@ -152,6 +152,20 @@ export default function App() {
   // volta pra primeira "página" sempre que os filtros mudam a lista
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filters]);
 
+  // Ctrl+K (ou Cmd+K no mac) abre/fecha o Hunter de qualquer lugar da tela —
+  // atalho padrão de "abrir busca/assistente" que a maioria dos apps usa.
+  // preventDefault pra não deixar o navegador abrir a barra de endereço.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowJarvis(o => !o);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   const visibleJobs = jobs.slice(0, visibleCount);
   const hasMore = visibleCount < jobs.length;
 
@@ -238,7 +252,7 @@ export default function App() {
               ⚙️ Configurações
             </button>
             {aiStatus.enabled && (
-              <button className="btn jarvis-toggle-btn" onClick={() => setShowJarvis(o => !o)}>
+              <button className="btn jarvis-toggle-btn" onClick={() => setShowJarvis(o => !o)} title="Abrir o Hunter (Ctrl+K)">
                 <HunterIcon size={17} alive /> Hunter
               </button>
             )}
