@@ -15,6 +15,7 @@ import {
   JarvisFixarVagaData,
   JarvisFontesData,
   JarvisLembrarData,
+  JarvisLembreteAgendaData,
   JarvisHistoricoEmpresaData,
   JarvisListarVagasData,
   JarvisMarcarStatusData,
@@ -34,6 +35,7 @@ import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { useAiStatus } from '../hooks/useAiStatus';
 import { useHunterMemory } from '../hooks/useHunterMemory';
+import { useAgenda } from '../hooks/useAgenda';
 import { HunterIcon } from './HunterIcon';
 import {
   BookIcon, ChartIcon, ChatBubbleIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon,
@@ -1140,6 +1142,115 @@ function LembrarCard({ data }: { data: JarvisLembrarData }) {
   );
 }
 
+// O backend do Job Radar nunca fala com a Agenda — esse card é quem cria de
+// verdade, via useAgenda (mesmo hook que AgendaModal/InterviewModal já
+// usam). Conecta primeiro se ainda não tiver token salvo, mesma UX do resto
+// do app.
+function LembreteAgendaCard({ data }: { data: JarvisLembreteAgendaData }) {
+  const { isConnected, savedEmail, login, createTask, linkTask } = useAgenda();
+  const [step, setStep] = useState<'proposta' | 'connect' | 'criado'>('proposta');
+  const [email, setEmail] = useState(savedEmail());
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
+
+  if (data.erro) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro}</p>;
+  }
+
+  const handleCreate = async () => {
+    if (!isConnected()) { setStep('connect'); return; }
+    setSending(true);
+    setSendError('');
+    const result = await createTask({
+      title: data.titulo,
+      description: data.descricao || (data.urlVaga ? `🔗 ${data.urlVaga}` : undefined),
+      dueAt: data.dueAt || undefined,
+      priority: (data.prioridade as 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL') || 'NORMAL',
+    });
+    setSending(false);
+    if (result !== 'unauthorized' && result !== 'error') {
+      if (data.vagaId) linkTask(data.vagaId, result.id, data.dueAt ?? null);
+      setStep('criado');
+    } else if (result === 'unauthorized') {
+      setStep('connect');
+      setSendError('Sessão expirada — conecta de novo.');
+    } else {
+      setSendError('Erro ao criar o lembrete. Tenta de novo?');
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError('');
+    const result = await login(email, password);
+    setLoginLoading(false);
+    if (result === 'ok') {
+      setStep('proposta');
+      handleCreate();
+    } else if (result === 'invalid') {
+      setLoginError('E-mail ou senha incorretos.');
+    } else {
+      setLoginError('Não consegui conectar à Agenda. Ela está rodando?');
+    }
+  };
+
+  if (step === 'criado') {
+    return <p className="jarvis-hit-resumo jarvis-hit-resumo--icon"><SuccessIcon /> Lembrete criado na Agenda.</p>;
+  }
+
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        {data.empresaVaga && <span className="jarvis-hit-company">{data.tituloVaga} — {data.empresaVaga}</span>}
+      </div>
+      {data.descricao && <p className="jarvis-hit-resumo">{data.descricao}</p>}
+      <p className="jarvis-hit-resumo" style={{ color: 'var(--text-muted)' }}>
+        {data.dueAt ? new Date(data.dueAt).toLocaleString('pt-BR') : 'Sem data definida'} · Prioridade {data.prioridade ?? 'NORMAL'}
+      </p>
+
+      {step === 'connect' && (
+        <form className="agenda-form" onSubmit={handleLogin} style={{ marginTop: '0.5rem' }}>
+          <input
+            className="agenda-input"
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="seu@email.com"
+            required
+          />
+          <input
+            className="agenda-input"
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="senha"
+            required
+            style={{ marginTop: '0.35rem' }}
+          />
+          {loginError && <p className="agenda-error">{loginError}</p>}
+          <button type="submit" className="btn btn-primary" disabled={loginLoading} style={{ marginTop: '0.5rem' }}>
+            {loginLoading ? 'Conectando...' : 'Conectar e criar'}
+          </button>
+        </form>
+      )}
+
+      {step === 'proposta' && (
+        <>
+          {sendError && <p className="agenda-error">{sendError}</p>}
+          <button type="button" className="jarvis-msg-action-btn" onClick={handleCreate} disabled={sending} style={{ marginTop: '0.4rem' }}>
+            {sending ? 'Criando...' : '📅 Criar lembrete na Agenda'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function FixarVagaCard({ data }: { data: JarvisFixarVagaData }) {
   if (!data.sucesso) {
     return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui fixar/desafixar essa vaga.'}</p>;
@@ -1422,6 +1533,8 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <OQueFazerAgoraCard data={result.data as JarvisOQueFazerAgoraData} />;
     case 'compararStackComMercado':
       return <CompararMercadoCard data={result.data as JarvisCompararMercadoData} />;
+    case 'criarLembreteNaAgenda':
+      return <LembreteAgendaCard data={result.data as JarvisLembreteAgendaData} />;
     default:
       return null;
   }

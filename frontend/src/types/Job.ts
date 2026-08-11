@@ -374,6 +374,21 @@ export interface JarvisCompararMercadoData {
   erro?: string;
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta
+// criarLembreteNaAgenda. NÃO cria nada — é só a proposta que o card mostra
+// com um botão de confirmar (ver LembreteAgendaCard em JarvisPanel.tsx).
+export interface JarvisLembreteAgendaData {
+  titulo: string;
+  descricao?: string | null;
+  dueAt?: string | null;
+  prioridade?: string;
+  vagaId?: number;
+  tituloVaga?: string;
+  empresaVaga?: string;
+  urlVaga?: string;
+  erro?: string;
+}
+
 // POST /api/jobs/assistant/chat — resultado da ferramenta apagarVaga
 export interface JarvisApagarVagaData {
   sucesso?: boolean;
@@ -395,12 +410,13 @@ export interface JarvisToolResult {
   tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil'
     | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga' | 'atualizarNotaDeVaga'
     | 'gerarCartaDeApresentacao' | 'metricasDeDesempenho' | 'vagasComPrazoProximo' | 'detectarDuplicatas' | 'desempenhoPorFonte' | 'historicoDaEmpresa'
-    | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga' | 'lembrarPreferencia' | 'oQueFazerAgora' | 'compararStackComMercado';
+    | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga' | 'lembrarPreferencia' | 'oQueFazerAgora' | 'compararStackComMercado'
+    | 'criarLembreteNaAgenda';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
     | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData | JarvisAtualizarNotaData
     | JarvisCartaData | JarvisMetricasData | JarvisPrazoData | JarvisDuplicatasData | JarvisFontesData | JarvisHistoricoEmpresaData
     | JarvisFixarVagaData | JarvisAdicionarVagaData | JarvisApagarVagaData | JarvisLembrarData
-    | JarvisOQueFazerAgoraData | JarvisCompararMercadoData;
+    | JarvisOQueFazerAgoraData | JarvisCompararMercadoData | JarvisLembreteAgendaData;
 }
 
 // Pergunta interativa que o Hunter decidiu fazer (ferramenta perguntarUsuario)

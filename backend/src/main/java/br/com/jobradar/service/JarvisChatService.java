@@ -199,6 +199,18 @@ public class JarvisChatService {
             pelo que "parece" na imagem sem confirmar via listarVagas. Se a busca não
             achar nada compatível, diga isso e pergunte mais detalhes, não invente.
 
+            criarLembreteNaAgenda: o backend do Job Radar NUNCA fala direto com
+            a Agenda Pessoal (app separado, roda em outra porta) — essa
+            ferramenta só MONTA a proposta de lembrete (título, descrição,
+            data/hora, vaga relacionada se houver), a interface mostra um card
+            com botão "Criar lembrete" que o USUÁRIO clica pra criar de
+            verdade (ou conectar a Agenda primeiro, se ainda não conectou).
+            Preencha dueAt em ISO 8601 com fuso -03:00 quando o usuário der uma
+            data relativa ("amanhã", "sexta que vem") — calcule a partir de
+            hoje. Pode chamar direto ao pedido claro tipo "me lembra de dar
+            follow-up nessa vaga sexta", não precisa confirmar antes (a
+            confirmação de verdade é o clique no botão do card).
+
             perguntarUsuario: quando você tem uma dúvida real que só o usuário
             resolve (ex: "compara a vaga X" achou duas empresas diferentes com
             título parecido, ou marcarStatusDeVaga ficou ambíguo sobre qual vaga),
@@ -518,6 +530,21 @@ public class JarvisChatService {
                 "required", List.of("texto")
         );
 
+        Map<String, Object> lembreteAgendaParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "vagaId", Map.of("type", "INTEGER", "description",
+                                "ID da vaga relacionada, se houver (peça pra listarVagas primeiro se só tiver título/empresa). Opcional."),
+                        "titulo", Map.of("type", "STRING", "description", "Título curto do lembrete."),
+                        "descricao", Map.of("type", "STRING", "description", "Descrição/contexto do lembrete. Opcional."),
+                        "dueAt", Map.of("type", "STRING", "description",
+                                "Data/hora em ISO 8601 com fuso -03:00 (ex: '2026-08-15T09:00:00-03:00'). Opcional — sem isso a Agenda não notifica em hora nenhuma."),
+                        "prioridade", Map.of("type", "STRING", "description", "Opcional, padrão NORMAL.",
+                                "enum", List.of("LOW", "NORMAL", "HIGH", "CRITICAL"))
+                ),
+                "required", List.of("titulo")
+        );
+
         Map<String, Object> apagarVagaParams = Map.of(
                 "type", "OBJECT",
                 "properties", Map.of(
@@ -692,6 +719,13 @@ public class JarvisChatService {
                                 "toda conversa futura — não precisa (nem pode) 'listar' o que já foi salvo, isso " +
                                 "já aparece sozinho na sua instrução quando relevante.",
                         lembrarPreferenciaParams),
+                new GeminiService.FunctionDeclaration("criarLembreteNaAgenda",
+                        "Monta a PROPOSTA de um lembrete/tarefa pra Agenda Pessoal (app separado) — NÃO cria nada " +
+                                "de verdade, o backend do Job Radar nunca fala com a Agenda diretamente. A interface " +
+                                "mostra um card com a proposta e um botão que o usuário clica pra criar (ou conectar " +
+                                "a Agenda primeiro). Use pra pedidos tipo 'me lembra de dar follow-up nessa vaga " +
+                                "sexta', 'cria uma tarefa pra eu revisar o currículo amanhã'.",
+                        lembreteAgendaParams),
                 new GeminiService.FunctionDeclaration("apagarVaga",
                         "APAGA a vaga do banco de dados PRA SEMPRE, sem volta — não é mudar status pra Recusada, é " +
                                 "remover o registro inteiro. SEMPRE chame perguntarUsuario pra confirmar antes de " +
@@ -757,6 +791,7 @@ public class JarvisChatService {
             case "vagasParadas" -> executarVagasParadas(chamada.args());
             case "fixarVaga" -> executarFixarVaga(chamada.args());
             case "adicionarVagaManual" -> executarAdicionarVagaManual(chamada.args());
+            case "criarLembreteNaAgenda" -> executarCriarLembreteNaAgenda(chamada.args());
             case "apagarVaga" -> executarApagarVaga(chamada.args());
             case "lembrarPreferencia" -> executarLembrarPreferencia(chamada.args());
             case "marcarStatusDeVaga" -> executarMarcarStatus(chamada.args());
@@ -1496,6 +1531,39 @@ public class JarvisChatService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("diasMinimo", diasMinimo);
         m.put("vagas", vagas);
+        return m;
+    }
+
+    // NÃO escreve nada — nem no banco do Job Radar, nem na Agenda (o backend
+    // aqui não fala com a Agenda de jeito nenhum, ver comentário no
+    // parâmetro memoryContext/conversar() e no SYSTEM_INSTRUCTION). Só monta
+    // a proposta; o frontend (useAgenda, já usado por AgendaModal) decide se
+    // cria de verdade quando o usuário clicar no botão do card.
+    private Object executarCriarLembreteNaAgenda(Map<String, Object> args) {
+        String titulo = args.get("titulo") instanceof String s && !s.isBlank() ? s : null;
+        if (titulo == null) {
+            return Map.of("erro", "Preciso de um título pro lembrete.");
+        }
+        Long vagaId = args.get("vagaId") instanceof Number n ? n.longValue() : null;
+        String descricao = args.get("descricao") instanceof String s ? s : null;
+        String dueAt = args.get("dueAt") instanceof String s && !s.isBlank() ? s : null;
+        String prioridade = args.get("prioridade") instanceof String s && !s.isBlank() ? s.toUpperCase() : "NORMAL";
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("titulo", titulo);
+        m.put("descricao", descricao);
+        m.put("dueAt", dueAt);
+        m.put("prioridade", prioridade);
+        if (vagaId != null) {
+            Optional<Job> jobOpt = jobRepository.findById(vagaId);
+            if (jobOpt.isPresent()) {
+                Job job = jobOpt.get();
+                m.put("vagaId", vagaId);
+                m.put("tituloVaga", job.getTitle());
+                m.put("empresaVaga", job.getCompany());
+                m.put("urlVaga", job.getUrl());
+            }
+        }
         return m;
     }
 
