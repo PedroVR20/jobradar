@@ -292,6 +292,19 @@ public class JarvisChatService {
     // um no-op, então o comportamento dele fica idêntico a antes.
     public interface ChatProgressListener {
         void onToolCall(String toolName);
+
+        // Checado no INÍCIO de cada rodada do loop de function-calling, antes
+        // de chamar o Gemini de novo — dá pra parar ENTRE ferramentas, não no
+        // meio de uma chamada HTTP já em voo (essa parte não tem como
+        // cancelar sem reescrever o cliente HTTP pra algo com suporte a
+        // cancelamento de verdade, fora de escopo aqui). Ainda assim é uma
+        // parada real: numa pergunta que dispara 3-4 ferramentas em
+        // sequência, cancelar depois da 1ª evita gastar cota nas 2-3
+        // seguintes. Default false preserva o comportamento de sempre pra
+        // quem não passa listener nenhum (o endpoint síncrono antigo).
+        default boolean isCancelled() {
+            return false;
+        }
     }
 
     private static final ChatProgressListener NOOP_LISTENER = toolName -> { };
@@ -369,6 +382,9 @@ public class JarvisChatService {
                 : systemInstructionComFeedback;
 
         for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
+            if (listener.isCancelled()) {
+                return new ChatOutcome(null, null, toolResults, "Interrompido pelo usuário.", false);
+            }
             GeminiService.ChatResult resultado = geminiService.chat(systemInstructionFinal, contents, tools, true);
             if (!resultado.ok()) {
                 return new ChatOutcome(null, null, toolResults, resultado.errorMessage(), resultado.rateLimited());

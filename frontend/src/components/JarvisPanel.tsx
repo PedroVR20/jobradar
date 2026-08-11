@@ -1774,6 +1774,11 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const micSupported = typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  // "Parar" — cancela a requisição em andamento (ver botão de stop no rodapé
+  // e o handler abaixo). O backend detecta a desconexão e para de gastar
+  // cota nas próximas ferramentas de uma pergunta que dispara várias (ver
+  // ChatProgressListener.isCancelled).
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     try { localStorage.setItem(COMPACT_MODE_KEY, compactMode ? '1' : '0'); } catch { /* ignore */ }
@@ -1996,10 +2001,14 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
     setBusy(true);
     addMessage({ role: 'assistant-loading' } as Omit<Message, 'id'>);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const res = await fetch('/api/jobs/assistant/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           history, candidateProfile: profile, feedbackContext: combinedFeedbackContext(),
           memoryContext: hunterMemory.buildContext(),
@@ -2082,12 +2091,23 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       if (lembrou) hunterMemory.add((lembrou.data as { texto: string }).texto);
 
       refreshAiStatus();
-    } catch {
+    } catch (e) {
       removeLoading();
-      addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);
+      // AbortError: o próprio usuário clicou em "Parar" (ver handleStop) —
+      // não é erro de verdade, não precisa de mensagem alarmante.
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        addMessage({ role: 'assistant', text: 'Interrompido.' } as Omit<Message, 'id'>);
+      } else {
+        addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);
+      }
     } finally {
       setBusy(false);
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleStop = () => {
+    abortControllerRef.current?.abort();
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2472,7 +2492,13 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                 <MicIcon />
               </button>
             )}
-            <button type="submit" className="jarvis-send-btn" disabled={busy || (!input.trim() && !attachedImage)} aria-label="Enviar">➤</button>
+            {busy ? (
+              <button type="button" className="jarvis-send-btn jarvis-send-btn--stop" onClick={handleStop} aria-label="Parar" title="Parar">
+                <CloseIcon size={12} />
+              </button>
+            ) : (
+              <button type="submit" className="jarvis-send-btn" disabled={!input.trim() && !attachedImage} aria-label="Enviar">➤</button>
+            )}
           </form>
         </>
       )}

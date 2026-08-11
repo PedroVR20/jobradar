@@ -1224,12 +1224,38 @@ public class JobController {
         String feedbackContext = req != null ? req.feedbackContext() : null;
         String memoryContext = req != null ? req.memoryContext() : null;
 
+        // "Parar" (botão no frontend, ver AbortController em handleSend):
+        // fechar a conexão dispara onCompletion/onError aqui — o mais cedo
+        // que o loop de function-calling em conversar() percebe isso é no
+        // INÍCIO da próxima rodada (ver ChatProgressListener.isCancelled),
+        // não no meio de uma chamada ao Gemini já em voo. Ainda evita gastar
+        // as próximas ferramentas de uma pergunta que dispara várias.
+        java.util.concurrent.atomic.AtomicBoolean cancelado = new java.util.concurrent.atomic.AtomicBoolean(false);
+        emitter.onCompletion(() -> cancelado.set(true));
+        emitter.onTimeout(() -> cancelado.set(true));
+        emitter.onError(e -> cancelado.set(true));
+
         sseExecutor.execute(() -> {
             try {
                 JarvisChatService.ChatOutcome resultado = jarvisChatService.conversar(
                         historico, perfil, feedbackContext, memoryContext,
-                        toolName -> sendSseEvent(emitter, "tool_call", Map.of("tool", toolName)));
+                        new JarvisChatService.ChatProgressListener() {
+                            @Override
+                            public void onToolCall(String toolName) {
+                                sendSseEvent(emitter, "tool_call", Map.of("tool", toolName));
+                            }
 
+                            @Override
+                            public boolean isCancelled() {
+                                return cancelado.get();
+                            }
+                        });
+
+                if (cancelado.get()) {
+                    // Já não tem mais ninguém ouvindo do outro lado — não
+                    // tenta mandar nem "final" nem "error", só encerra.
+                    return;
+                }
                 if (!resultado.ok()) {
                     sendSseEvent(emitter, "error", Map.of(
                             "error", resultado.errorMessage(),
