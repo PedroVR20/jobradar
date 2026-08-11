@@ -89,7 +89,10 @@ interface Props {
 type Message =
   | { id: number; role: 'user'; text: string; imageDataUrl?: string }
   | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[]; thinking?: string | null; pendingQuestion?: JarvisPendingQuestion | null; isGreeting?: boolean }
-  | { id: number; role: 'assistant-loading' }
+  // livePhrase: preenchido em tempo real pelos eventos SSE (ver
+  // /assistant/chat/stream) — quando presente, LoadingPhrase mostra a
+  // narração REAL do passo atual em vez do ciclo de frases genéricas.
+  | { id: number; role: 'assistant-loading'; livePhrase?: string }
   // Marcador que substitui as mensagens mais antigas cortadas quando uma
   // conversa passa do teto salvo (ver MAX_STORED_PER_CONVO) — em vez de só
   // sumir sem deixar rastro, fica esse aviso de quantas ficaram de fora.
@@ -164,6 +167,43 @@ function readFileAsAttachedImage(file: File): Promise<AttachedImage> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+// ===================== Streaming (SSE) =====================
+// POST /api/jobs/assistant/chat/stream devolve text/event-stream — o
+// navegador não tem um EventSource nativo pra POST (só GET), então lê o
+// corpo da resposta como stream manualmente via fetch + ReadableStream.
+// Formato de cada evento: "event: NOME\ndata: {...json...}\n\n".
+async function consumeSseStream(
+  response: Response,
+  onEvent: (eventName: string, data: unknown) => void
+): Promise<void> {
+  const reader = response.body?.getReader();
+  if (!reader) return;
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary: number;
+    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+      const rawEvent = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      let eventName = 'message';
+      const dataLines: string[] = [];
+      for (const line of rawEvent.split('\n')) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+      }
+      if (dataLines.length === 0) continue;
+      try {
+        onEvent(eventName, JSON.parse(dataLines.join('\n')));
+      } catch {
+        // linha malformada — ignora esse evento em vez de derrubar o stream inteiro
+      }
+    }
+  }
 }
 
 // ===================== Markdown "lite" =====================
@@ -1300,13 +1340,42 @@ function ApagarVagaCard({ data }: { data: JarvisApagarVagaData }) {
   );
 }
 
+// Rótulo pra cada ferramenta real, mostrado assim que o evento SSE
+// "tool_call" chega (ver /assistant/chat/stream) — a narração de verdade,
+// não mais só uma aproximação por palavra-chave da mensagem do usuário.
+const TOOL_PHRASES: Record<string, string> = {
+  listarVagas: 'Buscando suas vagas...',
+  resumoFunil: 'Calculando o resumo do funil...',
+  compatibilidadeComVagasRecentes: 'Analisando compatibilidade com o Gemini...',
+  compatibilidadeComVagasDoFunil: 'Analisando compatibilidade com o Gemini...',
+  estimativaSalarialDeVagas: 'Estimando a faixa salarial...',
+  detalharVagas: 'Buscando os detalhes da vaga...',
+  vagasParecidas: 'Procurando vagas parecidas...',
+  vagasParadas: 'Verificando candidaturas paradas...',
+  marcarStatusDeVaga: 'Atualizando o status da vaga...',
+  atualizarNotaDeVaga: 'Salvando a nota...',
+  gerarCartaDeApresentacao: 'Escrevendo a carta de apresentação...',
+  metricasDeDesempenho: 'Calculando métricas de desempenho...',
+  vagasComPrazoProximo: 'Verificando prazos de candidatura...',
+  detectarDuplicatas: 'Procurando vagas duplicadas...',
+  desempenhoPorFonte: 'Cruzando desempenho por fonte...',
+  historicoDaEmpresa: 'Buscando histórico da empresa...',
+  fixarVaga: 'Fixando a vaga...',
+  adicionarVagaManual: 'Adicionando a vaga...',
+  apagarVaga: 'Removendo a vaga...',
+  lembrarPreferencia: 'Guardando a preferência...',
+  oQueFazerAgora: 'Montando o panorama do dia...',
+  compararStackComMercado: 'Comparando seu perfil com o mercado...',
+  criarLembreteNaAgenda: 'Montando a proposta de lembrete...',
+  perguntarUsuario: 'Preparando uma pergunta...',
+};
+
 // Frases que revezam enquanto espera a resposta — mesma ideia do texto de
-// status que o Claude Code mostra enquanto trabalha. Não dá pra narrar o
-// passo REAL em tempo real (as chamadas de ferramenta acontecem todas no
-// backend, dentro de uma única troca — o navegador só vê o resultado final
-// pronto, sem streaming). Como aproximação: lê palavras-chave da MENSAGEM
-// que o usuário acabou de mandar e escolhe um conjunto de frases relacionado
-// ao assunto, em vez de um ciclo genérico sempre igual não importa o pedido.
+// status que o Claude Code mostra enquanto trabalha. É o FALLBACK: usado
+// antes do primeiro evento SSE chegar, ou se o navegador cair pro caminho
+// sem streaming (ver handleSend). Lê palavras-chave da MENSAGEM que o
+// usuário acabou de mandar e escolhe um conjunto de frases relacionado ao
+// assunto, em vez de um ciclo genérico sempre igual não importa o pedido.
 interface FraseContexto { userText: string; hasImage: boolean }
 
 const FRASE_SETS: { test: (ctx: FraseContexto) => boolean; frases: string[] }[] = [
@@ -1341,7 +1410,7 @@ function escolherFrases(ctx: FraseContexto): string[] {
   return [...(grupo ? grupo.frases : DEFAULT_PHRASES), 'Escrevendo resposta...'];
 }
 
-function LoadingPhrase({ userText, hasImage }: { userText: string; hasImage: boolean }) {
+function LoadingPhrase({ userText, hasImage, livePhrase }: { userText: string; hasImage: boolean; livePhrase?: string }) {
   const frases = escolherFrases({ userText, hasImage });
   const [index, setIndex] = useState(0);
   useEffect(() => {
@@ -1351,15 +1420,19 @@ function LoadingPhrase({ userText, hasImage }: { userText: string; hasImage: boo
     // aparecer, sumir e voltar 2-3 vezes antes da resposta chegar de
     // verdade, o que é enganoso (parecia que já tinha começado a escrever
     // e não tinha). Agora ela aparece uma vez só e fica ali até acabar.
+    // Só roda o ciclo genérico enquanto não tem narração real chegando —
+    // ver comentário no bloco TOOL_PHRASES acima.
+    if (livePhrase) return;
     const id = setInterval(() => {
       setIndex(i => (i < frases.length - 1 ? i + 1 : i));
     }, 1800);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userText, hasImage]);
-  // key={index} força remontar o <span> a cada troca, pra animação de fade
+  }, [userText, hasImage, livePhrase]);
+  // key={texto} força remontar o <span> a cada troca, pra animação de fade
   // rodar de novo em cada frase (senão só o texto trocaria sem transição).
-  return <span key={index} className="jarvis-typing-phrase">{frases[index]}</span>;
+  const texto = livePhrase ?? frases[index];
+  return <span key={texto} className="jarvis-typing-phrase">{texto}</span>;
 }
 
 // Cronômetro tipo o do Claude Code — conta quanto tempo a espera está
@@ -1807,6 +1880,12 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
 
   const addMessage = (m: Omit<Message, 'id'>) => patchActive(msgs => [...msgs, { ...m, id: nextId++ } as Message]);
   const removeLoading = () => patchActive(msgs => msgs.filter(m => m.role !== 'assistant-loading'));
+  // Atualiza a frase da bolha de loading em tempo real conforme os eventos
+  // SSE chegam (ver handleSend/consumeSseStream) — a mesma bolha, só troca o
+  // texto mostrado dentro dela.
+  const setLoadingPhase = (phrase: string) => {
+    patchActive(msgs => msgs.map(m => (m.role === 'assistant-loading' ? { ...m, livePhrase: phrase } : m)));
+  };
 
   const handleNewConversation = () => {
     if (messages.length <= 1) { setView('chat'); return; } // já tá numa conversa vazia, não duplica
@@ -1918,7 +1997,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
     addMessage({ role: 'assistant-loading' } as Omit<Message, 'id'>);
 
     try {
-      const res = await fetch('/api/jobs/assistant/chat', {
+      const res = await fetch('/api/jobs/assistant/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1926,9 +2005,9 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           memoryContext: hunterMemory.buildContext(),
         }),
       });
-      removeLoading();
 
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
+        removeLoading();
         const err = await res.json().catch(() => null);
         addMessage({
           role: 'assistant',
@@ -1937,7 +2016,36 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
         return;
       }
 
-      const data = (await res.json()) as JarvisChatResponse;
+      // Consome o stream — "tool_call" narra em tempo real (ver TOOL_PHRASES/
+      // setLoadingPhase); "final" traz o mesmo payload que a resposta síncrona
+      // de antes trazia inteiro de uma vez. Se a conexão cair no meio sem
+      // nenhum evento "final" chegar, finalData fica null e cai no aviso de
+      // erro abaixo, em vez de travar esperando pra sempre.
+      let finalData: JarvisChatResponse | null = null;
+      let streamErrorMsg: string | null = null;
+      await consumeSseStream(res, (eventName, raw) => {
+        if (eventName === 'tool_call') {
+          const tool = (raw as { tool?: string }).tool;
+          if (tool) setLoadingPhase(TOOL_PHRASES[tool] ?? `Usando ${tool}...`);
+        } else if (eventName === 'final') {
+          finalData = raw as JarvisChatResponse;
+        } else if (eventName === 'error') {
+          streamErrorMsg = (raw as { error?: string }).error ?? 'Deu erro falando com o Hunter.';
+        }
+      });
+
+      removeLoading();
+
+      if (streamErrorMsg) {
+        addMessage({ role: 'assistant', text: streamErrorMsg } as Omit<Message, 'id'>);
+        return;
+      }
+      if (!finalData) {
+        addMessage({ role: 'assistant', text: 'A conexão caiu no meio da resposta — tenta de novo?' } as Omit<Message, 'id'>);
+        return;
+      }
+
+      const data = finalData as JarvisChatResponse;
       addMessage({
         role: 'assistant',
         // BUG corrigido: quando tinha pendingQuestion, text ficava vazio —
@@ -2248,6 +2356,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                       <LoadingPhrase
                         userText={gatilho?.role === 'user' ? gatilho.text : ''}
                         hasImage={gatilho?.role === 'user' && !!gatilho.imageDataUrl}
+                        livePhrase={m.livePhrase}
                       />
                     </div>
                   </div>

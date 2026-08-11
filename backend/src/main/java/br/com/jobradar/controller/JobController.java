@@ -23,9 +23,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.text.Normalizer;
 import java.time.DayOfWeek;
 import java.time.Duration;
@@ -45,6 +48,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @RestController
@@ -1177,5 +1182,82 @@ public class JobController {
         body.put("toolResults", resultado.toolResults());
         body.put("pendingQuestion", resultado.pendingQuestion());
         return ResponseEntity.ok(body);
+    }
+
+    // Só pra esse endpoint de streaming — o resto do controller usa o
+    // request thread normal (Tomcat) sem problema, mas SseEmitter precisa
+    // devolver a conexão pro chamador IMEDIATAMENTE e continuar mandando
+    // eventos de uma thread separada por trás, senão a conexão HTTP nunca
+    // fica "aberta" de verdade pro navegador começar a ler o stream.
+    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
+
+    /**
+     * Mesmo chat livre de /assistant/chat, só que narrando CADA passo real
+     * (chamada de ferramenta) em tempo real via Server-Sent Events, em vez
+     * de devolver tudo de uma vez só no final. O endpoint antigo continua
+     * existindo do jeito que sempre foi — esse aqui é aditivo, pro frontend
+     * poder cair de volta nele se precisar.
+     *
+     * Eventos emitidos:
+     *   tool_call  → {"tool": "listarVagas"}          (antes de cada ferramenta rodar)
+     *   final      → {reply, thinking, toolResults, pendingQuestion}  (mesmo shape do endpoint síncrono)
+     *   error      → {"error": "...", "rateLimited": bool}
+     *
+     * POST /api/jobs/assistant/chat/stream
+     */
+    @PostMapping(value = "/assistant/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter assistantChatStream(@RequestBody(required = false) ChatRequest req) {
+        SseEmitter emitter = new SseEmitter(120_000L);
+
+        if (!geminiService.isEnabled()) {
+            sendSseEvent(emitter, "error", Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+            emitter.complete();
+            return emitter;
+        }
+
+        List<JarvisChatService.ChatMessage> historico = req != null && req.history() != null
+                ? req.history().stream()
+                        .map(m -> new JarvisChatService.ChatMessage(m.role(), m.text(), m.imageMimeType(), m.imageBase64()))
+                        .toList()
+                : List.of();
+        String perfil = req != null ? req.candidateProfile() : null;
+        String feedbackContext = req != null ? req.feedbackContext() : null;
+        String memoryContext = req != null ? req.memoryContext() : null;
+
+        sseExecutor.execute(() -> {
+            try {
+                JarvisChatService.ChatOutcome resultado = jarvisChatService.conversar(
+                        historico, perfil, feedbackContext, memoryContext,
+                        toolName -> sendSseEvent(emitter, "tool_call", Map.of("tool", toolName)));
+
+                if (!resultado.ok()) {
+                    sendSseEvent(emitter, "error", Map.of(
+                            "error", resultado.errorMessage(),
+                            "rateLimited", resultado.rateLimited()));
+                } else {
+                    Map<String, Object> finalBody = new HashMap<>();
+                    finalBody.put("reply", resultado.reply());
+                    finalBody.put("thinking", resultado.thinking());
+                    finalBody.put("toolResults", resultado.toolResults());
+                    finalBody.put("pendingQuestion", resultado.pendingQuestion());
+                    sendSseEvent(emitter, "final", finalBody);
+                }
+                emitter.complete();
+            } catch (Exception e) {
+                log.warn("Erro inesperado no chat em streaming: {}", e.getMessage());
+                emitter.completeWithError(e);
+            }
+        });
+
+        return emitter;
+    }
+
+    private void sendSseEvent(SseEmitter emitter, String name, Object data) {
+        try {
+            emitter.send(SseEmitter.event().name(name).data(data));
+        } catch (IOException e) {
+            // Cliente desconectou (fechou a aba, trocou de conversa no meio) —
+            // não tem pra quem mandar o resto, só ignora e segue.
+        }
     }
 }

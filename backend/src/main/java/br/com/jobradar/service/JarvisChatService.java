@@ -283,12 +283,29 @@ public class JarvisChatService {
         }
     }
 
+    // Usado só pelo endpoint de streaming (POST /assistant/chat/stream) —
+    // notifica CADA passo real do loop de function-calling assim que
+    // acontece, pra virar evento SSE narrando o progresso de verdade em vez
+    // da aproximação por palavra-chave que o frontend usava antes (ver
+    // TOOL_PHRASES no JarvisPanel.tsx). O caminho síncrono antigo (POST
+    // /assistant/chat) não passa listener nenhum — os overloads abaixo usam
+    // um no-op, então o comportamento dele fica idêntico a antes.
+    public interface ChatProgressListener {
+        void onToolCall(String toolName);
+    }
+
+    private static final ChatProgressListener NOOP_LISTENER = toolName -> { };
+
     public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile) {
-        return conversar(historico, candidateProfile, null, null);
+        return conversar(historico, candidateProfile, null, null, NOOP_LISTENER);
     }
 
     public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext) {
-        return conversar(historico, candidateProfile, feedbackContext, null);
+        return conversar(historico, candidateProfile, feedbackContext, null, NOOP_LISTENER);
+    }
+
+    public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext, String memoryContext) {
+        return conversar(historico, candidateProfile, feedbackContext, memoryContext, NOOP_LISTENER);
     }
 
     // feedbackContext: 👍/👎 salvos em ⚙️/nos cards de vaga (useAiFeedback no
@@ -303,7 +320,9 @@ public class JarvisChatService {
     // me mostra vaga remota" ou "não quero nada de SP". Vive inteiramente no
     // localStorage do navegador (useHunterMemory) — o backend não persiste
     // nada, só recebe a lista pronta a cada requisição e injeta na instrução.
-    public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext, String memoryContext) {
+    public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext, String memoryContext,
+                                  ChatProgressListener listener) {
+        if (listener == null) listener = NOOP_LISTENER;
         if (historico == null || historico.isEmpty()) {
             return new ChatOutcome(null, null, List.of(), "Mensagem vazia.", false);
         }
@@ -360,6 +379,7 @@ public class JarvisChatService {
 
             GeminiService.FunctionCallRequest chamada = resultado.functionCall();
             log.info("Jarvis: chamando ferramenta '{}' com args {}", chamada.name(), chamada.args());
+            listener.onToolCall(chamada.name());
 
             // perguntarUsuario é diferente de todas as outras: não resolve
             // sozinha, então NÃO adiciona nada em contents nem continua o
