@@ -389,6 +389,22 @@ export interface JarvisLembreteAgendaData {
   erro?: string;
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta buscarVagasPorSignificado
+export interface JarvisVagaSemantica {
+  id: number;
+  titulo: string;
+  empresa: string;
+  url: string;
+  status: string;
+  similaridadePercent: number;
+}
+
+export interface JarvisBuscaSemanticaData {
+  consulta: string;
+  vagas: JarvisVagaSemantica[];
+  erro?: string;
+}
+
 // POST /api/jobs/assistant/chat — resultado da ferramenta apagarVaga
 export interface JarvisApagarVagaData {
   sucesso?: boolean;
@@ -411,12 +427,12 @@ export interface JarvisToolResult {
     | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga' | 'atualizarNotaDeVaga'
     | 'gerarCartaDeApresentacao' | 'metricasDeDesempenho' | 'vagasComPrazoProximo' | 'detectarDuplicatas' | 'desempenhoPorFonte' | 'historicoDaEmpresa'
     | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga' | 'lembrarPreferencia' | 'oQueFazerAgora' | 'compararStackComMercado'
-    | 'criarLembreteNaAgenda';
+    | 'criarLembreteNaAgenda' | 'buscarVagasPorSignificado';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
     | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData | JarvisAtualizarNotaData
     | JarvisCartaData | JarvisMetricasData | JarvisPrazoData | JarvisDuplicatasData | JarvisFontesData | JarvisHistoricoEmpresaData
     | JarvisFixarVagaData | JarvisAdicionarVagaData | JarvisApagarVagaData | JarvisLembrarData
-    | JarvisOQueFazerAgoraData | JarvisCompararMercadoData | JarvisLembreteAgendaData;
+    | JarvisOQueFazerAgoraData | JarvisCompararMercadoData | JarvisLembreteAgendaData | JarvisBuscaSemanticaData;
 }
 
 // Pergunta interativa que o Hunter decidiu fazer (ferramenta perguntarUsuario)

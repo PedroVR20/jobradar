@@ -191,6 +191,77 @@ public class GeminiService {
         return new GeminiResult(textNode.asText().trim(), null, false);
     }
 
+    // ===================== Embeddings (busca semântica) =====================
+
+    // Modelo dedicado de embedding — quota SEPARADA da de generateContent
+    // (1500 req/min, sem limite diário documentado, bem mais folgada que os
+    // 20/dia do gemini-flash-latest no free tier). Por isso NÃO reaproveita
+    // KeySlot.dailyExhaustedOn: marcar uma key como "esgotada" aqui esgotaria
+    // ela erradamente pro chat também, e vice-versa — são baldes diferentes,
+    // mesmo sendo a mesma key/projeto.
+    private static final String EMBEDDING_MODEL = "text-embedding-004";
+
+    public record EmbedResult(float[] vector, String errorMessage) {
+        public boolean ok() {
+            return vector != null;
+        }
+    }
+
+    /**
+     * Embedda um texto livre (título+empresa+tags de uma vaga, ou a busca
+     * digitada pelo usuário) num vetor de 768 dimensões — usado pra busca
+     * semântica (ver JobEmbeddingService), que acha vagas por SIGNIFICADO em
+     * vez de substring exata ("vaga de infra" achando "DevOps/SRE/Cloud").
+     * Roda o mesmo rodízio de keys que generate()/chat(), só que sem marcar
+     * nada como esgotado (ver comentário acima) — cada key tenta uma vez,
+     * pula pra próxima em qualquer erro.
+     */
+    public EmbedResult embedContent(String text) {
+        if (!isEnabled()) {
+            return new EmbedResult(null, "Recurso de IA não configurado.");
+        }
+        if (text == null || text.isBlank()) {
+            return new EmbedResult(null, "Texto vazio.");
+        }
+
+        Map<String, Object> body = Map.of(
+                "model", "models/" + EMBEDDING_MODEL,
+                "content", Map.of("parts", List.of(Map.of("text", text)))
+        );
+
+        int size = pool.size();
+        String ultimoErro = "Não foi possível gerar o embedding agora.";
+        for (int i = 0; i < size; i++) {
+            KeySlot slot = pool.get(Math.floorMod(cursor.getAndIncrement(), size));
+            try {
+                String url = "https://generativelanguage.googleapis.com/v1beta/models/"
+                        + EMBEDDING_MODEL + ":embedContent?key=" + slot.key;
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+                String response = restTemplate.postForObject(url, request, String.class);
+                JsonNode values = mapper.readTree(response).at("/embedding/values");
+                if (!values.isArray() || values.isEmpty()) {
+                    ultimoErro = "Gemini devolveu o embedding num formato inesperado.";
+                    continue;
+                }
+                float[] vetor = new float[values.size()];
+                for (int j = 0; j < vetor.length; j++) vetor[j] = (float) values.get(j).asDouble();
+                return new EmbedResult(vetor, null);
+            } catch (HttpClientErrorException e) {
+                log.warn("Gemini embedContent: key ...{} falhou ({}): {}", slot.tail, e.getStatusCode(), e.getMessage());
+                ultimoErro = "Gemini recusou a requisição de embedding (erro " + e.getStatusCode().value() + ").";
+            } catch (RestClientException e) {
+                ultimoErro = "Gemini indisponível no momento (rede/timeout).";
+            } catch (Exception e) {
+                log.warn("Erro ao processar embedding do Gemini: {}", e.getMessage());
+                ultimoErro = "Erro ao processar o embedding devolvido pelo Gemini.";
+            }
+        }
+        return new EmbedResult(null, ultimoErro);
+    }
+
     // ===================== Chat livre com function-calling (Jarvis) =====================
 
     public record FunctionDeclaration(String name, String description, Map<String, Object> parametersSchema) {}
@@ -309,6 +380,122 @@ public class GeminiService {
         }
         String thinking = pensamento.length() > 0 ? pensamento.toString().trim() : null;
         return new ChatResult(textoFinal.toString().trim(), thinking, null, null, false);
+    }
+
+    /**
+     * Mesma coisa que {@link #chat}, só que quando a resposta é TEXTO (não
+     * function call) os pedaços vão chegando incrementalmente via
+     * {@code onTextChunk} conforme o Gemini gera — usado pelo endpoint SSE
+     * do Hunter pra dar a sensação de "digitando" de verdade, em vez de
+     * esperar a resposta inteira pra só então mostrar tudo de uma vez.
+     *
+     * <p>Só a PRIMEIRA key tentada usa o modo streaming — se der qualquer
+     * problema (erro de rede, formato inesperado no meio do stream), cai de
+     * volta pro {@link #chat} normal (uma chamada extra, mas garante que o
+     * usuário sempre recebe uma resposta em vez de travar por causa de um
+     * detalhe do protocolo SSE que não bateu com o esperado). Não tenta
+     * rodízio de key dentro do próprio streaming — a complexidade de
+     * recomeçar um stream no meio não compensa pra esse caso.</p>
+     */
+    public ChatResult chatStream(String systemInstruction, List<Map<String, Object>> contents,
+                                  List<FunctionDeclaration> tools, boolean includeThoughts,
+                                  java.util.function.Consumer<String> onTextChunk) {
+        if (!isEnabled()) {
+            return chat(systemInstruction, contents, tools, includeThoughts);
+        }
+        int idx = Math.floorMod(cursor.getAndIncrement(), pool.size());
+        KeySlot slot = pool.get(idx);
+        if (slot.isExhaustedToday()) {
+            return chat(systemInstruction, contents, tools, includeThoughts);
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (systemInstruction != null && !systemInstruction.isBlank()) {
+            body.put("systemInstruction", Map.of("parts", List.of(Map.of("text", systemInstruction))));
+        }
+        body.put("contents", contents);
+        if (tools != null && !tools.isEmpty()) {
+            List<Map<String, Object>> declarations = tools.stream()
+                    .map(t -> {
+                        Map<String, Object> d = new LinkedHashMap<>();
+                        d.put("name", t.name());
+                        d.put("description", t.description());
+                        d.put("parameters", t.parametersSchema());
+                        return (Map<String, Object>) d;
+                    })
+                    .toList();
+            body.put("tools", List.of(Map.of("functionDeclarations", declarations)));
+        }
+        if (includeThoughts) {
+            body.put("generationConfig", Map.of("thinkingConfig", Map.of("includeThoughts", true)));
+        }
+
+        try {
+            String url = "https://generativelanguage.googleapis.com/v1beta/models/"
+                    + model + ":streamGenerateContent?alt=sse&key=" + slot.key;
+            slot.requestsToday.incrementAndGet();
+
+            StringBuilder textoFinal = new StringBuilder();
+            StringBuilder pensamento = new StringBuilder();
+            FunctionCallRequest[] functionCallHolder = new FunctionCallRequest[1];
+
+            restTemplate.execute(url, org.springframework.http.HttpMethod.POST,
+                    request -> {
+                        request.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                        mapper.writeValue(request.getBody(), body);
+                    },
+                    response -> {
+                        try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                                new java.io.InputStreamReader(response.getBody(), java.nio.charset.StandardCharsets.UTF_8))) {
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                if (!line.startsWith("data:")) continue;
+                                String json = line.substring(5).trim();
+                                if (json.isEmpty()) continue;
+                                JsonNode chunk = mapper.readTree(json);
+                                JsonNode parts = chunk.at("/candidates/0/content/parts");
+                                for (JsonNode part : parts) {
+                                    if (part.has("functionCall")) {
+                                        JsonNode fc = part.get("functionCall");
+                                        Map<String, Object> args;
+                                        try {
+                                            args = mapper.convertValue(fc.path("args"), Map.class);
+                                        } catch (Exception e) {
+                                            args = Map.of();
+                                        }
+                                        JsonNode sigNode = part.get("thoughtSignature");
+                                        functionCallHolder[0] = new FunctionCallRequest(
+                                                fc.path("name").asText(), args, sigNode != null ? sigNode.asText() : null);
+                                        continue;
+                                    }
+                                    JsonNode textNode = part.path("text");
+                                    if (textNode.isMissingNode()) continue;
+                                    boolean isThought = part.path("thought").asBoolean(false);
+                                    if (isThought) {
+                                        pensamento.append(textNode.asText());
+                                    } else {
+                                        String pedaco = textNode.asText();
+                                        textoFinal.append(pedaco);
+                                        onTextChunk.accept(pedaco);
+                                    }
+                                }
+                            }
+                        }
+                        return null;
+                    });
+
+            if (functionCallHolder[0] != null) {
+                return new ChatResult(null, null, functionCallHolder[0], null, false);
+            }
+            if (textoFinal.length() == 0) {
+                return new ChatResult(null, null, null, "O Gemini devolveu uma resposta inesperada. Tente de novo.", false);
+            }
+            return new ChatResult(textoFinal.toString().trim(),
+                    pensamento.length() > 0 ? pensamento.toString().trim() : null, null, null, false);
+        } catch (Exception e) {
+            log.warn("chatStream falhou (caindo pro modo não-streaming): {}", e.getMessage());
+            return chat(systemInstruction, contents, tools, includeThoughts);
+        }
     }
 
     /** Monta a parte "model" pra representar uma function call no histórico da conversa. */

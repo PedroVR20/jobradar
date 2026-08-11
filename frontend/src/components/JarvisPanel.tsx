@@ -5,6 +5,7 @@ import {
   JarvisAdicionarVagaData,
   JarvisApagarVagaData,
   JarvisAtualizarNotaData,
+  JarvisBuscaSemanticaData,
   JarvisCartaData,
   JarvisChatResponse,
   JarvisCompararMercadoData,
@@ -40,13 +41,15 @@ import { HunterIcon } from './HunterIcon';
 import {
   BookIcon, ChartIcon, ChatBubbleIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon,
   CycleIcon, DownloadIcon, HistoryIcon, MicIcon, NoteIcon, PencilIcon, PlusIcon, SearchIcon,
-  SuccessIcon, TargetIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, TimerIcon, TrashIcon, WarningIcon,
+  LightningIcon, SpeakerIcon, SpeakerMuteIcon, SuccessIcon, TargetIcon, ThinkingIcon, ThumbDownIcon,
+  ThumbUpIcon, TimerIcon, TrashIcon, WarningIcon,
 } from './HunterMiniIcons';
 
 // Preferência de "modo compacto" (esconde os cards visuais, só texto) —
 // persistida à parte do resto do estado do chat, é uma preferência de
 // exibição, não algo específico de uma conversa.
 const COMPACT_MODE_KEY = 'jobradar:jarvis-compact-mode';
+const FAST_MODE_KEY = 'jobradar:jarvis-fast-mode';
 
 // Ditado por voz (Web Speech API) — só Chrome/Edge/derivados suportam hoje
 // (window.SpeechRecognition ainda não existe no lib.dom.d.ts do TypeScript
@@ -1186,6 +1189,41 @@ function LembrarCard({ data }: { data: JarvisLembrarData }) {
 // verdade, via useAgenda (mesmo hook que AgendaModal/InterviewModal já
 // usam). Conecta primeiro se ainda não tiver token salvo, mesma UX do resto
 // do app.
+function BuscaSemanticaCard({ data }: { data: JarvisBuscaSemanticaData }) {
+  if (data.erro) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro}</p>;
+  }
+  if (data.vagas.length === 0) {
+    return (
+      <p className="jarvis-scan-intro">
+        Nenhuma vaga embeddada bateu com "{data.consulta}" — pode ser vaga recente ainda sem embedding
+        (rode o backfill em ⚙️ Configurações) ou tente uma busca por palavra-chave.
+      </p>
+    );
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.vagas.map(v => {
+        const meta = STATUS_META[v.status] ?? { label: v.status, color: 'var(--text-muted)' };
+        return (
+          <div key={v.id} className="jarvis-hit">
+            <div className="jarvis-hit-head">
+              <span className="jarvis-hit-score" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}>
+                {v.similaridadePercent}%
+              </span>
+              <div className="jarvis-hit-title">
+                <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+                <span className="jarvis-hit-company">{v.empresa}</span>
+              </div>
+            </div>
+            <p className="jarvis-hit-resumo" style={{ color: meta.color }}>{meta.label}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function LembreteAgendaCard({ data }: { data: JarvisLembreteAgendaData }) {
   const { isConnected, savedEmail, login, createTask, linkTask } = useAgenda();
   const [step, setStep] = useState<'proposta' | 'connect' | 'criado'>('proposta');
@@ -1367,8 +1405,48 @@ const TOOL_PHRASES: Record<string, string> = {
   oQueFazerAgora: 'Montando o panorama do dia...',
   compararStackComMercado: 'Comparando seu perfil com o mercado...',
   criarLembreteNaAgenda: 'Montando a proposta de lembrete...',
+  buscarVagasPorSignificado: 'Buscando por significado...',
   perguntarUsuario: 'Preparando uma pergunta...',
 };
+
+// Sugestões de próximo passo depois de uma resposta — derivadas da
+// ferramenta que acabou de rodar, sem gastar IA nenhuma (é só uma tabela
+// fixa). Só aparece na ÚLTIMA mensagem da conversa (ver isLastMsg no
+// render) — sugestão numa resposta antiga já não faz sentido depois que a
+// conversa seguiu adiante.
+const FOLLOWUP_SUGGESTIONS: Record<string, string[]> = {
+  resumoFunil: ['Quais vagas estão paradas?', 'Compara meu perfil com o mercado'],
+  listarVagas: ['Estima o salário dessas vagas', 'Alguma parece com essa?'],
+  vagasParadas: ['Quais estão mais próximas do prazo?', 'O que eu faço agora?'],
+  vagasComPrazoProximo: ['Quais dessas estão paradas?', 'Detalha a primeira'],
+  compatibilidadeComVagasRecentes: ['Gera uma carta pra melhor vaga', 'Quais pontos preciso desenvolver?'],
+  compatibilidadeComVagasDoFunil: ['Gera uma carta pra melhor vaga', 'Cria um lembrete pra dar follow-up'],
+  estimativaSalarialDeVagas: ['Essas vagas batem com meu perfil?', 'Quais estão paradas?'],
+  metricasDeDesempenho: ['Quais vagas estão paradas?', 'Cruza com desempenho por fonte'],
+  detectarDuplicatas: ['Resumo do funil', 'Quais vagas fecham logo?'],
+  desempenhoPorFonte: ['Resumo do funil', 'O que eu faço agora?'],
+  historicoDaEmpresa: ['Detalha a mais recente', 'Já apliquei de novo lá?'],
+  oQueFazerAgora: ['Compara meu perfil com o mercado', 'Cria um lembrete pra hoje'],
+  compararStackComMercado: ['Busca vaga com essa tecnologia', 'O que eu faço agora?'],
+  buscarVagasPorSignificado: ['Detalha a primeira', 'Essas batem com meu perfil?'],
+  vagasParecidas: ['Compara essas duas', 'Estima o salário delas'],
+  detalharVagas: ['Gera uma carta pra essa vaga', 'Tem vaga parecida?'],
+};
+
+function FollowUpSuggestions({ toolResults, onPick }: { toolResults?: JarvisToolResult[]; onPick: (text: string) => void }) {
+  if (!toolResults || toolResults.length === 0) return null;
+  const sugestoes = toolResults.map(tr => FOLLOWUP_SUGGESTIONS[tr.tool]).find(s => s);
+  if (!sugestoes) return null;
+  return (
+    <div className="jarvis-followups">
+      {sugestoes.map(texto => (
+        <button key={texto} type="button" className="jarvis-followup-chip" onClick={() => onPick(texto)}>
+          {texto}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // Frases que revezam enquanto espera a resposta — mesma ideia do texto de
 // status que o Claude Code mostra enquanto trabalha. É o FALLBACK: usado
@@ -1533,8 +1611,11 @@ function PendingQuestionCard({ question, locked, answeredWith, onAnswer }: {
 
 // Barra de ações embaixo de cada resposta do Hunter — copiar mensagem +
 // feedback compacto, igual ao rodapé de mensagem do próprio Claude Code.
+const ttsSupported = typeof window !== 'undefined' && !!window.speechSynthesis;
+
 function ChatMessageActions({ text, featureKey }: { text: string; featureKey: string }) {
   const [copied, setCopied] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(text).then(() => {
@@ -1543,11 +1624,48 @@ function ChatMessageActions({ text, featureKey }: { text: string; featureKey: st
     });
   };
 
+  // Fecha o ciclo de voz que já tinha só entrada (ditado, ver MicIcon no
+  // input) — speechSynthesis é nativo do navegador, custo zero, sem passar
+  // pela cota do Gemini nenhuma. Remove markdown "lite" antes de ler (senão
+  // o TTS lê "asterisco asterisco negrito asterisco asterisco" literalmente).
+  const handleSpeak = () => {
+    if (!ttsSupported) return;
+    if (speaking) {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+      return;
+    }
+    window.speechSynthesis.cancel(); // só uma leitura de cada vez
+    const textoLimpo = text.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\[(.+?)\]\(.+?\)/g, '$1');
+    const utterance = new SpeechSynthesisUtterance(textoLimpo);
+    utterance.lang = 'pt-BR';
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => () => {
+    if (speaking) window.speechSynthesis.cancel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="jarvis-msg-actions">
       <button type="button" className="jarvis-msg-action-btn" onClick={handleCopy} title="Copiar mensagem" aria-label="Copiar mensagem">
         {copied ? <CheckIcon /> : <CopyIcon />}
       </button>
+      {ttsSupported && (
+        <button
+          type="button"
+          className={`jarvis-msg-action-btn ${speaking ? 'jarvis-msg-action-btn--active' : ''}`}
+          onClick={handleSpeak}
+          title={speaking ? 'Parar leitura' : 'Ouvir resposta'}
+          aria-label={speaking ? 'Parar leitura' : 'Ouvir resposta'}
+        >
+          {speaking ? <SpeakerMuteIcon /> : <SpeakerIcon />}
+        </button>
+      )}
       <CompactFeedback featureKey={featureKey} />
     </div>
   );
@@ -1608,6 +1726,8 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <CompararMercadoCard data={result.data as JarvisCompararMercadoData} />;
     case 'criarLembreteNaAgenda':
       return <LembreteAgendaCard data={result.data as JarvisLembreteAgendaData} />;
+    case 'buscarVagasPorSignificado':
+      return <BuscaSemanticaCard data={result.data as JarvisBuscaSemanticaData} />;
     default:
       return null;
   }
@@ -1769,15 +1889,31 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   const [compactMode, setCompactMode] = useState(() => {
     try { return localStorage.getItem(COMPACT_MODE_KEY) === '1'; } catch { return false; }
   });
+  // Modo rápido (⚡) — controle explícito de gasto de cota: desliga o
+  // raciocínio (includeThoughts) e pede economia nas ferramentas caras
+  // (compatibilidade, carta) no backend. Padrão desligado (modo "profundo",
+  // comportamento de sempre) — é um opt-in, não muda nada pra quem não mexe.
+  const [fastMode, setFastMode] = useState(() => {
+    try { return localStorage.getItem(FAST_MODE_KEY) === '1'; } catch { return false; }
+  });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const micSupported = typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  // "Parar" — cancela a requisição em andamento (ver botão de stop no rodapé
+  // e o handler abaixo). O backend detecta a desconexão e para de gastar
+  // cota nas próximas ferramentas de uma pergunta que dispara várias (ver
+  // ChatProgressListener.isCancelled).
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     try { localStorage.setItem(COMPACT_MODE_KEY, compactMode ? '1' : '0'); } catch { /* ignore */ }
   }, [compactMode]);
+
+  useEffect(() => {
+    try { localStorage.setItem(FAST_MODE_KEY, fastMode ? '1' : '0'); } catch { /* ignore */ }
+  }, [fastMode]);
 
   // loadConversations() e loadActiveId() são inicializadores independentes
   // do useState (cada um roda separado) — quando o localStorage começa
@@ -1996,13 +2132,17 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
     setBusy(true);
     addMessage({ role: 'assistant-loading' } as Omit<Message, 'id'>);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const res = await fetch('/api/jobs/assistant/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           history, candidateProfile: profile, feedbackContext: combinedFeedbackContext(),
-          memoryContext: hunterMemory.buildContext(),
+          memoryContext: hunterMemory.buildContext(), fastMode,
         }),
       });
 
@@ -2017,16 +2157,35 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       }
 
       // Consome o stream — "tool_call" narra em tempo real (ver TOOL_PHRASES/
-      // setLoadingPhase); "final" traz o mesmo payload que a resposta síncrona
-      // de antes trazia inteiro de uma vez. Se a conexão cair no meio sem
-      // nenhum evento "final" chegar, finalData fica null e cai no aviso de
-      // erro abaixo, em vez de travar esperando pra sempre.
+      // setLoadingPhase); "answer_chunk" vai construindo a resposta AO VIVO,
+      // pedaço por pedaço, conforme o Gemini gera de verdade (ver
+      // GeminiService.chatStream) — a bolha de loading vira uma mensagem de
+      // verdade assim que o primeiro pedaço chega; "final" traz metadata
+      // (toolResults/thinking/pendingQuestion) pra completar essa mesma
+      // mensagem, sem duplicar o texto que já foi streamado. Se a conexão
+      // cair no meio sem nenhum "final" chegar, finalData fica null e cai no
+      // aviso de erro abaixo, em vez de travar esperando pra sempre.
       let finalData: JarvisChatResponse | null = null;
       let streamErrorMsg: string | null = null;
+      let streamedMessageId: number | null = null;
+      let streamedText = '';
       await consumeSseStream(res, (eventName, raw) => {
         if (eventName === 'tool_call') {
           const tool = (raw as { tool?: string }).tool;
           if (tool) setLoadingPhase(TOOL_PHRASES[tool] ?? `Usando ${tool}...`);
+        } else if (eventName === 'answer_chunk') {
+          const chunk = (raw as { text?: string }).text ?? '';
+          streamedText += chunk;
+          if (streamedMessageId === null) {
+            removeLoading();
+            const id = nextId++;
+            streamedMessageId = id;
+            patchActive(msgs => [...msgs, { id, role: 'assistant', text: streamedText } as Message]);
+          } else {
+            const id = streamedMessageId;
+            const textoAtual = streamedText;
+            patchActive(msgs => msgs.map(m => (m.id === id ? { ...m, text: textoAtual } : m)));
+          }
         } else if (eventName === 'final') {
           finalData = raw as JarvisChatResponse;
         } else if (eventName === 'error') {
@@ -2034,34 +2193,47 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
         }
       });
 
-      removeLoading();
-
       if (streamErrorMsg) {
+        removeLoading();
         addMessage({ role: 'assistant', text: streamErrorMsg } as Omit<Message, 'id'>);
         return;
       }
       if (!finalData) {
+        removeLoading();
         addMessage({ role: 'assistant', text: 'A conexão caiu no meio da resposta — tenta de novo?' } as Omit<Message, 'id'>);
         return;
       }
 
       const data = finalData as JarvisChatResponse;
-      addMessage({
-        role: 'assistant',
-        // BUG corrigido: quando tinha pendingQuestion, text ficava vazio —
-        // a pergunta só existia visualmente (via PendingQuestionCard), nunca
-        // ia pro histórico de texto puro que volta pro backend na PRÓXIMA
-        // chamada (ver handleSend/historicoAnterior). Resultado: o Hunter
-        // "esquecia" que tinha perguntado algo, porque a mensagem dele no
-        // histórico aparecia como se não tivesse dito nada — daí ele
-        // perguntava de novo e de novo, achando que ainda não tinha
-        // perguntado. Agora o texto da pergunta vai pro histórico também,
-        // só a INTERFACE prioriza mostrar o card em vez do texto solto.
-        text: data.pendingQuestion ? data.pendingQuestion.pergunta : (data.reply ?? 'Não consegui gerar uma resposta dessa vez — tenta reformular?'),
-        toolResults: data.toolResults,
-        thinking: data.thinking,
-        pendingQuestion: data.pendingQuestion,
-      } as Omit<Message, 'id'>);
+      if (streamedMessageId !== null) {
+        // Texto já foi construído ao vivo pelos "answer_chunk" — só completa
+        // essa MESMA mensagem com a metadata, sem duplicar o texto.
+        const id = streamedMessageId;
+        patchActive(msgs => msgs.map(m => (m.id === id
+          ? { ...m, toolResults: data.toolResults, thinking: data.thinking, pendingQuestion: data.pendingQuestion } as Message
+          : m)));
+      } else {
+        // Nenhum "answer_chunk" chegou (ex: chatStream caiu pro modo
+        // não-streaming internamente, ou a resposta foi um pendingQuestion,
+        // que nunca é texto incremental) — mesmo caminho de sempre.
+        removeLoading();
+        addMessage({
+          role: 'assistant',
+          // BUG corrigido: quando tinha pendingQuestion, text ficava vazio —
+          // a pergunta só existia visualmente (via PendingQuestionCard), nunca
+          // ia pro histórico de texto puro que volta pro backend na PRÓXIMA
+          // chamada (ver handleSend/historicoAnterior). Resultado: o Hunter
+          // "esquecia" que tinha perguntado algo, porque a mensagem dele no
+          // histórico aparecia como se não tivesse dito nada — daí ele
+          // perguntava de novo e de novo, achando que ainda não tinha
+          // perguntado. Agora o texto da pergunta vai pro histórico também,
+          // só a INTERFACE prioriza mostrar o card em vez do texto solto.
+          text: data.pendingQuestion ? data.pendingQuestion.pergunta : (data.reply ?? 'Não consegui gerar uma resposta dessa vez — tenta reformular?'),
+          toolResults: data.toolResults,
+          thinking: data.thinking,
+          pendingQuestion: data.pendingQuestion,
+        } as Omit<Message, 'id'>);
+      }
 
       // Ferramentas que mudam dado de verdade no banco — avisa o App.tsx pra
       // recarregar a lista, senão o card só refletiria após um F5. Passa o
@@ -2082,12 +2254,40 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       if (lembrou) hunterMemory.add((lembrou.data as { texto: string }).texto);
 
       refreshAiStatus();
-    } catch {
+    } catch (e) {
       removeLoading();
-      addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);
+      // AbortError: o próprio usuário clicou em "Parar" (ver handleStop) —
+      // não é erro de verdade, não precisa de mensagem alarmante.
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        addMessage({ role: 'assistant', text: 'Interrompido.' } as Omit<Message, 'id'>);
+      } else {
+        addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);
+      }
     } finally {
       setBusy(false);
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleStop = () => {
+    abortControllerRef.current?.abort();
+  };
+
+  // Editar e reenviar — diferente de "regenerar" (que gastaria cota de IA
+  // pra talvez repetir a mesma resposta): isso corrige o pedido mal
+  // formulado, que é o caso real mais comum. Trunca a conversa a partir
+  // dessa mensagem (ela e tudo que veio depois somem) e joga o texto de
+  // volta no campo pra reenviar já editado.
+  const handleEditMessage = (messageId: number) => {
+    if (busy) return;
+    const msg = messages.find(m => m.id === messageId);
+    if (!msg || msg.role !== 'user') return;
+    patchActive(msgs => {
+      const idx = msgs.findIndex(m => m.id === messageId);
+      return idx === -1 ? msgs : msgs.slice(0, idx);
+    });
+    setInput(msg.text);
+    textareaRef.current?.focus();
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2248,6 +2448,14 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           >
             <CompactIcon />
           </button>
+          <button
+            className={`jarvis-header-icon-btn ${fastMode ? 'jarvis-header-icon-btn--active' : ''}`}
+            onClick={() => setFastMode(f => !f)}
+            title={fastMode ? 'Modo rápido ativado (⚡ economiza cota — desliga o raciocínio e evita ferramentas caras). Clique pra voltar ao modo profundo.' : 'Modo profundo (padrão). Clique pra ativar o modo rápido ⚡'}
+            aria-label="Alternar modo rápido"
+          >
+            <LightningIcon />
+          </button>
           {hunterMemory.items.length > 0 && (
             <div className="jarvis-memory-wrap">
               <button
@@ -2336,9 +2544,22 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
               }
               if (m.role === 'user') {
                 return (
-                  <div key={m.id} className={`jarvis-bubble jarvis-bubble--user ${turnoClass}`}>
-                    {m.imageDataUrl && <img src={m.imageDataUrl} alt="Print anexado" className="jarvis-msg-image" />}
-                    {m.text}
+                  <div key={m.id} className={`jarvis-user-row ${turnoClass}`}>
+                    <div className="jarvis-bubble jarvis-bubble--user">
+                      {m.imageDataUrl && <img src={m.imageDataUrl} alt="Print anexado" className="jarvis-msg-image" />}
+                      {m.text}
+                    </div>
+                    {!busy && (
+                      <button
+                        type="button"
+                        className="jarvis-edit-msg-btn"
+                        onClick={() => handleEditMessage(m.id)}
+                        title="Editar e reenviar"
+                        aria-label="Editar e reenviar essa mensagem"
+                      >
+                        <PencilIcon size={11} />
+                      </button>
+                    )}
                   </div>
                 );
               }
@@ -2403,6 +2624,9 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                       <>
                         {renderMarkdownLite(m.text)}
                         {!m.isGreeting && <ChatMessageActions text={m.text} featureKey="jarvis-chat" />}
+                        {isLastMsg && !busy && (
+                          <FollowUpSuggestions toolResults={m.toolResults} onPick={handleSend} />
+                        )}
                       </>
                     )}
                   </div>
@@ -2472,7 +2696,13 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                 <MicIcon />
               </button>
             )}
-            <button type="submit" className="jarvis-send-btn" disabled={busy || (!input.trim() && !attachedImage)} aria-label="Enviar">➤</button>
+            {busy ? (
+              <button type="button" className="jarvis-send-btn jarvis-send-btn--stop" onClick={handleStop} aria-label="Parar" title="Parar">
+                <CloseIcon size={12} />
+              </button>
+            ) : (
+              <button type="submit" className="jarvis-send-btn" disabled={!input.trim() && !attachedImage} aria-label="Enviar">➤</button>
+            )}
           </form>
         </>
       )}

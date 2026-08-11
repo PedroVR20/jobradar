@@ -263,3 +263,31 @@ export function SearchIcon({ size = 14 }: IconProps) {
     </svg>
   );
 }
+
+export function SpeakerIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M3.5 7.5H6.5L10.5 4V16L6.5 12.5H3.5V7.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M13.2 7C14 7.8 14.5 8.85 14.5 10C14.5 11.15 14 12.2 13.2 13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M15.3 4.8C16.7 6.15 17.5 8 17.5 10C17.5 12 16.7 13.85 15.3 15.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function LightningIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M11 2.5L4.5 11.5H9.5L8.5 17.5L15.5 8.5H10.5L11 2.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function SpeakerMuteIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M3.5 7.5H6.5L10.5 4V16L6.5 12.5H3.5V7.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M13.5 8L17 11.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M17 8L13.5 11.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}

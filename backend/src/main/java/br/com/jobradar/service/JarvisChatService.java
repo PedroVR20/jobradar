@@ -37,6 +37,7 @@ public class JarvisChatService {
     private final JobStatusService jobStatusService;
     private final CoverLetterService coverLetterService;
     private final SeniorityClassifier seniorityClassifier;
+    private final JobEmbeddingService jobEmbeddingService;
 
     // compatibilidadeComVagasDoFunil analisa DIRETO (sem pré-filtro), porque
     // o grupo já vem pequeno por natureza (é o funil curado do próprio
@@ -292,6 +293,27 @@ public class JarvisChatService {
     // um no-op, então o comportamento dele fica idêntico a antes.
     public interface ChatProgressListener {
         void onToolCall(String toolName);
+
+        // Checado no INÍCIO de cada rodada do loop de function-calling, antes
+        // de chamar o Gemini de novo — dá pra parar ENTRE ferramentas, não no
+        // meio de uma chamada HTTP já em voo (essa parte não tem como
+        // cancelar sem reescrever o cliente HTTP pra algo com suporte a
+        // cancelamento de verdade, fora de escopo aqui). Ainda assim é uma
+        // parada real: numa pergunta que dispara 3-4 ferramentas em
+        // sequência, cancelar depois da 1ª evita gastar cota nas 2-3
+        // seguintes. Default false preserva o comportamento de sempre pra
+        // quem não passa listener nenhum (o endpoint síncrono antigo).
+        default boolean isCancelled() {
+            return false;
+        }
+
+        // Pedaço de TEXTO da resposta final assim que chega do Gemini (ver
+        // GeminiService.chatStream) — só dispara na rodada que termina em
+        // texto (não em rodada de function-calling, que não tem texto
+        // incremental de verdade pra narrar). Default no-op preserva o
+        // comportamento de sempre pra quem não passa listener nenhum.
+        default void onAnswerChunk(String chunk) {
+        }
     }
 
     private static final ChatProgressListener NOOP_LISTENER = toolName -> { };
@@ -308,6 +330,11 @@ public class JarvisChatService {
         return conversar(historico, candidateProfile, feedbackContext, memoryContext, NOOP_LISTENER);
     }
 
+    public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext, String memoryContext,
+                                  ChatProgressListener listener) {
+        return conversar(historico, candidateProfile, feedbackContext, memoryContext, listener, false);
+    }
+
     // feedbackContext: 👍/👎 salvos em ⚙️/nos cards de vaga (useAiFeedback no
     // frontend) pras análises de compatibilidade — antes só chegava nos
     // endpoints diretos (match-score, learning-plan), nunca no chat. Agora o
@@ -320,11 +347,29 @@ public class JarvisChatService {
     // me mostra vaga remota" ou "não quero nada de SP". Vive inteiramente no
     // localStorage do navegador (useHunterMemory) — o backend não persiste
     // nada, só recebe a lista pronta a cada requisição e injeta na instrução.
+    //
+    // fastMode: toggle explícito do usuário (⚡ no cabeçalho do chat) pra
+    // controlar gasto de cota — desliga includeThoughts (raciocínio custa
+    // tokens de saída extras) e pede pro modelo evitar ferramentas caras
+    // (compatibilidade, carta) a menos que seja exatamente o pedido.
     public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext, String memoryContext,
-                                  ChatProgressListener listener) {
+                                  ChatProgressListener listener, boolean fastMode) {
         if (listener == null) listener = NOOP_LISTENER;
         if (historico == null || historico.isEmpty()) {
             return new ChatOutcome(null, null, List.of(), "Mensagem vazia.", false);
+        }
+
+        // Fast-path sem IA: um punhado de perguntas triviais e determinísticas
+        // (ex: "quantas vagas eu tenho") não precisam de function-calling
+        // nenhum — respondidas na hora, sem gastar uma chamada de cota (que
+        // hoje é o recurso mais escasso do Hunter, ver KeyPoolStatus). Só
+        // dispara em correspondência EXATA da mensagem inteira (normalizada),
+        // não substring — uma pergunta com contexto extra ("quantas vagas eu
+        // tenho no Itaú") cai pro caminho normal do LLM, como deveria.
+        ChatMessage ultimaMensagem = historico.get(historico.size() - 1);
+        if ("user".equals(ultimaMensagem.role()) && !ultimaMensagem.temImagem()) {
+            ChatOutcome fastPath = tentarFastPath(ultimaMensagem.text(), listener);
+            if (fastPath != null) return fastPath;
         }
 
         List<ChatMessage> recortado = historico.size() > MAX_HISTORY_MESSAGES
@@ -354,6 +399,13 @@ public class JarvisChatService {
         // nunca via esse histórico, então o 👍/👎 que o usuário dava numa
         // resposta comum do Hunter não tinha efeito nenhum. Anexado aqui na
         // instrução de sistema, vale pra QUALQUER resposta da conversa.
+        //
+        // Sobre cache implícito do Gemini (que depende de PREFIXO idêntico
+        // entre chamadas): checado de propósito — SYSTEM_INSTRUCTION (a parte
+        // grande e estável, ~12k caracteres) já vem SEMPRE primeiro, com
+        // feedback/memória (o que varia por usuário/sessão) concatenado
+        // DEPOIS. Ou seja, o prefixo cacheável já fica intacto do jeito que
+        // está — não tinha nada de fato quebrado aqui pra corrigir.
         String systemInstructionComFeedback = feedbackContext != null && !feedbackContext.isBlank()
                 ? SYSTEM_INSTRUCTION + "\n\nFeedback que o usuário já deu sobre suas respostas anteriores " +
                         "(curtiu/não curtiu + comentário) — leve em conta pra ajustar tom, formato ou nível " +
@@ -362,14 +414,28 @@ public class JarvisChatService {
         // Preferências que o usuário pediu EXPLICITAMENTE pra lembrar (não é
         // feedback de estilo, são fatos/regras reais pra aplicar sempre que
         // relevante — ex: filtro implícito de local/modalidade em listarVagas).
-        String systemInstructionFinal = memoryContext != null && !memoryContext.isBlank()
+        String systemInstructionComMemoria = memoryContext != null && !memoryContext.isBlank()
                 ? systemInstructionComFeedback + "\n\nPreferências que o usuário já pediu pra você lembrar entre " +
                         "conversas (aplique sempre que fizer sentido pro pedido atual, sem precisar que ele repita):\n" +
                         memoryContext
                 : systemInstructionComFeedback;
+        // Modo rápido (⚡, toggle explícito do usuário no cabeçalho do chat) —
+        // controle direto de gasto de cota: desliga o raciocínio (includeThoughts
+        // custa tokens de saída extras em toda resposta) e pede economia nas
+        // ferramentas que gastam IA de verdade.
+        String systemInstructionFinal = fastMode
+                ? systemInstructionComMemoria + "\n\nModo rápido ativado pelo usuário: seja econômico. Evite chamar " +
+                        "compatibilidadeComVagasRecentes, compatibilidadeComVagasDoFunil ou gerarCartaDeApresentacao " +
+                        "a menos que seja exatamente o que foi pedido, prefira respostas mais curtas e diretas."
+                : systemInstructionComMemoria;
 
         for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
-            GeminiService.ChatResult resultado = geminiService.chat(systemInstructionFinal, contents, tools, true);
+            if (listener.isCancelled()) {
+                return new ChatOutcome(null, null, toolResults, "Interrompido pelo usuário.", false);
+            }
+            ChatProgressListener listenerFinal = listener;
+            GeminiService.ChatResult resultado = geminiService.chatStream(
+                    systemInstructionFinal, contents, tools, !fastMode, listenerFinal::onAnswerChunk);
             if (!resultado.ok()) {
                 return new ChatOutcome(null, null, toolResults, resultado.errorMessage(), resultado.rateLimited());
             }
@@ -400,6 +466,48 @@ public class JarvisChatService {
                 "Essa pergunta pediu mais passos do que eu consigo resolver de uma vez — tenta reformular de um jeito mais direto?",
                 null, toolResults, null, false
         );
+    }
+
+    // ===================== Fast-path sem IA =====================
+
+    // Correspondência exata (não substring) contra a mensagem inteira,
+    // normalizada (sem acento, minúscula, sem pontuação final) — cobre só as
+    // formas mais comuns de pedir o resumo do funil. Qualquer variação fora
+    // dessa lista cai pro LLM normalmente, sem risco de "roubar" uma pergunta
+    // mais nuançada que só parece com essas.
+    private static final Set<String> FAST_PATH_RESUMO_FUNIL = Set.of(
+            "quantas vagas eu tenho", "quantas vagas tenho", "quantas vagas eu apliquei",
+            "quantas vagas apliquei", "quantas vagas tem", "quantas vagas eu tenho no total",
+            "resumo do funil", "resumo do meu funil", "resumo rapido do funil",
+            "qual o resumo do funil", "me da um resumo do funil"
+    );
+
+    // Package-private de propósito — testável direto em JarvisChatServiceTest.
+    ChatOutcome tentarFastPath(String textoUsuario, ChatProgressListener listener) {
+        if (textoUsuario == null || textoUsuario.isBlank()) return null;
+        String normalizado = normalizarFastPath(textoUsuario);
+
+        if (FAST_PATH_RESUMO_FUNIL.contains(normalizado)) {
+            listener.onToolCall("resumoFunil");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> resumo = (Map<String, Object>) executarResumoFunil();
+            String reply = String.format(
+                    "Você tem %d vagas no total: %d novas, %d vistas, %d com interesse marcado, " +
+                            "%d aplicadas, %d em andamento e %d recusadas.",
+                    (Long) resumo.get("total"), (Long) resumo.get("novas"), (Long) resumo.get("vistas"),
+                    (Long) resumo.get("interessadas"), (Long) resumo.get("aplicadas"),
+                    (Long) resumo.get("emAndamento"), (Long) resumo.get("recusadas"));
+            List<ToolResultPayload> resultados = List.of(new ToolResultPayload("resumoFunil", resumo));
+            return new ChatOutcome(reply, null, resultados, null, false);
+        }
+
+        return null;
+    }
+
+    private String normalizarFastPath(String texto) {
+        String semAcento = java.text.Normalizer.normalize(texto.toLowerCase().trim(), java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "");
+        return semAcento.replaceAll("[?!.]+$", "").trim();
     }
 
     // ===================== Definição das ferramentas =====================
@@ -548,6 +656,18 @@ public class JarvisChatService {
                                         "vagas remotas', 'não gosta de vagas de recrutamento/RH', 'salário mínimo aceitável é R$ 6000').")
                 ),
                 "required", List.of("texto")
+        );
+
+        Map<String, Object> buscaSemanticaParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "consulta", Map.of("type", "STRING", "description",
+                                "O que a vaga precisa SER/TER, em linguagem natural (ex: 'vaga de infraestrutura na nuvem', " +
+                                        "'algo com front-end moderno', 'liderança técnica de time pequeno'). Não é busca por " +
+                                        "palavra exata — é por SIGNIFICADO, útil quando o termo certo não está claro."),
+                        "limite", Map.of("type", "INTEGER", "description", "Máximo de vagas a retornar. Padrão 10, máximo 20.")
+                ),
+                "required", List.of("consulta")
         );
 
         Map<String, Object> lembreteAgendaParams = Map.of(
@@ -739,6 +859,14 @@ public class JarvisChatService {
                                 "toda conversa futura — não precisa (nem pode) 'listar' o que já foi salvo, isso " +
                                 "já aparece sozinho na sua instrução quando relevante.",
                         lembrarPreferenciaParams),
+                new GeminiService.FunctionDeclaration("buscarVagasPorSignificado",
+                        "Busca vagas por SIGNIFICADO (embeddings), não por palavra exata — use quando listarVagas com " +
+                                "'busca' (substring literal) não é o jeito certo, tipo 'vaga de infraestrutura' precisando " +
+                                "achar 'DevOps/SRE/Cloud' mesmo sem a palavra 'infra' aparecer. NÃO usa a IA generativa do " +
+                                "chat (é um modelo de embedding, cota separada) — pode chamar sem economia especial. Vaga " +
+                                "que ainda não foi processada por essa feature (recente/backfill pendente) não aparece no " +
+                                "resultado — se vier vazio, tente listarVagas com busca por palavra-chave como alternativa.",
+                        buscaSemanticaParams),
                 new GeminiService.FunctionDeclaration("criarLembreteNaAgenda",
                         "Monta a PROPOSTA de um lembrete/tarefa pra Agenda Pessoal (app separado) — NÃO cria nada " +
                                 "de verdade, o backend do Job Radar nunca fala com a Agenda diretamente. A interface " +
@@ -811,6 +939,7 @@ public class JarvisChatService {
             case "vagasParadas" -> executarVagasParadas(chamada.args());
             case "fixarVaga" -> executarFixarVaga(chamada.args());
             case "adicionarVagaManual" -> executarAdicionarVagaManual(chamada.args());
+            case "buscarVagasPorSignificado" -> executarBuscaSemantica(chamada.args());
             case "criarLembreteNaAgenda" -> executarCriarLembreteNaAgenda(chamada.args());
             case "apagarVaga" -> executarApagarVaga(chamada.args());
             case "lembrarPreferencia" -> executarLembrarPreferencia(chamada.args());
@@ -1550,6 +1679,39 @@ public class JarvisChatService {
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("diasMinimo", diasMinimo);
+        m.put("vagas", vagas);
+        return m;
+    }
+
+    // Não usa a IA generativa do chat — o modelo de embedding tem quota
+    // separada e bem mais folgada (ver comentário em GeminiService.
+    // embedContent). Candidatas = todas as vagas não recusadas com embedding
+    // já salvo (vaga sem embedding simplesmente não concorre, não quebra a
+    // busca — ver JobEmbeddingService.buscar).
+    private Object executarBuscaSemantica(Map<String, Object> args) {
+        String consulta = args.get("consulta") instanceof String s && !s.isBlank() ? s : null;
+        if (consulta == null) {
+            return Map.of("erro", "Preciso saber o que procurar.");
+        }
+        int limite = args.get("limite") instanceof Number n ? Math.min(20, Math.max(1, n.intValue())) : 10;
+
+        List<Job> candidatas = jobRepository.findAll().stream().filter(j -> !j.isRejected()).toList();
+        List<JobEmbeddingService.Match> matches = jobEmbeddingService.buscar(consulta, candidatas, limite);
+
+        List<Map<String, Object>> vagas = matches.stream().map(match -> {
+            Job j = match.job();
+            Map<String, Object> v = new LinkedHashMap<>();
+            v.put("id", j.getId());
+            v.put("titulo", j.getTitle());
+            v.put("empresa", j.getCompany());
+            v.put("url", j.getUrl());
+            v.put("status", statusDe(j));
+            v.put("similaridadePercent", Math.round(match.similaridade() * 100));
+            return (Map<String, Object>) v;
+        }).toList();
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("consulta", consulta);
         m.put("vagas", vagas);
         return m;
     }
