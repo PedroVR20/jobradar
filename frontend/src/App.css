@@ -1982,7 +1982,10 @@ a:hover { text-decoration: underline; }
   transition: background 0.15s, color 0.15s;
 }
 .jarvis-header-icon-btn:hover { background: var(--bg-card2); color: var(--text); }
-.jarvis-header-icon-btn--active { background: #6366f122; color: var(--accent); }
+/* Preenchido sólido — o contorno roxo bem fraco de antes (#6366f122) quase
+   não aparecia contra o fundo escuro, especialmente pro ícone de pin na
+   lista de conversas (feedback direto do usuário). */
+.jarvis-header-icon-btn--active { background: var(--accent); color: #fff; }
 
 /* Menu "mais opções" — agrupa compacto/rápido/memória num dropdown em vez de
    3 botões-ícone a mais na fileira do header (ver comentário no JSX). */
@@ -2019,8 +2022,9 @@ a:hover { text-decoration: underline; }
 }
 .jarvis-more-item span { flex: 1; }
 .jarvis-more-item:hover { background: var(--bg-card); }
-.jarvis-more-item--active { color: var(--accent); }
-.jarvis-more-item--active svg { color: var(--accent); }
+.jarvis-more-item--active { background: var(--accent); color: #fff; }
+.jarvis-more-item--active:hover { background: var(--accent); opacity: 0.9; }
+.jarvis-more-item--active svg { color: #fff; }
 
 .jarvis-messages {
   flex: 1;
@@ -2287,7 +2291,7 @@ a:hover { text-decoration: underline; }
   transition: color 0.15s, background 0.15s;
 }
 .jarvis-msg-action-btn:hover { color: var(--text); background: var(--bg-card2); }
-.jarvis-msg-action-btn--active { color: var(--accent); }
+.jarvis-msg-action-btn--active { background: var(--accent); color: #fff; border-radius: 999px; }
 
 /* Agrupa a barra de ações (copiar/ouvir/feedback) + o botão de fork numa
    mesma linha — o fork fica fora de ChatMessageActions porque ele age sobre
@@ -2527,7 +2531,7 @@ a:hover { text-decoration: underline; }
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 .jarvis-style-chip:hover { color: var(--text); }
-.jarvis-style-chip--active { border-color: var(--accent); color: var(--accent); background: #6366f122; }
+.jarvis-style-chip--active { border-color: var(--accent); color: #fff; background: var(--accent); }
 
 /* Categoria visual dos cards de ferramenta — âmbar pra escrita (mudou dado
    no banco), roxo pra chamadas extras de IA, sem destaque = leitura simples
@@ -2739,7 +2743,10 @@ a:hover { text-decoration: underline; }
   color: var(--text-muted);
 }
 .jarvis-history-item-pin:hover { background: var(--bg-card); color: var(--accent); }
-.jarvis-history-item-pin--active { color: var(--accent); }
+/* Preenchido sólido (não só contorno fraco) — precisa dar pra ver "isso tá
+   fixado" num relance na lista, sem precisar reparar de perto. */
+.jarvis-history-item-pin--active { background: var(--accent); color: #fff; }
+.jarvis-history-item-pin--active:hover { background: var(--accent); color: #fff; opacity: 0.85; }
 
 .jarvis-history-wrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .jarvis-history-search {
