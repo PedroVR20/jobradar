@@ -36,6 +36,7 @@ public class JobAggregatorService {
     private final QuerovagastechService querovagastechService;
     private final NerdinService nerdinService;
     private final SeniorityClassifier seniorityClassifier;
+    private final JobEmbeddingService jobEmbeddingService;
 
     /**
      * Roda automaticamente a cada 2 horas, sempre em hora cheia par
@@ -270,6 +271,12 @@ public class JobAggregatorService {
                 }
                 jobRepository.save(job);
                 novos++;
+                // Falha silenciosa de propósito (sem IA configurada, Gemini
+                // fora do ar) — busca semântica só fica indisponível pra essa
+                // vaga até o backfill rodar, não trava o fetch inteiro.
+                if (jobEmbeddingService.embedESalvar(job)) {
+                    jobRepository.save(job);
+                }
                 ativosPorEmpresa.computeIfAbsent(normalizeCompany(job.getCompany()), k -> new ArrayList<>()).add(job);
             }
 

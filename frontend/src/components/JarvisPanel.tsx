@@ -5,6 +5,7 @@ import {
   JarvisAdicionarVagaData,
   JarvisApagarVagaData,
   JarvisAtualizarNotaData,
+  JarvisBuscaSemanticaData,
   JarvisCartaData,
   JarvisChatResponse,
   JarvisCompararMercadoData,
@@ -1186,6 +1187,41 @@ function LembrarCard({ data }: { data: JarvisLembrarData }) {
 // verdade, via useAgenda (mesmo hook que AgendaModal/InterviewModal já
 // usam). Conecta primeiro se ainda não tiver token salvo, mesma UX do resto
 // do app.
+function BuscaSemanticaCard({ data }: { data: JarvisBuscaSemanticaData }) {
+  if (data.erro) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro}</p>;
+  }
+  if (data.vagas.length === 0) {
+    return (
+      <p className="jarvis-scan-intro">
+        Nenhuma vaga embeddada bateu com "{data.consulta}" — pode ser vaga recente ainda sem embedding
+        (rode o backfill em ⚙️ Configurações) ou tente uma busca por palavra-chave.
+      </p>
+    );
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.vagas.map(v => {
+        const meta = STATUS_META[v.status] ?? { label: v.status, color: 'var(--text-muted)' };
+        return (
+          <div key={v.id} className="jarvis-hit">
+            <div className="jarvis-hit-head">
+              <span className="jarvis-hit-score" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}>
+                {v.similaridadePercent}%
+              </span>
+              <div className="jarvis-hit-title">
+                <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+                <span className="jarvis-hit-company">{v.empresa}</span>
+              </div>
+            </div>
+            <p className="jarvis-hit-resumo" style={{ color: meta.color }}>{meta.label}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function LembreteAgendaCard({ data }: { data: JarvisLembreteAgendaData }) {
   const { isConnected, savedEmail, login, createTask, linkTask } = useAgenda();
   const [step, setStep] = useState<'proposta' | 'connect' | 'criado'>('proposta');
@@ -1367,6 +1403,7 @@ const TOOL_PHRASES: Record<string, string> = {
   oQueFazerAgora: 'Montando o panorama do dia...',
   compararStackComMercado: 'Comparando seu perfil com o mercado...',
   criarLembreteNaAgenda: 'Montando a proposta de lembrete...',
+  buscarVagasPorSignificado: 'Buscando por significado...',
   perguntarUsuario: 'Preparando uma pergunta...',
 };
 
@@ -1608,6 +1645,8 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <CompararMercadoCard data={result.data as JarvisCompararMercadoData} />;
     case 'criarLembreteNaAgenda':
       return <LembreteAgendaCard data={result.data as JarvisLembreteAgendaData} />;
+    case 'buscarVagasPorSignificado':
+      return <BuscaSemanticaCard data={result.data as JarvisBuscaSemanticaData} />;
     default:
       return null;
   }

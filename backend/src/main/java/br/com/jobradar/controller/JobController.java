@@ -12,6 +12,7 @@ import br.com.jobradar.service.InterviewQuestionsService;
 import br.com.jobradar.service.JarvisAssistantService;
 import br.com.jobradar.service.JarvisChatService;
 import br.com.jobradar.service.JobAggregatorService;
+import br.com.jobradar.service.JobEmbeddingService;
 import br.com.jobradar.service.JobStatusService;
 import br.com.jobradar.service.LearningPlanService;
 import br.com.jobradar.service.MatchScoreService;
@@ -75,6 +76,7 @@ public class JobController {
     private final LearningPlanService learningPlanService;
     private final InterviewQuestionsService interviewQuestionsService;
     private final JobStatusService jobStatusService;
+    private final JobEmbeddingService jobEmbeddingService;
 
     // Gate simples (não é segurança de verdade — app pessoal local) pra não
     // ter um botão de "retreinar" clicável sem querer. Vazio == recurso
@@ -82,6 +84,7 @@ public class JobController {
     @Value("${retrain.secret-code:}")
     private String retrainSecretCode;
     private final AtomicBoolean retreinoEmAndamento = new AtomicBoolean(false);
+    private final AtomicBoolean backfillEmbeddingsEmAndamento = new AtomicBoolean(false);
 
     /**
      * Lista todas as vagas com filtros opcionais
@@ -714,6 +717,42 @@ public class JobController {
                 })
                 .toList();
         return ResponseEntity.ok(eventos);
+    }
+
+    /**
+     * Embedda (busca semântica, ver JobEmbeddingService) todas as vagas que
+     * ainda não têm vetor salvo — vagas novas já são embeddadas sozinhas no
+     * fetch periódico (ver JobAggregatorService); esse endpoint é só pro
+     * catálogo que já existia ANTES dessa feature. Roda em background (o POST
+     * devolve na hora), protegido de disparo duplo com a mesma flag simples
+     * que /admin/retrain-salary-model já usa.
+     * POST /api/jobs/admin/backfill-embeddings
+     */
+    @PostMapping("/admin/backfill-embeddings")
+    public ResponseEntity<Map<String, Object>> backfillEmbeddings() {
+        if (!geminiService.isEnabled()) {
+            return ResponseEntity.status(503).body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+        }
+        if (!backfillEmbeddingsEmAndamento.compareAndSet(false, true)) {
+            return ResponseEntity.status(409).body(Map.of("error", "Backfill de embeddings já em andamento."));
+        }
+        long faltam = jobEmbeddingService.contarSemEmbedding();
+        sseExecutor.execute(() -> {
+            try {
+                List<Job> pendentes = jobEmbeddingService.semEmbedding();
+                int ok = 0;
+                for (Job job : pendentes) {
+                    if (jobEmbeddingService.embedESalvar(job)) {
+                        jobRepository.save(job);
+                        ok++;
+                    }
+                }
+                log.info("=== Backfill de embeddings concluído: {} de {} vagas embeddadas ===", ok, pendentes.size());
+            } finally {
+                backfillEmbeddingsEmAndamento.set(false);
+            }
+        });
+        return ResponseEntity.accepted().body(Map.of("iniciado", true, "vagasSemEmbedding", faltam));
     }
 
     /**

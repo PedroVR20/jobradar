@@ -51,6 +51,8 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
   const [extractError, setExtractError] = useState('');
   const [manualOpen, setManualOpen] = useState(false);
   const [manualText, setManualText] = useState(profile);
+  const [backfillStatus, setBackfillStatus] = useState<'idle' | 'sending' | 'started' | 'error'>('idle');
+  const [backfillMsg, setBackfillMsg] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -139,6 +141,29 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
       setGithubError(err instanceof GitHubFetchError ? err.message : 'Erro inesperado ao acessar o GitHub.');
     } finally {
       setGithubLoading(false);
+    }
+  };
+
+  const handleBackfillEmbeddings = async () => {
+    setBackfillStatus('sending');
+    setBackfillMsg('');
+    try {
+      const res = await fetch('/api/jobs/admin/backfill-embeddings', { method: 'POST' });
+      if (res.status === 202) {
+        const data = await res.json();
+        setBackfillStatus('started');
+        setBackfillMsg(`Rodando em segundo plano — ${data.vagasSemEmbedding} vaga(s) na fila.`);
+      } else if (res.status === 409) {
+        setBackfillStatus('started');
+        setBackfillMsg('Já tinha um backfill em andamento.');
+      } else {
+        const err = await res.json().catch(() => null);
+        setBackfillStatus('error');
+        setBackfillMsg(err?.error ?? 'Erro ao iniciar o backfill.');
+      }
+    } catch {
+      setBackfillStatus('error');
+      setBackfillMsg('Erro de conexão com o backend.');
     }
   };
 
@@ -370,6 +395,24 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
             </a>
           </div>
         </div>
+
+        {aiStatus.enabled && (
+          <div className="settings-section">
+            <h3 className="settings-section-title">🔎 Busca semântica do Hunter</h3>
+            <p className="agenda-hint">
+              O Hunter acha vagas por SIGNIFICADO (não só por palavra exata) usando embeddings — vagas
+              novas já são processadas sozinhas a cada busca. Rode isso uma vez pra cobrir o catálogo que
+              já existia antes dessa função existir. Usa uma cota separada da do chat, não some com o
+              limite diário do Gemini.
+            </p>
+            <button type="button" className="btn btn-ghost" onClick={handleBackfillEmbeddings} disabled={backfillStatus === 'sending'}>
+              {backfillStatus === 'sending' ? 'Iniciando...' : '🔎 Processar vagas antigas'}
+            </button>
+            {backfillMsg && (
+              <p className={backfillStatus === 'error' ? 'agenda-error' : 'agenda-hint settings-usage-hint'}>{backfillMsg}</p>
+            )}
+          </div>
+        )}
 
         <div className="settings-section">
           <h3 className="settings-section-title">🔒 Área avançada</h3>

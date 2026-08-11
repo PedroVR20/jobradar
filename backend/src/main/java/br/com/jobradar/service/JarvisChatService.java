@@ -37,6 +37,7 @@ public class JarvisChatService {
     private final JobStatusService jobStatusService;
     private final CoverLetterService coverLetterService;
     private final SeniorityClassifier seniorityClassifier;
+    private final JobEmbeddingService jobEmbeddingService;
 
     // compatibilidadeComVagasDoFunil analisa DIRETO (sem pré-filtro), porque
     // o grupo já vem pequeno por natureza (é o funil curado do próprio
@@ -628,6 +629,18 @@ public class JarvisChatService {
                 "required", List.of("texto")
         );
 
+        Map<String, Object> buscaSemanticaParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "consulta", Map.of("type", "STRING", "description",
+                                "O que a vaga precisa SER/TER, em linguagem natural (ex: 'vaga de infraestrutura na nuvem', " +
+                                        "'algo com front-end moderno', 'liderança técnica de time pequeno'). Não é busca por " +
+                                        "palavra exata — é por SIGNIFICADO, útil quando o termo certo não está claro."),
+                        "limite", Map.of("type", "INTEGER", "description", "Máximo de vagas a retornar. Padrão 10, máximo 20.")
+                ),
+                "required", List.of("consulta")
+        );
+
         Map<String, Object> lembreteAgendaParams = Map.of(
                 "type", "OBJECT",
                 "properties", Map.of(
@@ -817,6 +830,14 @@ public class JarvisChatService {
                                 "toda conversa futura — não precisa (nem pode) 'listar' o que já foi salvo, isso " +
                                 "já aparece sozinho na sua instrução quando relevante.",
                         lembrarPreferenciaParams),
+                new GeminiService.FunctionDeclaration("buscarVagasPorSignificado",
+                        "Busca vagas por SIGNIFICADO (embeddings), não por palavra exata — use quando listarVagas com " +
+                                "'busca' (substring literal) não é o jeito certo, tipo 'vaga de infraestrutura' precisando " +
+                                "achar 'DevOps/SRE/Cloud' mesmo sem a palavra 'infra' aparecer. NÃO usa a IA generativa do " +
+                                "chat (é um modelo de embedding, cota separada) — pode chamar sem economia especial. Vaga " +
+                                "que ainda não foi processada por essa feature (recente/backfill pendente) não aparece no " +
+                                "resultado — se vier vazio, tente listarVagas com busca por palavra-chave como alternativa.",
+                        buscaSemanticaParams),
                 new GeminiService.FunctionDeclaration("criarLembreteNaAgenda",
                         "Monta a PROPOSTA de um lembrete/tarefa pra Agenda Pessoal (app separado) — NÃO cria nada " +
                                 "de verdade, o backend do Job Radar nunca fala com a Agenda diretamente. A interface " +
@@ -889,6 +910,7 @@ public class JarvisChatService {
             case "vagasParadas" -> executarVagasParadas(chamada.args());
             case "fixarVaga" -> executarFixarVaga(chamada.args());
             case "adicionarVagaManual" -> executarAdicionarVagaManual(chamada.args());
+            case "buscarVagasPorSignificado" -> executarBuscaSemantica(chamada.args());
             case "criarLembreteNaAgenda" -> executarCriarLembreteNaAgenda(chamada.args());
             case "apagarVaga" -> executarApagarVaga(chamada.args());
             case "lembrarPreferencia" -> executarLembrarPreferencia(chamada.args());
@@ -1628,6 +1650,39 @@ public class JarvisChatService {
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("diasMinimo", diasMinimo);
+        m.put("vagas", vagas);
+        return m;
+    }
+
+    // Não usa a IA generativa do chat — o modelo de embedding tem quota
+    // separada e bem mais folgada (ver comentário em GeminiService.
+    // embedContent). Candidatas = todas as vagas não recusadas com embedding
+    // já salvo (vaga sem embedding simplesmente não concorre, não quebra a
+    // busca — ver JobEmbeddingService.buscar).
+    private Object executarBuscaSemantica(Map<String, Object> args) {
+        String consulta = args.get("consulta") instanceof String s && !s.isBlank() ? s : null;
+        if (consulta == null) {
+            return Map.of("erro", "Preciso saber o que procurar.");
+        }
+        int limite = args.get("limite") instanceof Number n ? Math.min(20, Math.max(1, n.intValue())) : 10;
+
+        List<Job> candidatas = jobRepository.findAll().stream().filter(j -> !j.isRejected()).toList();
+        List<JobEmbeddingService.Match> matches = jobEmbeddingService.buscar(consulta, candidatas, limite);
+
+        List<Map<String, Object>> vagas = matches.stream().map(match -> {
+            Job j = match.job();
+            Map<String, Object> v = new LinkedHashMap<>();
+            v.put("id", j.getId());
+            v.put("titulo", j.getTitle());
+            v.put("empresa", j.getCompany());
+            v.put("url", j.getUrl());
+            v.put("status", statusDe(j));
+            v.put("similaridadePercent", Math.round(match.similaridade() * 100));
+            return (Map<String, Object>) v;
+        }).toList();
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("consulta", consulta);
         m.put("vagas", vagas);
         return m;
     }

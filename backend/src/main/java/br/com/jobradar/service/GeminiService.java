@@ -191,6 +191,77 @@ public class GeminiService {
         return new GeminiResult(textNode.asText().trim(), null, false);
     }
 
+    // ===================== Embeddings (busca semântica) =====================
+
+    // Modelo dedicado de embedding — quota SEPARADA da de generateContent
+    // (1500 req/min, sem limite diário documentado, bem mais folgada que os
+    // 20/dia do gemini-flash-latest no free tier). Por isso NÃO reaproveita
+    // KeySlot.dailyExhaustedOn: marcar uma key como "esgotada" aqui esgotaria
+    // ela erradamente pro chat também, e vice-versa — são baldes diferentes,
+    // mesmo sendo a mesma key/projeto.
+    private static final String EMBEDDING_MODEL = "text-embedding-004";
+
+    public record EmbedResult(float[] vector, String errorMessage) {
+        public boolean ok() {
+            return vector != null;
+        }
+    }
+
+    /**
+     * Embedda um texto livre (título+empresa+tags de uma vaga, ou a busca
+     * digitada pelo usuário) num vetor de 768 dimensões — usado pra busca
+     * semântica (ver JobEmbeddingService), que acha vagas por SIGNIFICADO em
+     * vez de substring exata ("vaga de infra" achando "DevOps/SRE/Cloud").
+     * Roda o mesmo rodízio de keys que generate()/chat(), só que sem marcar
+     * nada como esgotado (ver comentário acima) — cada key tenta uma vez,
+     * pula pra próxima em qualquer erro.
+     */
+    public EmbedResult embedContent(String text) {
+        if (!isEnabled()) {
+            return new EmbedResult(null, "Recurso de IA não configurado.");
+        }
+        if (text == null || text.isBlank()) {
+            return new EmbedResult(null, "Texto vazio.");
+        }
+
+        Map<String, Object> body = Map.of(
+                "model", "models/" + EMBEDDING_MODEL,
+                "content", Map.of("parts", List.of(Map.of("text", text)))
+        );
+
+        int size = pool.size();
+        String ultimoErro = "Não foi possível gerar o embedding agora.";
+        for (int i = 0; i < size; i++) {
+            KeySlot slot = pool.get(Math.floorMod(cursor.getAndIncrement(), size));
+            try {
+                String url = "https://generativelanguage.googleapis.com/v1beta/models/"
+                        + EMBEDDING_MODEL + ":embedContent?key=" + slot.key;
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+                String response = restTemplate.postForObject(url, request, String.class);
+                JsonNode values = mapper.readTree(response).at("/embedding/values");
+                if (!values.isArray() || values.isEmpty()) {
+                    ultimoErro = "Gemini devolveu o embedding num formato inesperado.";
+                    continue;
+                }
+                float[] vetor = new float[values.size()];
+                for (int j = 0; j < vetor.length; j++) vetor[j] = (float) values.get(j).asDouble();
+                return new EmbedResult(vetor, null);
+            } catch (HttpClientErrorException e) {
+                log.warn("Gemini embedContent: key ...{} falhou ({}): {}", slot.tail, e.getStatusCode(), e.getMessage());
+                ultimoErro = "Gemini recusou a requisição de embedding (erro " + e.getStatusCode().value() + ").";
+            } catch (RestClientException e) {
+                ultimoErro = "Gemini indisponível no momento (rede/timeout).";
+            } catch (Exception e) {
+                log.warn("Erro ao processar embedding do Gemini: {}", e.getMessage());
+                ultimoErro = "Erro ao processar o embedding devolvido pelo Gemini.";
+            }
+        }
+        return new EmbedResult(null, ultimoErro);
+    }
+
     // ===================== Chat livre com function-calling (Jarvis) =====================
 
     public record FunctionDeclaration(String name, String description, Map<String, Object> parametersSchema) {}

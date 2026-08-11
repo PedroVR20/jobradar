@@ -99,4 +99,14 @@ public class Job {
     // porque o regex (SeniorityClassifier) não conseguiu decidir pelo título —
     // usado só pra transparência visual no card (badge "🤖"), não afeta lógica.
     private Boolean classifiedByAi;
+
+    // Vetor de embedding (768 floats, text-embedding-004) serializado como
+    // números separados por vírgula — usado pra busca semântica (ver
+    // JobEmbeddingService). Sem extensão pgvector instalada no Postgres, a
+    // similaridade de cosseno é calculada em Java sobre a lista de vagas, não
+    // em SQL — por isso um TEXT simples já basta, não precisa de tipo de
+    // coluna especial. Null até a vaga ser embeddada (vagas antigas ficam
+    // assim até o backfill rodar, ver POST /api/jobs/admin/backfill-embeddings).
+    @Column(columnDefinition = "TEXT")
+    private String embedding;
 }

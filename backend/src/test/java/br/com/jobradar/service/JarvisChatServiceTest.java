@@ -26,7 +26,7 @@ class JarvisChatServiceTest {
     // statusBate/contemBusca/executarVagasParadas/dispatch não tocam nos
     // outros serviços injetados — null é seguro aqui.
     private final JarvisChatService service =
-            new JarvisChatService(null, jobRepository, null, null, null, null, null, null);
+            new JarvisChatService(null, jobRepository, null, null, null, null, null, null, null);
 
     private Job job(String status) {
         Job j = Job.builder().title("Dev Java").company("Acme").url("https://x/" + status).source("MANUAL").build();
