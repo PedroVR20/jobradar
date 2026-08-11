@@ -18,7 +18,7 @@ import {
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { HunterIcon } from './HunterIcon';
-import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CopyIcon, MicIcon, SparkleIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
+import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CopyIcon, MicIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
 
 // Ditado por voz (Web Speech API) — só Chrome/Edge/derivados suportam hoje
 // (window.SpeechRecognition ainda não existe no lib.dom.d.ts do TypeScript
@@ -1511,12 +1511,11 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                   <div key={m.id} className="jarvis-msg-row">
                     <span className="jarvis-avatar"><HunterIcon size={22} alive /></span>
                     <div className="jarvis-bubble jarvis-bubble--assistant jarvis-bubble--loading">
-                      <span className="jarvis-typing-sparkle"><SparkleIcon /></span>
+                      <ElapsedTimer />
                       <LoadingPhrase
                         userText={gatilho?.role === 'user' ? gatilho.text : ''}
                         hasImage={gatilho?.role === 'user' && !!gatilho.imageDataUrl}
                       />
-                      <ElapsedTimer />
                     </div>
                   </div>
                 );

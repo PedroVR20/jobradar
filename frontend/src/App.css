@@ -1959,21 +1959,7 @@ a:hover { text-decoration: underline; }
 }
 .jarvis-bubble--loading { padding-top: 0.35rem; display: flex; align-items: center; width: 100%; }
 
-.jarvis-typing-sparkle {
-  display: inline-flex;
-  color: var(--accent);
-  animation: jarvis-sparkle-spin 1.6s infinite linear, jarvis-sparkle-pulse 1.6s infinite ease-in-out;
-}
-@keyframes jarvis-sparkle-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-@keyframes jarvis-sparkle-pulse {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
-}
 .jarvis-typing-phrase {
-  margin-left: 8px;
   font-size: 0.76rem;
   color: var(--text-muted);
   font-style: italic;
@@ -1984,8 +1970,7 @@ a:hover { text-decoration: underline; }
   to { opacity: 1; }
 }
 .jarvis-elapsed-timer {
-  margin-left: auto;
-  padding-left: 8px;
+  margin-right: 8px;
   font-size: 0.7rem;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
