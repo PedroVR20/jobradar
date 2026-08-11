@@ -2102,6 +2102,18 @@ a:hover { text-decoration: underline; }
 .jarvis-tool-results { margin-bottom: 0.6rem; }
 .jarvis-tool-results:last-child { margin-bottom: 0; }
 
+.jarvis-tag-mercado-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.jarvis-tag-mercado-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--bg-card2);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+}
+.jarvis-tag-mercado-count { font-size: 0.72rem; color: var(--text-muted); }
+
 .jarvis-thinking { margin-bottom: 0.6rem; }
 .jarvis-thinking-toggle {
   background: none;

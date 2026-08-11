@@ -345,6 +345,35 @@ export interface JarvisAdicionarVagaData {
   erro?: string;
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta oQueFazerAgora
+export interface JarvisAcaoVaga {
+  id: number;
+  titulo: string;
+  empresa: string;
+  url: string;
+  status?: string;
+  diasParada?: number;
+  fechaEm?: string;
+  diasRestantes?: number;
+  matchPercent?: number;
+}
+
+export interface JarvisOQueFazerAgoraData {
+  candidaturasParadas: { total: number; top: JarvisAcaoVaga[] };
+  prazosProximos: { total: number; top: JarvisAcaoVaga[] };
+  vagasNovasComBomMatch: { perfilDisponivel: boolean; top: JarvisAcaoVaga[] };
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta compararStackComMercado
+export interface JarvisTagMercado { tag: string; vagasComEssaTag: number }
+
+export interface JarvisCompararMercadoData {
+  tagsDoPerfilReconhecidas?: number;
+  tagsDoPerfilQueBatemComOMercado?: JarvisTagMercado[];
+  tagsMaisPedidasQueFaltamNoPerfil?: JarvisTagMercado[];
+  erro?: string;
+}
+
 // POST /api/jobs/assistant/chat — resultado da ferramenta apagarVaga
 export interface JarvisApagarVagaData {
   sucesso?: boolean;
@@ -366,11 +395,12 @@ export interface JarvisToolResult {
   tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil'
     | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga' | 'atualizarNotaDeVaga'
     | 'gerarCartaDeApresentacao' | 'metricasDeDesempenho' | 'vagasComPrazoProximo' | 'detectarDuplicatas' | 'desempenhoPorFonte' | 'historicoDaEmpresa'
-    | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga' | 'lembrarPreferencia';
+    | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga' | 'lembrarPreferencia' | 'oQueFazerAgora' | 'compararStackComMercado';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
     | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData | JarvisAtualizarNotaData
     | JarvisCartaData | JarvisMetricasData | JarvisPrazoData | JarvisDuplicatasData | JarvisFontesData | JarvisHistoricoEmpresaData
-    | JarvisFixarVagaData | JarvisAdicionarVagaData | JarvisApagarVagaData | JarvisLembrarData;
+    | JarvisFixarVagaData | JarvisAdicionarVagaData | JarvisApagarVagaData | JarvisLembrarData
+    | JarvisOQueFazerAgoraData | JarvisCompararMercadoData;
 }
 
 // Pergunta interativa que o Hunter decidiu fazer (ferramenta perguntarUsuario)

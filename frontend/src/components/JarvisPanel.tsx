@@ -1,11 +1,13 @@
 import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  JarvisAcaoVaga,
   JarvisAdicionarVagaData,
   JarvisApagarVagaData,
   JarvisAtualizarNotaData,
   JarvisCartaData,
   JarvisChatResponse,
+  JarvisCompararMercadoData,
   JarvisCompatibilidadeData,
   JarvisCompatibilidadeHit,
   JarvisDetalharVagasData,
@@ -17,6 +19,7 @@ import {
   JarvisListarVagasData,
   JarvisMarcarStatusData,
   JarvisMetricasData,
+  JarvisOQueFazerAgoraData,
   JarvisPendingQuestion,
   JarvisPrazoData,
   JarvisResumoFunilData,
@@ -965,6 +968,62 @@ function PrazoCard({ data }: { data: JarvisPrazoData }) {
   );
 }
 
+function AcaoVagaRow({ v, badge, badgeColor }: { v: JarvisAcaoVaga; badge: string; badgeColor: string }) {
+  return (
+    <div key={v.id} className="jarvis-hit">
+      <div className="jarvis-hit-head">
+        <span className="jarvis-hit-score" style={{ color: badgeColor, borderColor: badgeColor }}>{badge}</span>
+        <div className="jarvis-hit-title">
+          <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+          <span className="jarvis-hit-company">{v.empresa}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OQueFazerAgoraCard({ data }: { data: JarvisOQueFazerAgoraData }) {
+  const nada = data.candidaturasParadas.top.length === 0
+    && data.prazosProximos.top.length === 0
+    && data.vagasNovasComBomMatch.top.length === 0;
+  if (nada) {
+    return <p className="jarvis-scan-intro">Sem pendência urgente agora — tudo em dia.</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.prazosProximos.top.map(v => (
+        <AcaoVagaRow key={`prazo-${v.id}`} v={v} badge={v.diasRestantes === 0 ? 'fecha hoje' : `${v.diasRestantes}d`} badgeColor="var(--red)" />
+      ))}
+      {data.candidaturasParadas.top.map(v => (
+        <AcaoVagaRow key={`parada-${v.id}`} v={v} badge={`${v.diasParada}d parada`} badgeColor="var(--yellow)" />
+      ))}
+      {data.vagasNovasComBomMatch.top.map(v => (
+        <AcaoVagaRow key={`match-${v.id}`} v={v} badge={`${v.matchPercent}% match`} badgeColor="var(--accent)" />
+      ))}
+    </div>
+  );
+}
+
+function CompararMercadoCard({ data }: { data: JarvisCompararMercadoData }) {
+  if (data.erro) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro}</p>;
+  }
+  const faltando = data.tagsMaisPedidasQueFaltamNoPerfil ?? [];
+  if (faltando.length === 0) {
+    return <p className="jarvis-scan-intro">Seu perfil já cobre as tags mais pedidas do feed atual.</p>;
+  }
+  return (
+    <div className="jarvis-tag-mercado-list">
+      {faltando.map(t => (
+        <div key={t.tag} className="jarvis-tag-mercado-item">
+          <span className="tag tag--tech">{t.tag}</span>
+          <span className="jarvis-tag-mercado-count">{t.vagasComEssaTag} vaga{t.vagasComEssaTag === 1 ? '' : 's'}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function DuplicatasCard({ data }: { data: JarvisDuplicatasData }) {
   if (data.grupos.length === 0) {
     return <p className="jarvis-scan-intro">Não achei nenhuma duplicata provável.</p>;
@@ -1359,6 +1418,10 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <ApagarVagaCard data={result.data as JarvisApagarVagaData} />;
     case 'lembrarPreferencia':
       return <LembrarCard data={result.data as JarvisLembrarData} />;
+    case 'oQueFazerAgora':
+      return <OQueFazerAgoraCard data={result.data as JarvisOQueFazerAgoraData} />;
+    case 'compararStackComMercado':
+      return <CompararMercadoCard data={result.data as JarvisCompararMercadoData} />;
     default:
       return null;
   }

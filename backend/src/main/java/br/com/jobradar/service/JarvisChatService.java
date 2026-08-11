@@ -636,6 +636,22 @@ public class JarvisChatService {
                                 "o usuário perguntar 'já apliquei nessa empresa antes' ou quando uma vaga nova aparecer " +
                                 "e valer avisar sobre histórico anterior com aquela empresa. Não usa IA.",
                         historicoEmpresaParams),
+                new GeminiService.FunctionDeclaration("oQueFazerAgora",
+                        "Monta um panorama pra responder 'o que eu faço agora', 'quais são minhas prioridades hoje', " +
+                                "'o que preciso resolver primeiro' — combina candidaturas paradas há muito tempo, " +
+                                "prazos de candidatura próximos do fim, e (se houver perfil salvo) as vagas novas não " +
+                                "vistas com melhor match heurístico. NÃO usa IA. A ferramenta só traz os dados crus — " +
+                                "monte VOCÊ o resumo priorizado em texto (ex: 'top 3 do dia'), não repita cada lista " +
+                                "crua igual um relatório.",
+                        semParametros),
+                new GeminiService.FunctionDeclaration("compararStackComMercado",
+                        "Compara as tecnologias do perfil/currículo salvo do usuário com as tags mais frequentes em " +
+                                "TODO o feed de vagas ativas — use pra 'o que eu deveria aprender', 'quais tecnologias " +
+                                "o mercado mais pede que eu não tenho', 'meu perfil está alinhado com o mercado?'. NÃO " +
+                                "usa IA (é contagem de tags, sobreposição simples) — avise que é só um indício de " +
+                                "demanda dentro do que o Job Radar já coletou, não uma pesquisa de mercado de verdade. " +
+                                "Exige perfil salvo em Configurações.",
+                        semParametros),
                 new GeminiService.FunctionDeclaration("detalharVagas",
                         "Traz TODOS os dados salvos de uma ou mais vagas específicas (salário informado/estimado, " +
                                 "modalidade, cidade/estado, tags, prazo, nota pessoal, status atual) — use quando o " +
@@ -732,6 +748,8 @@ public class JarvisChatService {
             case "detectarDuplicatas" -> executarDetectarDuplicatas();
             case "desempenhoPorFonte" -> executarDesempenhoPorFonte();
             case "historicoDaEmpresa" -> executarHistoricoDaEmpresa(chamada.args());
+            case "oQueFazerAgora" -> executarOQueFazerAgora(candidateProfile);
+            case "compararStackComMercado" -> executarCompararComMercado(candidateProfile);
             case "detalharVagas" -> executarDetalharVagas(chamada.args());
             case "vagasParecidas" -> executarVagasParecidas(chamada.args());
             case "vagasParadas" -> executarVagasParadas(chamada.args());
@@ -1208,6 +1226,104 @@ public class JarvisChatService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("totalEncontradas", vagas.size());
         m.put("vagas", vagas);
+        return m;
+    }
+
+    // Não decide sozinho a "prioridade" com uma fórmula — devolve os 3 sinais
+    // crus (parada há mais tempo, prazo mais próximo, maior match heurístico
+    // entre as não vistas) e deixa o próprio modelo sintetizar em texto qual
+    // vale mais a pena agora, seguindo a orientação da SYSTEM_INSTRUCTION.
+    // Reaproveita executarVagasParadas/executarVagasComPrazoProximo (mesmos
+    // dados que essas ferramentas já expõem individualmente) em vez de
+    // duplicar a lógica de filtro.
+    @SuppressWarnings("unchecked")
+    private Object executarOQueFazerAgora(String candidateProfile) {
+        Map<String, Object> paradas = (Map<String, Object>) executarVagasParadas(Map.of());
+        Map<String, Object> prazos = (Map<String, Object>) executarVagasComPrazoProximo(Map.of());
+
+        List<Map<String, Object>> paradasTop = ((List<Map<String, Object>>) paradas.get("vagas")).stream()
+                .limit(3).toList();
+        List<Map<String, Object>> prazosTop = ((List<Map<String, Object>>) prazos.get("vagas")).stream()
+                .limit(3).toList();
+
+        List<Job> naoVistas = jobRepository.findBySeenFalse();
+        Map<Long, Integer> scores = jarvisAssistantService.heuristicMatchPercents(naoVistas, candidateProfile);
+        List<Map<String, Object>> matchesTop = naoVistas.stream()
+                .filter(j -> scores.getOrDefault(j.getId(), 0) >= 50)
+                .sorted(Comparator.comparingInt((Job j) -> scores.getOrDefault(j.getId(), 0)).reversed())
+                .limit(3)
+                .map(j -> {
+                    Map<String, Object> v = new LinkedHashMap<>();
+                    v.put("id", j.getId());
+                    v.put("titulo", j.getTitle());
+                    v.put("empresa", j.getCompany());
+                    v.put("url", j.getUrl());
+                    v.put("matchPercent", scores.get(j.getId()));
+                    return (Map<String, Object>) v;
+                })
+                .toList();
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("candidaturasParadas", Map.of("total", ((List<?>) paradas.get("vagas")).size(), "top", paradasTop));
+        m.put("prazosProximos", Map.of("total", ((List<?>) prazos.get("vagas")).size(), "top", prazosTop));
+        m.put("vagasNovasComBomMatch", Map.of(
+                "perfilDisponivel", candidateProfile != null && !candidateProfile.isBlank(),
+                "top", matchesTop
+        ));
+        return m;
+    }
+
+    // Não usa IA — sobreposição de tags (SalaryPredictionService.
+    // extractTagsFromText, o mesmo vocabulário do modelo de salário) entre o
+    // perfil salvo e o feed inteiro de vagas ativas. É um indício simples de
+    // demanda de mercado, não uma pesquisa de verdade — a descrição da
+    // ferramenta já avisa o modelo disso.
+    private Object executarCompararComMercado(String candidateProfile) {
+        if (candidateProfile == null || candidateProfile.isBlank()) {
+            return Map.of("erro", "Preciso do perfil/currículo salvo em Configurações pra comparar com o mercado.");
+        }
+        Set<String> perfilTags = salaryPredictionService.extractTagsFromText(candidateProfile);
+        if (perfilTags.isEmpty()) {
+            return Map.of("erro", "Não reconheci nenhuma tecnologia conhecida no seu perfil salvo.");
+        }
+
+        Map<String, Long> contagem = new HashMap<>();
+        for (Job j : jobRepository.findAll()) {
+            if (j.isRejected() || j.getTags() == null || j.getTags().isBlank()) continue;
+            for (String tagBruta : j.getTags().split(",")) {
+                String tag = tagBruta.trim().toLowerCase();
+                if (!tag.isBlank()) contagem.merge(tag, 1L, Long::sum);
+            }
+        }
+
+        List<Map<String, Object>> tagsNoPerfilEPedidas = perfilTags.stream()
+                .filter(contagem::containsKey)
+                .sorted(Comparator.comparingLong((String t) -> contagem.getOrDefault(t, 0L)).reversed())
+                .limit(10)
+                .map(t -> {
+                    Map<String, Object> v = new LinkedHashMap<>();
+                    v.put("tag", t);
+                    v.put("vagasComEssaTag", contagem.get(t));
+                    return v;
+                })
+                .toList();
+
+        List<Map<String, Object>> tagsMaisPedidasFaltando = contagem.entrySet().stream()
+                .filter(e -> !perfilTags.contains(e.getKey()))
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .limit(10)
+                .map(e -> {
+                    Map<String, Object> v = new LinkedHashMap<>();
+                    v.put("tag", e.getKey());
+                    v.put("vagasComEssaTag", e.getValue());
+                    return v;
+                })
+                .toList();
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("tagsDoPerfilReconhecidas", perfilTags.size());
+        m.put("tagsDoPerfilQueBatemComOMercado", tagsNoPerfilEPedidas);
+        m.put("tagsMaisPedidasQueFaltamNoPerfil", tagsMaisPedidasFaltando);
         return m;
     }
 
