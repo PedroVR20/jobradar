@@ -2578,6 +2578,23 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
             </button>
             {headerMenuOpen && (
               <div className="jarvis-more-menu">
+                {/* Estilo de resposta — tirado de cima do campo de texto
+                    (ficava concorrendo com o input, ver feedback do usuário)
+                    e movido pra cá, junto dos outros ajustes de comportamento
+                    do chat que não precisam ficar sempre visíveis. */}
+                <div className="jarvis-more-style-row">
+                  {(Object.keys(REPLY_STYLE_META) as ReplyStyle[]).map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      className={`jarvis-style-chip ${replyStyle === s ? 'jarvis-style-chip--active' : ''}`}
+                      onClick={() => setReplyStyle(s)}
+                      title={`Estilo de resposta: ${REPLY_STYLE_META[s]}`}
+                    >
+                      {REPLY_STYLE_META[s]}
+                    </button>
+                  ))}
+                </div>
                 <button
                   type="button"
                   className={`jarvis-more-item ${compactMode ? 'jarvis-more-item--active' : ''}`}
@@ -2848,27 +2865,6 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
               </div>
             );
           })()}
-
-          <div className="jarvis-input-toolbar">
-            <div className="jarvis-style-chips">
-              {(Object.keys(REPLY_STYLE_META) as ReplyStyle[]).map(s => (
-                <button
-                  key={s}
-                  type="button"
-                  className={`jarvis-style-chip ${replyStyle === s ? 'jarvis-style-chip--active' : ''}`}
-                  onClick={() => setReplyStyle(s)}
-                  title={`Estilo de resposta: ${REPLY_STYLE_META[s]}`}
-                >
-                  {REPLY_STYLE_META[s]}
-                </button>
-              ))}
-            </div>
-            {messages.length > 2 && (
-              <span className="jarvis-msg-counter">
-                {messages.filter(m => m.role === 'user' || m.role === 'assistant').length} mensagens
-              </span>
-            )}
-          </div>
 
           <form className="jarvis-input-row" onSubmit={e => { e.preventDefault(); handleSend(input, attachedImage); }}>
             <input
