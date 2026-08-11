@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Job } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
+import { combineWithGitHub, useGitHubProfile } from '../hooks/useGitHubProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { AiFeedbackBox } from './AiFeedbackBox';
 
@@ -12,6 +13,7 @@ interface Props {
 
 export function CoverLetterModal({ job, onClose }: Props) {
   const { profile } = useCandidateProfile();
+  const { summary: githubSummary } = useGitHubProfile();
   const { buildContext } = useAiFeedback('cover-letter');
   // Pré-preenche com o perfil salvo em Configurações (se houver) — o usuário
   // pode editar/completar livremente pra essa vaga específica; a edição aqui
@@ -31,7 +33,7 @@ export function CoverLetterModal({ job, onClose }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          extraContext: extraContext.trim() || undefined,
+          extraContext: combineWithGitHub(extraContext.trim(), githubSummary) || undefined,
           feedbackContext: buildContext() || undefined,
         }),
       });

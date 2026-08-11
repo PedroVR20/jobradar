@@ -369,6 +369,16 @@ a:hover { text-decoration: underline; }
   50% { opacity: 0.6; }
 }
 
+.badge-match {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: #fff;
+  letter-spacing: 0.3px;
+}
+
 .badge-applied {
   font-size: 0.65rem;
   font-weight: 700;
@@ -527,11 +537,36 @@ a:hover { text-decoration: underline; }
 .ai-menu-dropdown {
   top: calc(100% + 6px);
   min-width: 240px;
+  animation: card-menu-in 0.15s ease-out;
+}
+@keyframes card-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .ai-menu-dropdown .card-menu-item {
   white-space: normal;
   line-height: 1.3;
 }
+.card-menu-item--icon {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  transition: transform 0.12s;
+}
+.card-menu-item--icon:hover { transform: translateX(2px); }
+.card-menu-item-badge {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+}
+.card-menu-item-badge--accent { background: #6366f122; }
+.card-menu-item-badge--green  { background: #10b98122; }
+.card-menu-item-badge--yellow { background: #f59e0b22; }
 
 .card-title {
   font-size: 1rem;
@@ -636,9 +671,10 @@ a:hover { text-decoration: underline; }
   font-weight: 500;
   cursor: pointer;
   border: none;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, transform 0.15s, box-shadow 0.15s;
 }
-.btn:hover:not(:disabled) { opacity: 0.85; }
+.btn:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); box-shadow: 0 3px 10px rgba(0,0,0,0.25); }
+.btn:active:not(:disabled) { transform: translateY(0); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-primary {
@@ -1100,6 +1136,19 @@ a:hover { text-decoration: underline; }
   box-shadow: 0 0 0 1px #6366f122, var(--shadow);
 }
 
+/* Pulso temporário quando a vaga acabou de mudar via chat do Hunter (ver
+   highlightedJobId em App.tsx) — chama atenção sem precisar procurar o
+   card na lista depois de mexer pelo chat. Desliga sozinho (App.tsx tira
+   a prop `highlighted` depois de alguns segundos). */
+.job-card--highlighted {
+  animation: job-card-pulse 1.8s ease-out 2;
+}
+@keyframes job-card-pulse {
+  0% { box-shadow: 0 0 0 0 #6366f166; }
+  70% { box-shadow: 0 0 0 10px #6366f100; }
+  100% { box-shadow: 0 0 0 0 #6366f100; }
+}
+
 /* ============================
    NOTAS PESSOAIS
    ============================ */
@@ -1108,6 +1157,25 @@ a:hover { text-decoration: underline; }
   flex-direction: column;
   gap: 6px;
 }
+
+.card-history-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.card-history-empty { font-size: 0.76rem; color: var(--text-muted); margin: 0; }
+.card-history-list { display: flex; flex-direction: column; gap: 4px; }
+.card-history-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.76rem;
+}
+.card-history-status { color: var(--text); font-weight: 600; }
+.card-history-date { color: var(--text-muted); flex-shrink: 0; }
 
 .notes-toggle {
   display: flex;
@@ -1126,44 +1194,69 @@ a:hover { text-decoration: underline; }
 .notes-toggle:hover { border-color: var(--accent); color: var(--text); }
 
 /* Chip de preview — vaga já tem nota, card fechado */
-.notes-preview {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+.notes-preview-block {
   background: #f59e0b14;
   border: 1px solid #f59e0b3d;
   border-radius: 6px;
   padding: 8px 10px;
-  cursor: pointer;
-  text-align: left;
   width: 100%;
   transition: border-color 0.15s, background 0.15s;
 }
-.notes-preview:hover { border-color: #f59e0b77; background: #f59e0b22; }
+.notes-preview-block:hover { border-color: #f59e0b77; background: #f59e0b22; }
 .notes-preview-icon { flex-shrink: 0; font-size: 0.85rem; margin-top: 1px; }
+.notes-preview-lines { display: flex; flex-direction: column; gap: 3px; }
 .notes-preview-text {
-  flex: 1;
-  min-width: 0;
+  margin: 0;
   font-size: 0.8rem;
   color: var(--text);
   line-height: 1.4;
   white-space: pre-line;
   word-break: break-word;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 .notes-preview-edit {
   flex-shrink: 0;
   font-size: 0.7rem;
   color: var(--yellow);
-  margin-top: 1px;
+  margin-top: 6px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s;
 }
-.notes-preview:hover .notes-preview-edit { opacity: 1; }
+.notes-preview-block:hover .notes-preview-edit { opacity: 1; }
+
+/* Checklist dentro da nota — "- [ ] item" vira caixinha clicável */
+.notes-checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  padding: 1px 0;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+.notes-checklist-box {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border-radius: 4px;
+  border: 1px solid var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  color: var(--green);
+}
+.notes-checklist-item--done .notes-checklist-box { border-color: var(--green); background: #10b98122; }
+.notes-checklist-item--done .notes-checklist-label { color: var(--text-muted); text-decoration: line-through; }
+.notes-checklist-label { line-height: 1.4; word-break: break-word; }
 
 /* Editor — card aberto pra escrever/editar */
 .notes-editor {
@@ -1455,6 +1548,9 @@ a:hover { text-decoration: underline; }
   background: #2dd4bf22;
   color: #2dd4bf;
   border: 1px solid #2dd4bf44;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 .btn-ai:hover:not(:disabled) { background: #2dd4bf33; }
 
@@ -1520,6 +1616,25 @@ a:hover { text-decoration: underline; }
 .settings-section { margin-top: 1rem; }
 .settings-section-title { font-size: 0.95rem; font-weight: 700; }
 .settings-note { margin-top: 0.9rem; }
+
+/* Modal de retreino do modelo de salário (Configurações → Área avançada) */
+.retrain-modal { max-width: 420px; }
+.retrain-step { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.5rem; }
+.retrain-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.retrain-table th, .retrain-table td {
+  padding: 6px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+.retrain-table th:first-child, .retrain-table td:first-child {
+  text-align: left;
+  color: var(--text-muted);
+}
+.retrain-table th { font-weight: 600; color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; }
 
 .settings-feature-list {
   list-style: none;
@@ -1594,6 +1709,8 @@ a:hover { text-decoration: underline; }
 }
 .profile-file-meta { font-size: 0.72rem; color: var(--text-muted); }
 .profile-file-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+.settings-export-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.settings-export-actions a.btn { text-decoration: none; }
 .profile-file-btn { font-size: 0.75rem; padding: 5px 9px; }
 
 .profile-manual-toggle {
@@ -1606,6 +1723,10 @@ a:hover { text-decoration: underline; }
   text-align: left;
 }
 .profile-manual-toggle:hover { color: var(--text); }
+
+/* Campo de usuário do GitHub (Configurações → 🐙 GitHub) */
+.github-input-row { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+.github-input-row .agenda-input { flex: 1; }
 
 /* Cover letter modal */
 .cover-letter-modal { max-width: 560px; }
@@ -1690,7 +1811,7 @@ a:hover { text-decoration: underline; }
 .match-score-percent { font-size: 1rem; margin-left: 2px; }
 .match-summary { font-size: 0.85rem; color: var(--text-muted); text-align: center; }
 .match-section { width: 100%; }
-.match-section-title { font-size: 0.82rem; font-weight: 700; margin-bottom: 0.4rem; }
+.match-section-title { font-size: 0.82rem; font-weight: 700; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.35rem; }
 .match-section-title--good { color: var(--green); }
 .match-section-title--gap { color: var(--yellow); }
 .match-list { list-style: none; display: flex; flex-direction: column; gap: 5px; }
@@ -1700,6 +1821,61 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 10px;
+}
+
+/* "Contramedida" — plano de ação sob demanda pra cada ponto a desenvolver */
+.match-gap-item { display: flex; flex-direction: column; gap: 0.4rem; }
+.match-plan-btn {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--yellow);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+.match-plan-btn:hover:not(:disabled) { border-color: var(--yellow); background: #f59e0b1a; }
+.match-plan-btn:disabled { opacity: 0.6; cursor: default; }
+.match-gap-error { font-size: 0.75rem; }
+.match-plan {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  animation: card-menu-in 0.15s ease-out;
+}
+.match-plan-resumo { font-size: 0.8rem; color: var(--text); margin: 0; }
+.match-plan-tempo {
+  align-self: flex-start;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: var(--bg-card2);
+  border-radius: 999px;
+  padding: 2px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.match-plan-steps { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
+/* .match-list li (nas linhas acima) empresta o visual "caixa" pro
+   ⚠️ Pontos a desenvolver — sem esses resets, os passos numerados aqui
+   dentro herdariam o mesmo fundo/borda, virando caixa dentro de caixa. */
+.match-plan-steps li {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
 }
 
 /* Interview questions modal */
@@ -1712,6 +1888,892 @@ a:hover { text-decoration: underline; }
   gap: 0.6rem;
 }
 .interview-questions-list li { font-size: 0.85rem; line-height: 1.5; }
+
+/* Painel Jarvis — gaveta lateral fixa, não é modal (não escurece a tela,
+   fica aberta enquanto você navega o resto do app por trás). Visual
+   inspirado no Claude Desktop: mensagens do assistente sem bolha pesada
+   (só um avatarzinho + texto fluido), sugestões como cards verticais só na
+   conversa vazia, header com botões circulares. */
+.jarvis-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  /* --jarvis-panel-width é lida/escrita em JarvisPanel.tsx (arrastando a
+     borda esquerda) e no :root abaixo (valor salvo/padrão) — o app-main
+     também lê essa mesma variável pro padding-right, então os dois
+     acompanham juntos em tempo real durante o arrasto, mesmo estando em
+     partes bem separadas do DOM (o painel é portal pro body). */
+  width: min(var(--jarvis-panel-width, 400px), 100vw);
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 32px rgba(0,0,0,0.5);
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  animation: jarvis-slide-in 0.2s ease-out;
+}
+.jarvis-resize-handle {
+  position: absolute;
+  top: 0;
+  left: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 3001;
+  touch-action: none;
+}
+.jarvis-resize-handle:hover, .jarvis-resize-handle--active {
+  background: var(--accent);
+  opacity: 0.4;
+}
+.jarvis-panel--closing {
+  animation: jarvis-slide-out 0.18s ease-in forwards;
+}
+@keyframes jarvis-slide-in {
+  from { transform: translateX(100%); opacity: 0.6; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+@keyframes jarvis-slide-out {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0.6; }
+}
+
+.jarvis-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.jarvis-header-title { font-size: 1.05rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.45rem; }
+.jarvis-header-actions { display: flex; align-items: center; gap: 0.3rem; }
+.jarvis-header-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background 0.15s, color 0.15s;
+}
+.jarvis-header-icon-btn:hover { background: var(--bg-card2); color: var(--text); }
+.jarvis-header-icon-btn--active { background: #6366f122; color: var(--accent); }
+
+.jarvis-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem; /* base compacta — o respiro extra entre trocas de remetente vem de .jarvis-msg-turn-gap */
+}
+
+/* Soma em cima do gap base só quando é de fato o início de uma fala nova
+   (mudou quem tá falando) — junto com o gap de 0.5rem do container, fica
+   1rem entre turnos (igual antes), mas mensagens do MESMO remetente em
+   sequência ficam coladas com só os 0.5rem base, mais compacto. */
+.jarvis-msg-turn-gap { margin-top: 0.5rem; }
+.jarvis-messages > :first-child.jarvis-msg-turn-gap { margin-top: 0; }
+
+.jarvis-msg-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  max-width: 100%;
+  animation: jarvis-msg-in 0.25s ease-out;
+}
+/* Avatar do chat — só o ícone, sem bolinha de fundo (achou que a engrenagem
+   minúscula + o círculo atrás ficavam poluídos nesse tamanho pequeno). Flutua
+   sozinho pra cima e pra baixo, contínuo — só aqui, não no botão do header
+   (esse já ficou bom do jeito que tava). */
+.jarvis-avatar {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  animation: jarvis-avatar-float 3.2s infinite ease-in-out;
+}
+.jarvis-avatar .hunter-gear { display: none; }
+@keyframes jarvis-avatar-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes jarvis-msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.jarvis-bubble {
+  max-width: 88%;
+  padding: 0.65rem 0.9rem;
+  border-radius: 14px;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  white-space: pre-line;
+  animation: jarvis-msg-in 0.25s ease-out;
+}
+.jarvis-bubble--user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+  margin-left: auto;
+}
+.jarvis-bubble--assistant {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 0.2rem 0 0;
+  animation: none; /* já anima via .jarvis-msg-row, que a envolve */
+}
+.jarvis-bubble--loading { padding-top: 0.35rem; display: flex; align-items: center; width: 100%; }
+
+.jarvis-typing-phrase {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  font-style: italic;
+  animation: jarvis-phrase-fade 0.4s ease-out;
+}
+@keyframes jarvis-phrase-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.jarvis-elapsed-timer {
+  margin-right: 8px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.jarvis-md-p { margin: 0 0 0.5rem; }
+.jarvis-md-p:last-child { margin-bottom: 0; }
+.jarvis-md-heading { margin: 0 0 0.4rem; font-weight: 700; }
+.jarvis-md-heading:first-child { margin-top: 0; }
+.jarvis-md-list { margin: 0 0 0.5rem; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.2rem; }
+.jarvis-md-list:last-child { margin-bottom: 0; }
+.jarvis-bubble--assistant strong { color: var(--text); }
+.jarvis-bubble--assistant a { color: var(--accent); text-decoration: underline; }
+
+.jarvis-scan-intro { margin-bottom: 0.6rem; }
+.jarvis-scan-warning { margin-top: 0.6rem; color: var(--yellow); font-size: 0.78rem; display: flex; align-items: center; gap: 0.35rem; }
+.jarvis-quota-warning {
+  margin: 0.5rem 0.75rem 0;
+  padding: 0.5rem 0.7rem;
+  background: #f59e0b18;
+  border: 1px solid #f59e0b44;
+  border-radius: 8px;
+  color: var(--yellow);
+  font-size: 0.76rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.jarvis-hits { display: flex; flex-direction: column; gap: 0.6rem; }
+.jarvis-hit {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+}
+.jarvis-hit-head { display: flex; align-items: center; gap: 0.6rem; }
+.jarvis-hit-score {
+  font-size: 0.78rem;
+  font-weight: 800;
+  border: 2px solid;
+  border-radius: 999px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+.jarvis-hit-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.jarvis-hit-title a {
+  font-size: 0.85rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jarvis-hit-company { font-size: 0.72rem; color: var(--text-muted); }
+.jarvis-hit-resumo { margin-top: 0.4rem; font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
+.jarvis-hit-resumo--flex { display: flex; align-items: flex-start; gap: 0.35rem; }
+.jarvis-hit-resumo--flex svg { flex-shrink: 0; margin-top: 0.15rem; }
+.jarvis-hit-resumo--icon { display: flex; align-items: center; gap: 0.35rem; color: var(--green); }
+
+.jarvis-compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.6rem;
+}
+.jarvis-compare-col {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.jarvis-compare-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.5rem;
+  font-size: 0.74rem;
+}
+.jarvis-compare-facts dt { color: var(--text-muted); }
+.jarvis-compare-facts dd { margin: 0; color: var(--text); text-align: right; }
+.jarvis-compare-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.jarvis-tag-pill {
+  font-size: 0.68rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.jarvis-tool-results { margin-bottom: 0.6rem; }
+.jarvis-tool-results:last-child { margin-bottom: 0; }
+
+.jarvis-tag-mercado-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.jarvis-tag-mercado-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--bg-card2);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+}
+.jarvis-tag-mercado-count { font-size: 0.72rem; color: var(--text-muted); }
+
+.jarvis-thinking { margin-bottom: 0.6rem; }
+.jarvis-thinking-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0;
+  font-style: italic;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.jarvis-thinking-toggle:hover { color: var(--text); }
+/* Sem card/borda de propósito — texto solto, itálico, mais discreto que a
+   resposta em si, pra lembrar o jeito que o Claude Code mostra raciocínio
+   (parte do fluxo da conversa, não um bloco separado chamando atenção). */
+.jarvis-thinking-text {
+  margin-top: 0.35rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Rodapé de ações da mensagem (copiar + feedback), igual ao do Claude Code */
+.jarvis-msg-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.jarvis-msg-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.jarvis-msg-action-btn:hover { color: var(--text); background: var(--bg-card2); }
+
+.jarvis-compact-feedback { display: flex; align-items: center; gap: 0.3rem; }
+.jarvis-compact-feedback-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.jarvis-compact-feedback-btn:hover { color: var(--green); background: var(--bg-card2); }
+.jarvis-compact-feedback-btn--down:hover { color: var(--red); }
+.jarvis-compact-feedback--done {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--green);
+  font-size: 0.72rem;
+}
+.jarvis-compact-feedback-more {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  margin-left: 0.2rem;
+}
+.jarvis-compact-feedback-more:hover { color: var(--text); }
+.jarvis-compact-feedback-more:disabled { opacity: 0.4; cursor: default; }
+.jarvis-compact-feedback-input {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  color: var(--text);
+  width: 160px;
+}
+.jarvis-compact-feedback-input:focus { outline: none; border-color: var(--accent); }
+
+/* Pergunta interativa (ferramenta perguntarUsuario) */
+.jarvis-question { display: flex; flex-direction: column; gap: 0.5rem; }
+.jarvis-question-text { margin: 0; font-size: 0.85rem; }
+.jarvis-question-options { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.jarvis-question-btn {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.jarvis-question-btn:hover:not(:disabled) { border-color: var(--accent); background: #6366f122; }
+.jarvis-question-btn:disabled { opacity: 0.5; cursor: default; }
+.jarvis-question-btn--picked { border-color: var(--accent); background: #6366f122; opacity: 1; color: var(--accent); font-weight: 600; }
+.jarvis-question-btn--outro { border-style: dashed; color: var(--text-muted); }
+.jarvis-question-outro-row { display: flex; gap: 0.4rem; }
+.jarvis-question-outro-input {
+  flex: 1;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+.jarvis-question-outro-input:focus { outline: none; border-color: var(--accent); }
+.jarvis-question-answered { margin: 0; font-size: 0.78rem; color: var(--text-muted); }
+
+.jarvis-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+.jarvis-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.3rem;
+}
+.jarvis-stat-value { font-size: 1.1rem; font-weight: 800; }
+.jarvis-stat-label { font-size: 0.68rem; color: var(--text-muted); text-align: center; }
+
+/* "Dashboard" de compatibilidade — média/distribuição + barra por vaga,
+   pedido depois de um resultado só com cards individuais em texto. Reusa
+   o visual dos .jarvis-stat (mesma "linguagem" de UI), só num grid de 4
+   colunas em vez de 3. */
+.compat-dashboard { margin-bottom: 0.8rem; display: flex; flex-direction: column; gap: 0.7rem; }
+.compat-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; }
+.compat-bars { display: flex; flex-direction: column; gap: 0.5rem; }
+.compat-bar-row { display: flex; flex-direction: column; gap: 3px; }
+.compat-bar-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.compat-bar-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.compat-bar-score { font-size: 0.72rem; font-weight: 800; flex-shrink: 0; }
+.compat-bar-track {
+  height: 6px;
+  background: var(--bg-card2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.compat-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease-out; }
+
+.jarvis-condensed {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin: 0.4rem 0;
+}
+
+/* Sugestões só aparecem na conversa vazia (só a saudação) — como os
+   "example prompts" do Claude Desktop, não ficam grudadas embaixo da tela
+   pra sempre atrapalhando depois que a conversa já engatou. */
+.jarvis-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  margin-left: calc(26px + 0.6rem); /* alinha com o texto do avatar acima */
+}
+.jarvis-suggestion-card {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.65rem 0.8rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, transform 0.15s;
+}
+.jarvis-suggestion-card:hover:not(:disabled) { border-color: var(--accent); color: var(--text); transform: translateX(2px); }
+.jarvis-suggestion-card:disabled { opacity: 0.5; cursor: default; }
+.jarvis-suggestion-icon { flex-shrink: 0; display: flex; align-items: center; }
+
+.jarvis-input-row {
+  display: flex;
+  align-items: flex-end; /* textarea cresce pra cima — botões ficam ancorados embaixo */
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.jarvis-input {
+  flex: 1;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 16px; /* pílula fechada só faz sentido numa linha só */
+  padding: 0.4rem 0.8rem;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: inherit;
+  line-height: 1.4;
+  resize: none;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.jarvis-input:focus { outline: none; border-color: var(--accent); }
+.jarvis-send-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.jarvis-send-btn:hover:not(:disabled) { transform: scale(1.05); }
+.jarvis-send-btn:disabled { opacity: 0.4; cursor: default; }
+
+.jarvis-file-input { display: none; }
+.jarvis-attach-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+.jarvis-attach-btn:hover:not(:disabled) { color: var(--text); background: var(--bg-card2); }
+.jarvis-attach-btn:disabled { opacity: 0.4; cursor: default; }
+
+.jarvis-mic-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.jarvis-mic-btn:hover:not(:disabled) { color: var(--text); background: var(--bg-card2); }
+.jarvis-mic-btn:disabled { opacity: 0.4; cursor: default; }
+.jarvis-mic-btn--active {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+  animation: jarvis-mic-pulse 1.4s infinite ease-in-out;
+}
+@keyframes jarvis-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 #ef444455; }
+  50% { box-shadow: 0 0 0 6px #ef444400; }
+}
+
+.jarvis-attach-error {
+  margin: 0 1rem;
+  color: var(--red);
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.jarvis-attach-preview {
+  position: relative;
+  width: fit-content;
+  margin: 0.5rem 1rem 0;
+}
+.jarvis-attach-preview img {
+  max-height: 72px;
+  max-width: 140px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  display: block;
+}
+.jarvis-attach-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 0.65rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.jarvis-msg-image {
+  display: block;
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 10px;
+  margin-bottom: 0.4rem;
+}
+
+/* Histórico de conversas — lista tipo sidebar do Claude Desktop, mas
+   embutida no mesmo painel (troca de view em vez de sidebar separada,
+   já que o painel inteiro só tem 400px). */
+.jarvis-history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.jarvis-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+.jarvis-history-item:hover { background: var(--bg-card2); }
+.jarvis-history-item--active { background: var(--bg-card2); border-color: var(--border); }
+.jarvis-history-item-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.jarvis-history-item-title {
+  font-size: 0.82rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jarvis-history-item-time { font-size: 0.7rem; color: var(--text-muted); }
+.jarvis-history-item-delete {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.jarvis-history-item-delete:hover { background: var(--red); color: #fff; }
+.jarvis-history-item-export {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+.jarvis-history-item-export:hover { background: var(--bg-card); color: var(--accent); }
+
+.jarvis-history-wrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.jarvis-history-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.6rem 0.6rem 0;
+  padding: 0.45rem 0.7rem;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-muted);
+}
+.jarvis-history-search input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+.jarvis-history-empty { padding: 1rem 0.75rem; color: var(--text-muted); font-size: 0.82rem; }
+
+.jarvis-history-item-title-row { display: flex; align-items: center; gap: 0.3rem; min-width: 0; }
+.jarvis-history-item-rename {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.jarvis-history-item:hover .jarvis-history-item-rename { opacity: 1; }
+.jarvis-history-item-rename:hover { background: var(--bg-card); color: var(--accent); }
+.jarvis-history-item-title-input {
+  font-size: 0.82rem;
+  color: var(--text);
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 1px 5px;
+  width: 100%;
+  outline: none;
+}
+
+.jarvis-memory-wrap { position: relative; }
+.jarvis-memory-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 260px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  padding: 0.5rem;
+  z-index: 50;
+}
+.jarvis-memory-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 0.2rem 0.3rem 0.5rem;
+}
+.jarvis-memory-list { display: flex; flex-direction: column; gap: 0.3rem; }
+.jarvis-memory-list li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--bg-card2);
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
+}
+.jarvis-memory-remove {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+}
+.jarvis-memory-remove:hover { color: var(--red); }
+
+.jarvis-toggle-btn {
+  background: #2dd4bf22;
+  color: #2dd4bf;
+  border: 1px solid #2dd4bf44;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.jarvis-toggle-btn:hover { background: #2dd4bf33; }
+
+/* ===================== Mascote Hunter (SVG, sem asset externo) =====================
+   Nome em homenagem ao cachorro do usuário (rebatizado de "Rovi" pra
+   "Hunter" — combina com o tema do app, já que ele "caça" vagas). */
+.hunter-icon { flex-shrink: 0; overflow: visible; }
+.hunter-visor { fill: var(--bg); }
+.hunter-eye {
+  fill: #c7d2fe;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.hunter-antenna-tip {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hunter-pulse 2.2s infinite ease-in-out;
+}
+.hunter-gear {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.hunter-gear-body, .hunter-gear-tooth { fill: var(--text-muted); }
+.hunter-gear-hole { fill: var(--bg-card2); }
+
+@keyframes hunter-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+@keyframes hunter-blink {
+  0%, 100% { transform: scaleY(1); }
+  45%, 55% { transform: scaleY(0.15); }
+}
+@keyframes hunter-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(220deg); }
+}
+/* A engrenagem gira e os olhos piscam quando passa o mouse no botão que
+   abre o painel — dá vida ao mascote sem precisar de sprite/GIF animado. */
+.jarvis-toggle-btn:hover .hunter-eye { animation: hunter-blink 0.5s ease-in-out; }
+.jarvis-toggle-btn:hover .hunter-gear { animation: hunter-spin 0.6s ease-out; }
+.jarvis-toggle-btn:hover .hunter-gear-body,
+.jarvis-toggle-btn:hover .hunter-gear-tooth { fill: var(--accent); }
+
+/* Versão "viva" (prop alive={true}) — pisca sozinho o tempo todo, sem
+   depender de hover. Usado no botão do header, no cabeçalho do painel e nos
+   avatares do chat (inclusive enquanto o Hunter está "pensando" — mesma
+   animação, não é só os 3 pontinhos). Ciclo de 4,5s com a maior parte do
+   tempo de olho aberto e um piscar rápido, pra parecer natural, não um
+   metrônomo piscando sem parar. */
+@keyframes hunter-blink-loop {
+  0%, 88%, 100% { transform: scaleY(1); }
+  92%, 96% { transform: scaleY(0.15); }
+}
+.hunter-icon--alive .hunter-eye { animation: hunter-blink-loop 4.5s infinite ease-in-out; }
+.hunter-icon--alive .hunter-eye:last-of-type { animation-delay: 0.06s; }
+/* Engrenagem "cochicha" de leve, contínuo — sutil, bem diferente do giro
+   rápido no hover, só pra não ficar 100% estática enquanto os olhos piscam. */
+@keyframes hunter-gear-idle {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(18deg); }
+}
+.hunter-icon--alive .hunter-gear { animation: hunter-gear-idle 3.6s infinite ease-in-out; }
+
+/* Balanço de cabeça — quarta animação idle do mascote (antes só piscava e
+   flutuava). Pivô perto da base do grupo (antena+cabeça+visor+olhos), tipo
+   balançando a partir do "pescoço", não do centro — fica mais natural.
+   Timing (5s) propositalmente diferente do da engrenagem (3.6s) e do
+   piscar (4.5s), pra não sincronizar tudo e parecer um metrônomo só. */
+.hunter-head-group { transform-box: fill-box; transform-origin: 50% 90%; }
+@keyframes hunter-head-tilt {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+.hunter-icon--alive .hunter-head-group { animation: hunter-head-tilt 5s infinite ease-in-out; }
+
+/* Balãozinho de "?" saltitando — aparece só quando o Hunter fez uma pergunta
+   interativa e está esperando o usuário escolher (ver questioning no
+   HunterIcon). Fora do grupo da cabeça de propósito, pra não girar/balançar
+   junto — fica "flutuando" fixo do lado, tipo um balão de fala. */
+.hunter-question { transform-box: fill-box; transform-origin: center; animation: hunter-question-bounce 1.1s infinite ease-in-out; }
+.hunter-question-badge { fill: var(--yellow); }
+.hunter-question-mark { font-size: 6.5px; font-weight: 700; fill: var(--bg); font-family: inherit; }
+@keyframes hunter-question-bounce {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-2px) rotate(4deg); }
+}
+
+/* Com o Jarvis aberto, empurra o conteúdo principal em vez de deixar o
+   painel sobrepor os cards por cima — sem isso, a última coluna da grade
+   ficava escondida atrás da gaveta fixa. Acompanha --jarvis-panel-width
+   (mesma variável que o painel usa) pra reagir junto quando o usuário
+   arrasta a borda pra redimensionar. O header (título + botões do topo) é
+   uma <header> separada do .app-main — reportado que ela não acompanhava o
+   arrasto e o painel comia os botões Configurações/Duplicatas/Métricas,
+   então recebe o mesmo tratamento aqui. */
+.app--jarvis-open .app-main,
+.app--jarvis-open .header-inner {
+  padding-right: var(--jarvis-panel-width, 400px);
+  transition: padding-right 0.2s ease-out;
+}
+/* Durante o arrasto ativo a transição teria que "correr atrás" do mouse a
+   cada frame, dando uma sensação de atraso — desliga só nesse momento pra
+   o conteúdo acompanhar o dedo/cursor 1:1, sem lag. Classe fica na <html>
+   (não no .app) porque o painel é portal pro body, sem referência fácil
+   à div .app. */
+html.jarvis-resizing .app-main,
+html.jarvis-resizing .header-inner {
+  transition: none;
+}
+
+@media (max-width: 480px) {
+  .jarvis-panel { width: 100vw; }
+  /* nesse tamanho o painel já cobre a tela toda, então não faz sentido
+     também encolher o conteúdo — ele já não é visível de qualquer jeito */
+  .app--jarvis-open .app-main,
+  .app--jarvis-open .header-inner { padding-right: clamp(1rem, 3vw, 3rem); }
+}
 
 /* Feedback de IA (👍/👎 + comentário) — reaproveitado em carta, match score
    e perguntas de entrevista */
@@ -1730,13 +2792,17 @@ a:hover { text-decoration: underline; }
   background: var(--bg-card2);
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 1rem;
-  padding: 4px 10px;
+  padding: 6px 10px;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.ai-feedback-btn:hover { border-color: var(--text-muted); }
-.ai-feedback-btn--active { border-color: var(--accent); background: #6366f122; }
+.ai-feedback-btn:hover { border-color: var(--text-muted); color: var(--text); }
+.ai-feedback-btn--active { border-color: var(--accent); background: #6366f122; color: var(--green); }
+.ai-feedback-btn--down.ai-feedback-btn--active { border-color: var(--red); background: #ef444422; color: var(--red); }
 .ai-feedback-form { display: flex; flex-direction: column; gap: 0.5rem; }
 .ai-feedback-save { align-self: flex-end; font-size: 0.78rem; padding: 5px 12px; }
 .ai-feedback-saved { font-size: 0.78rem; color: var(--green); margin: 0; }
@@ -1821,6 +2887,49 @@ a:hover { text-decoration: underline; }
   .view-tabs { flex-wrap: wrap; }
   .view-tab { flex: none; min-width: 0; }
 }
+
+/* Triagem rápida — uma vaga por vez, decisão binária */
+.triage-modal { max-width: 480px; }
+.triage-progress {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0.9rem 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.triage-progress-hint { font-style: italic; }
+.triage-card {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+.triage-card-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.2rem; }
+.triage-card-company { color: var(--text-muted); margin-bottom: 0.4rem; }
+.triage-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+.triage-card-link { margin-top: 0.7rem; display: inline-block; text-decoration: none; }
+.triage-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.triage-actions .btn { flex: 1; justify-content: center; }
+.triage-shortcuts-hint {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 0.6rem;
+}
+.triage-done { text-align: center; padding: 2rem 1rem; }
+.triage-done-emoji { font-size: 2.5rem; margin-bottom: 0.5rem; }
 
 /* Mobile */
 @media (max-width: 600px) {

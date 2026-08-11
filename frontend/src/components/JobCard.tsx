@@ -1,5 +1,5 @@
 import { DragEvent, useEffect, useRef, useState } from 'react';
-import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
+import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, SortOption, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
 import { AgendaModal } from './AgendaModal';
 import { InterviewModal } from './InterviewModal';
 import { CoverLetterModal } from './CoverLetterModal';
@@ -8,6 +8,7 @@ import { MatchScoreModal } from './MatchScoreModal';
 import { InterviewQuestionsModal } from './InterviewQuestionsModal';
 import { useAgenda } from '../hooks/useAgenda';
 import { useSourceColors } from '../hooks/useSourceColors';
+import { HunterIcon } from './HunterIcon';
 
 interface Props {
   job: Job;
@@ -19,6 +20,16 @@ interface Props {
   onUpdateNotes: (id: number, notes: string) => void;
   onToast: (msg: string) => void;
   aiEnabled: boolean;
+  sortMode: SortOption;
+  // Pulso temporário quando essa vaga acabou de mudar via chat do Hunter
+  // (marcarStatusDeVaga/atualizarNotaDeVaga) — ajuda a notar a mudança sem
+  // precisar procurar o card na lista depois de mexer pelo chat.
+  highlighted?: boolean;
+  // Pré-filtro heurístico (sem IA, sobreposição de tags do perfil) — ver
+  // POST /api/jobs/quick-match-scores. Só passado pra vagas não vistas,
+  // onde faz sentido triar; badge só aparece a partir de um mínimo de
+  // sobreposição, senão viraria ruído em quase toda vaga.
+  matchPercent?: number;
 }
 
 const techTags = [
@@ -28,6 +39,11 @@ const techTags = [
 ];
 
 const ALL_STATUSES: JobStatus[] = ['NOVA', 'VISTA', 'INTERESSADO', 'APLICADA', 'ANDAMENTO', 'RECUSADA'];
+
+// GET /api/jobs/{id}/events — timeline de status (ver model JobEvent no
+// backend). Só existe evento a partir de quando essa tabela foi criada,
+// vaga antiga não tem histórico retroativo.
+interface JobEventDto { status: JobStatus; occurredAt: string }
 
 function currentStatus(job: Job): JobStatus {
   if (job.rejected) return 'RECUSADA';
@@ -47,11 +63,68 @@ function daysUntilDeletion(rejectedAt: string): number {
   return Math.max(0, Math.round((deleteDate.getTime() - today.getTime()) / 86400000));
 }
 
+// O backend serializa LocalDateTime sem timezone (o container roda em UTC)
+// — ex: "2026-08-10T19:57:00", sem "Z" nem offset. Sem isso, o navegador
+// interpreta a string como hora LOCAL (é o padrão do JS pra ISO sem
+// timezone), o que descolava o horário mostrado do real em até 3h (fuso
+// BR) — reportado: card dizia "19:57" com o relógio real marcando 17:16.
+// Força interpretação como UTC anexando "Z" quando a string ainda não tem
+// timezone explícito (idempotente: se já vier com Z/offset, não mexe).
+function parseBackendIso(iso: string): Date {
+  return new Date(/[Zz]|[+-]\d{2}:\d{2}$/.test(iso) ? iso : `${iso}Z`);
+}
+
+// Com a busca rodando a cada 2h, só a data não diz qual vaga "acabou de
+// chegar" — todo mundo publicado hoje mostrava o mesmo "10 de ago." Se foi
+// hoje, mostra a hora exata em vez da data (mais compacto e mais útil);
+// vagas mais antigas continuam só com a data, sem virar bagunça em
+// milhares de cards antigos que não precisam desse nível de detalhe.
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
+  const date = parseBackendIso(iso);
+  const now = new Date();
+  const isToday = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  if (isToday) {
+    const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date);
+    return `Hoje, ${hora}`;
+  }
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit', month: 'short', year: 'numeric'
-  }).format(new Date(iso));
+  }).format(date);
+}
+
+function formatDateFull(iso: string | null): string | undefined {
+  if (!iso) return undefined;
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  }).format(parseBackendIso(iso));
+}
+
+// Quando a lista tá ordenada por "🔄 Adicionadas recentemente", o que
+// importa é quando o JOB RADAR encontrou a vaga (fetchedAt) — não quando
+// ela foi originalmente publicada na fonte (postedAt), que pode ser bem
+// mais antigo (uma vaga publicada há 2 dias só "é nova" pra você quando a
+// gente finalmente a descobre). Reportado: buscou vagas novas (144→148),
+// mas as 4 novas não apareciam com hora "de agora" — o badge só mostrava
+// postedAt, sem refletir a descoberta recente.
+function formatFetched(iso: string | null): string {
+  if (!iso) return '—';
+  const date = parseBackendIso(iso);
+  const diffMin = Math.floor((Date.now() - date.getTime()) / 60000);
+  if (diffMin < 1) return 'agora mesmo';
+  if (diffMin < 60) return `há ${diffMin}min`;
+  const now = new Date();
+  const isToday = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  if (isToday) {
+    return `hoje, ${new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date)}`;
+  }
+  const h = Math.floor(diffMin / 60);
+  if (h < 24) return `há ${h}h`;
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' }).format(date);
 }
 
 function highlightTechTag(tag: string): boolean {
@@ -78,7 +151,7 @@ function deadlineInfo(expiresAt: string | null): { label: string; className: str
 function daysUntilIso(iso: string): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const target = new Date(iso);
+  const target = parseBackendIso(iso);
   target.setHours(0, 0, 0, 0);
   return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
@@ -100,6 +173,57 @@ function interviewInfo(dueAt: string | null): { label: string; className: string
   return { label: `🎤 Entrevista em ${days}d`, className: 'badge-deadline--urgent' };
 }
 
+// Checklist dentro da nota — sintaxe Markdown padrão ("- [ ] item" / "- [x]
+// item", o traço é opcional). A nota continua sendo texto livre por baixo
+// (nada muda no backend/model) — só a exibição reconhece essas linhas e
+// vira caixinha clicável em vez de texto solto. O Hunter já lê o campo
+// 'notes' cru, então ele também "vê" o [ ]/[x] sem precisar de nada novo.
+const CHECKLIST_RE = /^(\s*[-*]?\s*)\[([ xX])\]\s?(.*)$/;
+
+function toggleChecklistLine(notes: string, lineIndex: number): string {
+  const linhas = notes.split('\n');
+  const m = linhas[lineIndex]?.match(CHECKLIST_RE);
+  if (!m) return notes;
+  const novoMarcador = m[2].toLowerCase() === 'x' ? ' ' : 'x';
+  linhas[lineIndex] = `${m[1]}[${novoMarcador}] ${m[3]}`;
+  return linhas.join('\n');
+}
+
+function NotesPreview({ notes, onToggle, onOpenEditor }: {
+  notes: string;
+  onToggle: (lineIndex: number) => void;
+  onOpenEditor: () => void;
+}) {
+  const linhas = notes.split('\n');
+  return (
+    <div className="notes-preview-block">
+      <div className="notes-preview-lines">
+        {linhas.map((linha, i) => {
+          const m = linha.match(CHECKLIST_RE);
+          if (!m) {
+            return linha.trim() ? <p key={i} className="notes-preview-text">{linha}</p> : null;
+          }
+          const marcado = m[2].toLowerCase() === 'x';
+          return (
+            <button
+              key={i}
+              type="button"
+              className={`notes-checklist-item ${marcado ? 'notes-checklist-item--done' : ''}`}
+              onClick={() => onToggle(i)}
+            >
+              <span className="notes-checklist-box">{marcado ? '✓' : ''}</span>
+              <span className="notes-checklist-label">{m[3] || '(item vazio)'}</span>
+            </button>
+          );
+        })}
+      </div>
+      <button className="notes-preview-edit" onClick={onOpenEditor} title="Editar notas">
+        📝 editar
+      </button>
+    </div>
+  );
+}
+
 // Gera iniciais da empresa para o avatar fallback
 function companyInitials(name: string): string {
   return name
@@ -109,7 +233,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode, highlighted, matchPercent }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -134,6 +258,9 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const [menuOpen, setMenuOpen] = useState(false);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<JobEventDto[] | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
   const [coverLetterOpen, setCoverLetterOpen] = useState(false);
@@ -196,9 +323,25 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
     }, 800);
   };
 
+  // Busca sob demanda (não no carregamento da lista inteira) — evita N+1
+  // requisições disparando pra cada card visível de uma vez.
+  const handleToggleHistory = () => {
+    const abrindo = !historyOpen;
+    setHistoryOpen(abrindo);
+    if (abrindo && history === null) {
+      setHistoryLoading(true);
+      fetch(`/api/jobs/${job.id}/events`)
+        .then(r => r.json())
+        .then((data: JobEventDto[]) => setHistory(data))
+        .catch(() => setHistory([]))
+        .finally(() => setHistoryLoading(false));
+    }
+  };
+
   return (
     <div
-      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''}`}
+      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''}`}
+      id={`job-card-${job.id}`}
       draggable={job.applied}
       onDragStart={job.applied ? handleDragStart : undefined}
       title={job.applied ? 'Arraste pra outra aba, ou use o menu ⋮' : undefined}
@@ -224,6 +367,14 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
           <div className="card-badges-left">
             {isNew && <span className="badge-new">NOVA</span>}
+            {matchPercent != null && matchPercent >= 50 && (
+              <span
+                className="badge-match"
+                title="Sobreposição de tags técnicas com seu perfil — pré-filtro sem IA, não é uma nota final de compatibilidade"
+              >
+                🎯 {matchPercent}% match
+              </span>
+            )}
             {job.rejected && <span className="badge-rejected">❌ RECUSADA</span>}
             {job.inProgress && !job.rejected && <span className="badge-in-progress">EM ANDAMENTO 🔄</span>}
             {isPlainApplied && <span className="badge-applied">APLICADA ✅</span>}
@@ -274,7 +425,16 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
           </div>
         </div>
         <div className="card-header-right">
-          <span className="card-date">📅 {formatDate(job.postedAt)}</span>
+          {sortMode === 'fetched_desc' ? (
+            <span
+              className="card-date"
+              title={`Publicada na fonte: ${formatDateFull(job.postedAt) ?? '—'} · Encontrada pelo Job Radar: ${formatDateFull(job.fetchedAt) ?? '—'}`}
+            >
+              🆕 {formatFetched(job.fetchedAt)}
+            </span>
+          ) : (
+            <span className="card-date" title={formatDateFull(job.postedAt)}>📅 {formatDate(job.postedAt)}</span>
+          )}
 
           {/* Botão fixar — oculto em vagas recusadas */}
           {!job.rejected && (
@@ -287,6 +447,15 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
               📌
             </button>
           )}
+
+          <button
+            className={`btn-pin ${historyOpen ? 'btn-pin--active' : ''}`}
+            onClick={handleToggleHistory}
+            title="Histórico de status dessa vaga"
+            aria-label="Ver histórico de status"
+          >
+            📜
+          </button>
 
           <div className="card-menu" ref={menuRef}>
             <button
@@ -362,6 +531,25 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         </div>
       )}
 
+      {historyOpen && (
+        <div className="card-history-panel">
+          {historyLoading ? (
+            <p className="card-history-empty">Carregando...</p>
+          ) : !history || history.length === 0 ? (
+            <p className="card-history-empty">Sem histórico registrado ainda (só a partir de quando essa vaga mudar de status de novo).</p>
+          ) : (
+            <ul className="card-history-list">
+              {history.map((ev, i) => (
+                <li key={i}>
+                  <span className="card-history-status">{statusMeta[ev.status] ?? ev.status}</span>
+                  <span className="card-history-date">{formatDateFull(ev.occurredAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {/* Notas pessoais */}
       <div className="card-notes-section">
         {notesOpen ? (
@@ -382,7 +570,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             </div>
             <textarea
               className="notes-textarea"
-              placeholder="Salário negociado, contato do recrutador, impressões da entrevista..."
+              placeholder="Salário negociado, contato do recrutador, impressões da entrevista... Linhas '- [ ] item' viram checklist clicável."
               value={notesText}
               onChange={e => handleNotesChange(e.target.value)}
               rows={3}
@@ -390,11 +578,11 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             />
           </div>
         ) : job.notes ? (
-          <button className="notes-preview" onClick={() => setNotesOpen(true)} title="Editar notas">
-            <span className="notes-preview-icon">📝</span>
-            <span className="notes-preview-text">{job.notes}</span>
-            <span className="notes-preview-edit">editar</span>
-          </button>
+          <NotesPreview
+            notes={job.notes}
+            onToggle={lineIndex => onUpdateNotes(job.id, toggleChecklistLine(job.notes ?? '', lineIndex))}
+            onOpenEditor={() => setNotesOpen(true)}
+          />
         ) : (
           <button className="notes-toggle" onClick={() => setNotesOpen(true)}>
             📝 Adicionar nota
@@ -486,27 +674,30 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
               onClick={() => setAiMenuOpen(open => !open)}
               title="Recursos de IA pra essa vaga"
             >
-              🤖 IA ▾
+              <HunterIcon size={14} /> IA ▾
             </button>
             {aiMenuOpen && (
               <div className="card-menu-dropdown ai-menu-dropdown">
                 <button
-                  className="card-menu-item"
+                  className="card-menu-item card-menu-item--icon"
                   onClick={() => { setAiMenuOpen(false); setCoverLetterOpen(true); }}
                 >
-                  ✉️ Gerar carta de apresentação
+                  <span className="card-menu-item-badge card-menu-item-badge--accent">✉️</span>
+                  Gerar carta de apresentação
                 </button>
                 <button
-                  className="card-menu-item"
+                  className="card-menu-item card-menu-item--icon"
                   onClick={() => { setAiMenuOpen(false); setMatchScoreOpen(true); }}
                 >
-                  🎯 Compatibilidade com meu perfil
+                  <span className="card-menu-item-badge card-menu-item-badge--green">🎯</span>
+                  Compatibilidade com meu perfil
                 </button>
                 <button
-                  className="card-menu-item"
+                  className="card-menu-item card-menu-item--icon"
                   onClick={() => { setAiMenuOpen(false); setInterviewQuestionsOpen(true); }}
                 >
-                  ❓ Perguntas prováveis de entrevista
+                  <span className="card-menu-item-badge card-menu-item-badge--yellow">❓</span>
+                  Perguntas prováveis de entrevista
                 </button>
               </div>
             )}

@@ -10,7 +10,11 @@ import { AddJobModal } from './components/AddJobModal';
 import { AgendaStatusBar } from './components/AgendaStatusBar';
 import { MetricsModal } from './components/MetricsModal';
 import { SettingsModal } from './components/SettingsModal';
-import { DuplicatesModal } from './components/DuplicatesModal';
+import { JarvisPanel } from './components/JarvisPanel';
+import { TriageModal } from './components/TriageModal';
+import { HunterIcon } from './components/HunterIcon';
+import { useCandidateProfile } from './hooks/useCandidateProfile';
+import { useQuickMatchScores } from './hooks/useQuickMatchScores';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
 import './App.css';
 
@@ -62,12 +66,26 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [showJarvis, setShowJarvis] = useState(false);
+  const [showTriage, setShowTriage] = useState(false);
+  // Pulso temporário no card real da vaga que o Hunter acabou de mudar
+  // (marcarStatusDeVaga/atualizarNotaDeVaga) — ver job-card--highlighted no
+  // App.css. Desliga sozinho depois de alguns segundos.
+  const [highlightedJobId, setHighlightedJobId] = useState<number | null>(null);
 
-  const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes } =
+  const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reload } =
     useJobs(filters);
   const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
   const aiStatus = useAiStatus();
+  const { profile: candidateProfile } = useCandidateProfile();
+  // Badge "🎯 X% match" nos cards de vagas NOVAS — só busca quando há perfil
+  // salvo e a aba atual é a de novas (não faz sentido gastar a chamada pras
+  // outras abas, que já foram vistas/decididas).
+  const { scores: matchScores, refresh: refreshMatchScores } = useQuickMatchScores();
+  useEffect(() => {
+    if (candidateProfile.trim() && filters.viewMode === 'novas') refreshMatchScores(candidateProfile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidateProfile, filters.viewMode]);
   const [syncingAgenda, setSyncingAgenda] = useState(false);
   const reconciledRef = useRef(false);
 
@@ -147,6 +165,20 @@ export default function App() {
   // volta pra primeira "página" sempre que os filtros mudam a lista
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filters]);
 
+  // Ctrl+K (ou Cmd+K no mac) abre/fecha o Hunter de qualquer lugar da tela —
+  // atalho padrão de "abrir busca/assistente" que a maioria dos apps usa.
+  // preventDefault pra não deixar o navegador abrir a barra de endereço.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowJarvis(o => !o);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   const visibleJobs = jobs.slice(0, visibleCount);
   const hasMore = visibleCount < jobs.length;
 
@@ -216,25 +248,30 @@ export default function App() {
   };
 
   return (
-    <div className="app">
+    <div className={`app ${showJarvis ? 'app--jarvis-open' : ''}`}>
       {/* Header */}
       <header className="app-header">
         <div className="header-inner header-inner--flex">
           <div>
             <h1 className="app-title">🎯 Job Radar</h1>
-            <p className="app-subtitle">Vagas de programação remotas na Europa + vagas no Brasil (Gupy) · Atualizado a cada 4 horas</p>
+            <p className="app-subtitle">Vagas de programação remotas na Europa + vagas no Brasil (Gupy) · Atualizado a cada 2 horas</p>
           </div>
           <div className="header-actions">
             <AgendaStatusBar syncing={syncingAgenda} onSync={handleAgendaSync} />
             <button className="btn btn-ghost" onClick={() => setShowMetrics(true)}>
               📊 Métricas
             </button>
-            <button className="btn btn-ghost" onClick={() => setShowDuplicates(true)}>
-              🧩 Duplicatas
-            </button>
             <button className="btn btn-ghost" onClick={() => setShowSettings(true)}>
               ⚙️ Configurações
             </button>
+            <button className="btn btn-ghost" onClick={() => setShowTriage(true)} title="Revisa as vagas novas uma por uma, rapidinho">
+              ⚡ Triagem rápida
+            </button>
+            {aiStatus.enabled && (
+              <button className="btn jarvis-toggle-btn" onClick={() => setShowJarvis(o => !o)} title="Abrir o Hunter (Ctrl+K)">
+                <HunterIcon size={17} alive /> Hunter
+              </button>
+            )}
             <button className="btn btn-primary add-job-btn" onClick={() => setShowAddModal(true)}>
               ➕ Adicionar vaga
             </button>
@@ -242,19 +279,38 @@ export default function App() {
         </div>
       </header>
 
+      {showJarvis && (
+        <JarvisPanel
+          onClose={() => setShowJarvis(false)}
+          onJobsChanged={vagaId => {
+            reload(true);
+            if (vagaId != null) {
+              setHighlightedJobId(vagaId);
+              window.setTimeout(() => setHighlightedJobId(null), 3600);
+              // Rola até o card se ele já estiver na lista visível — só
+              // depois do reload terminar de atualizar o DOM.
+              window.setTimeout(() => {
+                document.getElementById(`job-card-${vagaId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 200);
+            }
+          }}
+        />
+      )}
+
+      {showTriage && (
+        <TriageModal
+          onClose={() => { setShowTriage(false); reload(true); }}
+          onSeen={markSeen}
+          onSetStatus={handleSetStatus}
+        />
+      )}
+
       {showAddModal && (
         <AddJobModal onClose={() => setShowAddModal(false)} onSubmit={handleAddManual} />
       )}
 
       {showMetrics && (
         <MetricsModal onClose={() => setShowMetrics(false)} />
-      )}
-
-      {showDuplicates && (
-        <DuplicatesModal
-          onClose={() => setShowDuplicates(false)}
-          onReject={id => handleSetStatus(id, 'RECUSADA')}
-        />
       )}
 
       {showSettings && (
@@ -330,6 +386,9 @@ export default function App() {
                   onUpdateNotes={updateNotes}
                   onToast={showToast}
                   aiEnabled={aiStatus.enabled}
+                  sortMode={filters.sort}
+                  highlighted={job.id === highlightedJobId}
+                  matchPercent={filters.viewMode === 'novas' ? matchScores[String(job.id)] : undefined}
                 />
               ))}
             </div>

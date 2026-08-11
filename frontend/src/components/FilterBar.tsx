@@ -11,6 +11,7 @@ interface Props {
 }
 
 const LS_KEY = 'jobradar:tech-pills';
+const SAVED_FILTERS_KEY = 'jobradar:saved-filters';
 
 function loadPills(): string[] {
   try {
@@ -24,6 +25,20 @@ function savePills(pills: string[]) {
   localStorage.setItem(LS_KEY, JSON.stringify(pills));
 }
 
+interface SavedFilter { name: string; filters: Filters }
+
+function loadSavedFilters(): SavedFilter[] {
+  try {
+    return JSON.parse(localStorage.getItem(SAVED_FILTERS_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveSavedFilters(list: SavedFilter[]) {
+  localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(list));
+}
+
 export function FilterBar({ filters, onChange, onClear, total, states, sources }: Props) {
   const set = (partial: Partial<Filters>) => onChange({ ...filters, ...partial });
 
@@ -31,6 +46,15 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources }
   const [inputValue, setInputValue] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Filtros salvos — combinação inteira (busca, fonte, nível, modalidade,
+  // estado, dias, iniciante, tech stack) salva com um nome, pra não ter que
+  // reconfigurar tudo de novo toda vez que quer voltar pra uma busca
+  // recorrente (ex: "remoto pleno backend").
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(loadSavedFilters);
+  const [savingName, setSavingName] = useState(false);
+  const [saveNameInput, setSaveNameInput] = useState('');
+  const [selectedSaved, setSelectedSaved] = useState('');
 
   // posição do modal arrastável (offset relativo ao centro inicial)
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
@@ -102,6 +126,31 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources }
 
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+  };
+
+  const handleSaveFilter = () => {
+    const name = saveNameInput.trim();
+    if (!name) return;
+    const semNome = savedFilters.filter(f => f.name !== name);
+    const updated = [...semNome, { name, filters }];
+    setSavedFilters(updated);
+    saveSavedFilters(updated);
+    setSaveNameInput('');
+    setSavingName(false);
+    setSelectedSaved(name);
+  };
+
+  const handleApplySaved = (name: string) => {
+    setSelectedSaved(name);
+    const found = savedFilters.find(f => f.name === name);
+    if (found) onChange(found.filters);
+  };
+
+  const handleDeleteSaved = (name: string) => {
+    const updated = savedFilters.filter(f => f.name !== name);
+    setSavedFilters(updated);
+    saveSavedFilters(updated);
+    if (selectedSaved === name) setSelectedSaved('');
   };
 
   const hasActiveFilters =
@@ -222,6 +271,49 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources }
           <option value="posted_asc">📅 Publicação ↑ (antigas)</option>
           <option value="fetched_desc">🔄 Adicionadas recentemente</option>
         </select>
+
+        {savedFilters.length > 0 && (
+          <select
+            className="filter-select"
+            value={selectedSaved}
+            onChange={e => handleApplySaved(e.target.value)}
+            title="Aplicar um filtro salvo"
+          >
+            <option value="">💾 Filtros salvos</option>
+            {savedFilters.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
+          </select>
+        )}
+        {selectedSaved && (
+          <button
+            className="clear-filters-btn"
+            onClick={() => handleDeleteSaved(selectedSaved)}
+            title={`Apagar filtro "${selectedSaved}"`}
+          >
+            🗑 Apagar filtro
+          </button>
+        )}
+        {hasActiveFilters && !savingName && (
+          <button className="btn btn-ghost" onClick={() => { setSavingName(true); setSaveNameInput(''); }} title="Salvar essa combinação de filtros">
+            💾 Salvar filtro
+          </button>
+        )}
+        {savingName && (
+          <form
+            className="tech-pill-form"
+            onSubmit={e => { e.preventDefault(); handleSaveFilter(); }}
+          >
+            <input
+              className="tech-pill-input"
+              type="text"
+              autoFocus
+              placeholder="Nome do filtro"
+              value={saveNameInput}
+              onChange={e => setSaveNameInput(e.target.value)}
+              maxLength={40}
+              onBlur={() => { if (!saveNameInput.trim()) setSavingName(false); }}
+            />
+          </form>
+        )}
 
         {hasActiveFilters && (
           <button className="clear-filters-btn" onClick={onClear}>✕ Limpar filtros</button>

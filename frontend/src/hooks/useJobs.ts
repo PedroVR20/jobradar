@@ -105,15 +105,21 @@ export function useJobs(filters: Filters) {
   // menu "⋮" do card (alternativa ao drag-and-drop pra pular entre abas).
   const setStatus = async (id: number, status: JobStatus) => {
     await fetch(`${API}/${id}/status?value=${status}`, { method: 'PATCH' });
-    const patch: Partial<Job> = {
-      NOVA:        { seen: false, interested: false, applied: false, inProgress: false, rejected: false, rejectedAt: null },
-      VISTA:       { seen: true,  interested: false, applied: false, inProgress: false, rejected: false, rejectedAt: null },
-      INTERESSADO: { seen: true,  interested: true,  applied: false, inProgress: false, rejected: false, rejectedAt: null },
-      APLICADA:    { seen: true,  interested: false, applied: true,  inProgress: false, rejected: false, rejectedAt: null },
-      ANDAMENTO:   { seen: true,  interested: false, applied: true,  inProgress: true,  rejected: false, rejectedAt: null },
-      RECUSADA:    { seen: true,  interested: false, applied: true,  inProgress: false, rejected: true,  rejectedAt: new Date().toISOString() },
-    }[status];
-    setJobs(prev => prev.map(j => j.id === id ? { ...j, ...patch } : j));
+    // RECUSADA não força applied:true — antes forçava, contando como
+    // "aplicada" toda vaga recusada direto (ex: descartar vaga antiga nunca
+    // aplicada), inflando as métricas. Mantém o applied que a vaga já tinha.
+    setJobs(prev => prev.map(j => {
+      if (j.id !== id) return j;
+      const patch: Partial<Job> = {
+        NOVA:        { seen: false, interested: false, applied: false,   inProgress: false, rejected: false, rejectedAt: null },
+        VISTA:       { seen: true,  interested: false, applied: false,   inProgress: false, rejected: false, rejectedAt: null },
+        INTERESSADO: { seen: true,  interested: true,  applied: false,   inProgress: false, rejected: false, rejectedAt: null },
+        APLICADA:    { seen: true,  interested: false, applied: true,    inProgress: false, rejected: false, rejectedAt: null },
+        ANDAMENTO:   { seen: true,  interested: false, applied: true,    inProgress: true,  rejected: false, rejectedAt: null },
+        RECUSADA:    { seen: true,  interested: false, applied: j.applied, inProgress: false, rejected: true, rejectedAt: new Date().toISOString() },
+      }[status];
+      return { ...j, ...patch };
+    }));
     loadJobs(true); // reflete a mudança de aba e atualiza stats sem piscar loading
   };
 
@@ -150,6 +156,11 @@ export function useJobs(filters: Filters) {
         );
       }
       const data = await res.json();
+      // já tinha um fetch em andamento (o automático ao subir o app, ou o
+      // agendado de 2h) — não rodou de novo em paralelo à toa, ver JobAggregatorService
+      if (data.status === 'already-running') {
+        throw new Error('Já tem uma busca em andamento (automática) — aguarde ela terminar e tente de novo.');
+      }
       await loadJobs();
       return data.novasVagas as number;
     } finally {

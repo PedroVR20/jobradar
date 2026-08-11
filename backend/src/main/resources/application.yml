@@ -15,6 +15,13 @@ spring:
 
 server:
   port: 8080
+  tomcat:
+    # Default do Tomcat embutido é 2MB — baixo demais pro chat do Hunter
+    # aceitar print anexado (imagem vira base64 no corpo do POST, ~33% maior
+    # que o arquivo original). Print comprimido no frontend fica bem abaixo
+    # disso, mas a margem evita 413/conexão resetada em prints maiores.
+    max-http-form-post-size: 12MB
+    max-swallow-size: 12MB
 
 gemini:
   # Vazio por padrão — recursos de IA ficam desativados sem uma key.
@@ -35,3 +42,15 @@ gemini:
 logging:
   level:
     br.com.jobradar: INFO
+
+# Gate simples (não é segurança de verdade — app pessoal local) pro botão
+# "Retreinar modelo de salário" no frontend. Vazio == recurso desativado.
+retrain:
+  secret-code: ${RETRAIN_SECRET_CODE:}
+
+salary:
+  model:
+    # Onde o resultado de um retreino é salvo — fora do jar, num volume
+    # montado (ver docker-compose.yml), pra sobreviver a "docker compose up"
+    # sem precisar reconstruir a imagem. Ver SalaryPredictionService.
+    external-path: ${SALARY_MODEL_PATH:data/salary_model.json}

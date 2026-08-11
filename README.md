@@ -5,7 +5,7 @@ vagas no Brasil — empresas grandes como Itaú, Stone, Localiza, Boticário,
 TIM, Bradesco, Stellantis e Natura, entre centenas de outras, agregadas de
 7 fontes (Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, Nerdin)
 num único funil de candidatura, com integração opcional a uma Agenda Pessoal.
-Busca automaticamente **a cada 4 horas** e guarda tudo no banco.
+Busca automaticamente **a cada 2 horas** e guarda tudo no banco.
 
 Repositório: https://github.com/PedroVR20/jobradar
 
@@ -17,7 +17,12 @@ Repositório: https://github.com/PedroVR20/jobradar
 docker-compose up --build
 ```
 
-Aguarda uns 2-3 minutos para o Maven baixar as dependências e compilar o backend.
+Aguarda uns 2-3 minutos na PRIMEIRA vez pro Maven baixar as dependências e
+compilar o backend. Depois de já buildado, o app fica de pé em segundos —
+o fetch inicial nas 7 fontes (pode levar ~3 minutos, o Nerdin sozinho passa
+de 1min) roda **em background** depois que o backend já está respondendo,
+não trava mais a inicialização. As vagas que já estavam salvas aparecem na
+hora; as novas vão entrando conforme cada fonte termina.
 
 | Serviço   | Endereço                   |
 |-----------|----------------------------|
@@ -384,11 +389,11 @@ escopo do Job Radar.
 | Recurso | Onde aparece | O que faz |
 |---|---|---|
 | **Carta de apresentação** | Menu **🤖 IA** em cada vaga → "✉️ Gerar carta de apresentação", abre um modal próprio com campo de contexto extra opcional e botão de copiar | `POST /api/jobs/{id}/cover-letter` gera uma carta a partir do que a vaga tem salva (título, empresa, senioridade, modalidade, local, tags, salário, suas notas) **mais a descrição real da vaga**, buscada na hora na própria página dela (best effort — nem toda fonte deixa, ver JobDescriptionService abaixo). A IA é instruída a não inventar histórico profissional que você não informou. |
-| **Compatibilidade com seu perfil** | Menu **🤖 IA** → "🎯 Compatibilidade com meu perfil" | Compara seu currículo/perfil (o que você salvou em Configurações, ou cola na hora) com os requisitos reais da vaga e devolve uma nota 0-100% honesta, pontos fortes e pontos a desenvolver — a IA é instruída a não inflar a nota. |
+| **Compatibilidade com seu perfil** | Menu **🤖 IA** → "🎯 Compatibilidade com meu perfil" | Compara seu currículo/perfil (o que você salvou em Configurações, ou cola na hora) com os requisitos reais da vaga e devolve uma nota 0-100% honesta, pontos fortes e pontos a desenvolver — a IA é instruída a não inflar a nota. Cada **ponto a desenvolver** tem um botão **📚 Plano de ação** — gera uma contramedida sob demanda (só quando clicado, não pra todos os pontos de uma vez): passos concretos e acionáveis, com recursos reais (curso/documentação/projeto prático) e tempo estimado, considerando o que você já sabe como ponto de partida. Ver `LearningPlanService`. |
 | **Perguntas prováveis de entrevista** | Menu **🤖 IA** → "❓ Perguntas prováveis de entrevista" | Gera de 6 a 8 perguntas técnicas + comportamentais específicas da vaga/stack (não genéricas tipo "fale sobre você"), considerando seu perfil salvo quando disponível. |
-| **Faixa salarial estimada** | Botão **💰 Salário estimado** em cada vaga (sempre visível, não depende da IA estar ativa) | **Não usa IA generativa** — usa um modelo de **regressão treinado de verdade** (Ridge, scikit-learn, offline) sobre as vagas com salário real já cadastradas no banco, prevendo a partir de senioridade + stack + modalidade + estado. Mostra a margem de erro típica (~43%) explicitamente, e tem um botão extra pra estimar com base no *seu* currículo salvo em vez dos dados da vaga. Ver [scripts/README.md](scripts/README.md) pra como foi treinado e como retreinar. |
+| **Faixa salarial estimada** | Botão **💰 Salário estimado** em cada vaga (sempre visível, não depende da IA estar ativa) · retreino em **⚙️ Configurações → 🔒 Área avançada** | **Não usa IA generativa** — usa um modelo de **regressão treinado de verdade** (Ridge regression + validação cruzada, portado pra Java puro em `SalaryModelTrainerService`) sobre as vagas com salário real já cadastradas no banco, prevendo a partir de senioridade + stack + modalidade + estado. Mostra a margem de erro típica explicitamente (varia conforme o último treino — a tela sempre traz o número atual), e tem um botão extra pra estimar com base no *seu* currículo salvo em vez dos dados da vaga. Considera salários em R$, € e $ (convertidos pela cotação do dia). Retreino é self-service pelo app (código simples protegendo o botão, ver `RETRAIN_SECRET_CODE` no `.env`) — sem precisar rodar Python nem reconstruir o container. Ver [scripts/README.md](scripts/README.md) pra como o treino funciona por dentro. |
 | **Detecção de duplicatas mais precisa** | Botão **🧩 Duplicatas** no cabeçalho, cada grupo confirmado pela IA leva o selo "🤖 confirmado por IA" | O endpoint `/api/jobs/duplicates` (mesma empresa + título parecido, já existia) agora pede uma segunda opinião ao Gemini pra descartar grupos que só parecem duplicata por palavra em comum mas são vagas de times/produtos diferentes. Limitado a 20 verificações por chamada (limite do free tier) — grupos além disso mantêm só o veredito por similaridade de palavras. |
-| **Classificação de senioridade/stack** | Selo **🤖** ao lado do badge de senioridade, nas vagas que passaram por ele | Quando o classificador por regex não decide (título ambíguo ou em outro idioma), uma chamada extra ao Gemini tenta resolver e também extrai tecnologias citadas no título pra completar as tags. Só roda nos casos que o regex não resolveu, não em toda vaga nova — o selo só aparece em vagas novas processadas depois que a IA foi ligada, não retroage nas antigas. |
+| **🐕 Hunter** — chat livre | Botão **🐕 Hunter** no cabeçalho, abre um painel lateral tipo chat com **múltiplas conversas salvas** (inspirado no histórico do Claude Desktop — ➕ nova conversa, 🕘 volta pra uma antiga, tudo persistido no navegador) | Chat **livre de verdade** via function-calling do Gemini — não é roteamento por palavra-chave: você escreve do jeito que quiser ("dê uma olhada nas minhas vagas em andamento", "quantas vagas tenho hoje") e o próprio modelo decide se e quais ferramentas chamar (`JarvisChatService`, até 4 rounds por mensagem). `listarVagas` e `resumoFunil` são gratuitas (direto no banco); `compatibilidadeComVagasRecentes` varre o feed geral de vagas novas (pré-filtro sem IA, só as 5 mais promissoras viram chamada real) e `compatibilidadeComVagasDoFunil` analisa direto um status específico do funil do usuário (ex: "minhas vagas interessadas") — duas ferramentas distintas de propósito, pra evitar o modelo escolher a errada e gastar cota analisando o feed geral quando o pedido era sobre um grupo pequeno e já filtrado. Resultados de ferramenta viram cards estruturados na conversa, não só texto. |
 
 **Descrição real da vaga (JobDescriptionService):** carta, compatibilidade e
 perguntas de entrevista buscam a página da própria vaga (Jsoup) e extraem o
@@ -479,8 +484,10 @@ PATCH /api/jobs/{id}/applied       → Marca como aplicada (e tira de "em andame
 PATCH /api/jobs/{id}/in-progress   → Marca como em processo seletivo ativo
 PATCH /api/jobs/{id}/status?value=X → Move pra um status específico: NOVA|VISTA|INTERESSADO|APLICADA|ANDAMENTO|RECUSADA
 POST  /api/jobs/manual              → Adiciona/atualiza vaga manual (title, company, url obrigatórios)
-POST  /api/jobs/fetch               → Dispara fetch manual (roda as 7 fontes de forma síncrona, pode levar
-                                       ~1min — o nginx do frontend tem 240s de timeout pra dar folga)
+POST  /api/jobs/fetch               → Dispara fetch manual (roda as 7 fontes, pode levar ~1min — o nginx do
+                                       frontend tem 240s de timeout pra dar folga). Se já tiver um fetch em
+                                       andamento (o automático ao subir o app, ou o do cron de 4h), devolve
+                                       { "status": "already-running" } em vez de rodar dois em paralelo.
 PATCH /api/jobs/{id}/pin            → Fixa/desfixa vaga no topo da lista (pinned ↔ unpinned)
 PATCH /api/jobs/{id}/notes          → Salva/limpa nota pessoal  Body: { "notes": "..." }
 POST  /api/jobs/{id}/cover-letter   → Gera carta de apresentação via IA. 503 sem GEMINI_API_KEY, 429 se o free tier
@@ -497,6 +504,12 @@ POST  /api/jobs/{id}/match-score    → Compatibilidade do perfil do candidato c
                                        UI: menu 🤖 IA no card
 POST  /api/jobs/{id}/interview-questions → Perguntas prováveis de entrevista pra vaga. Mesmos códigos de erro do
                                        cover-letter.  Body opcional: { "candidateProfile": "..." }  UI: menu 🤖 IA no card
+POST  /api/jobs/assistant/compatibility-scan → Ação do Jarvis: filtra vagas dos últimos N dias por sobreposição de
+                                       tags/senioridade (sem IA) e roda compatibilidade de verdade só nas 5
+                                       melhores. Sempre 200 (available:false só sem perfil).
+                                       Body: { "candidateProfile": "...", "days": 1, "feedbackContext": "..." }
+                                       UI: botão 🐕 Hunter no cabeçalho (endpoint legado — o chat livre usa
+                                       POST /api/jobs/assistant/chat, ver seção do Hunter na tabela de IA acima)
 ```
 
 ---
@@ -517,10 +530,10 @@ job-radar/
 │       ├── repository/   ← JPA Repository
 │       ├── resources/    ← application.yml, salary_model.json (modelo de salário treinado, ver scripts/)
 │       ├── service/      ← Remotive, Arbeitnow, WWR, Gupy, Eureca, QueroVagasTech, Nerdin, SeniorityClassifier,
-│       │                    SalaryExtractor, Aggregator, SalaryEstimateService/SalaryPredictionService (dado
-│       │                    real + modelo treinado, sem IA generativa), GeminiService (pool de keys) +
+│       │                    SalaryExtractor, Aggregator, SalaryEstimateService/SalaryPredictionService/
+│       │                    ExchangeRateService (dado real + modelo treinado, sem IA generativa), GeminiService (pool de keys) +
 │       │                    AiClassifier/AiDuplicateVerifier/CoverLetter/JobDescriptionService/MatchScore/
-│       │                    InterviewQuestions (IA opcional)
+│       │                    InterviewQuestions/JarvisAssistant (IA opcional)
 │       └── controller/   ← REST API (jobs, stats, metrics, duplicates)
 ├── scripts/               ← train_salary_model.py (treino offline do modelo de salário, ver scripts/README.md)
 └── frontend/             ← React 18 + TypeScript + Vite
@@ -530,7 +543,7 @@ job-radar/
         ├── components/   ← JobCard, FilterBar, StatsBar, ViewTabs, AddJobModal, MetricsModal,
         │                    AgendaModal, AgendaStatusBar, InterviewModal, SettingsModal,
         │                    DuplicatesModal, CoverLetterModal, SalaryEstimateModal, MatchScoreModal,
-        │                    InterviewQuestionsModal, AiFeedbackBox (IA opcional, exceto Salary)
+        │                    InterviewQuestionsModal, AiFeedbackBox, JarvisPanel (IA opcional, exceto Salary)
         ├── hooks/         ← useJobs, useAgenda (integração client-side), useSourceColors,
         │                    useAiStatus, useCandidateProfile, useAiFeedback
         ├── utils/         ← extractResumeText (PDF/DOCX → texto, 100% client-side)
