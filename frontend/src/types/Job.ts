@@ -158,6 +158,11 @@ export interface JarvisSalarioData {
   modeloDisponivel: boolean;
   totalEncontradas: number;
   vagas: JarvisSalarioVaga[];
+  // Honestidade sobre a incerteza do modelo — ver SalaryPredictionService.
+  margemErroPercent?: number;
+  modeloTreinadoEm?: string | null;
+  modeloDesatualizado?: boolean;
+  modeloDiasDesdeTreino?: number;
 }
 
 // POST /api/jobs/assistant/chat — resultado da ferramenta detalharVagas
@@ -225,6 +230,86 @@ export interface JarvisAtualizarNotaData {
   erro?: string;
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta gerarCartaDeApresentacao
+export interface JarvisCartaData {
+  vagaId?: number;
+  titulo?: string;
+  empresa?: string;
+  carta?: string;
+  erro?: string;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta metricasDeDesempenho
+export interface JarvisMetricasData {
+  totalAplicadas: number;
+  emAndamento: number;
+  recusadas: number;
+  aguardandoRetorno: number;
+  taxaRespostaPercent: number | null;
+  tempoMedioAteAndamentoDias: number | null;
+  tempoMedioAteRecusaDias: number | null;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta vagasComPrazoProximo
+export interface JarvisVagaComPrazo {
+  id: number;
+  titulo: string;
+  empresa: string;
+  url: string;
+  status: string;
+  fechaEm: string;
+  diasRestantes: number;
+}
+
+export interface JarvisPrazoData {
+  diasMaximo: number;
+  vagas: JarvisVagaComPrazo[];
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta detectarDuplicatas
+export interface JarvisDuplicataRef {
+  id: number;
+  titulo: string;
+  fonte: string;
+  url: string;
+}
+
+export interface JarvisDuplicataGrupo {
+  empresa: string;
+  vagas: JarvisDuplicataRef[];
+}
+
+export interface JarvisDuplicatasData {
+  grupos: JarvisDuplicataGrupo[];
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta desempenhoPorFonte
+export interface JarvisFonteDesempenho {
+  fonte: string;
+  totalVagas: number;
+  aplicadas: number;
+  emAndamento: number;
+}
+
+export interface JarvisFontesData {
+  fontes: JarvisFonteDesempenho[];
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta historicoDaEmpresa
+export interface JarvisVagaHistorico {
+  id: number;
+  titulo: string;
+  empresa: string;
+  status: string;
+  url: string;
+  postedAt: string | null;
+}
+
+export interface JarvisHistoricoEmpresaData {
+  totalEncontradas: number;
+  vagas: JarvisVagaHistorico[];
+}
+
 // POST /api/jobs/assistant/chat — resultado da ferramenta vagasParadas
 export interface JarvisVagaParada {
   id: number;
@@ -240,11 +325,98 @@ export interface JarvisVagasParadasData {
   vagas: JarvisVagaParada[];
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta fixarVaga
+export interface JarvisFixarVagaData {
+  sucesso?: boolean;
+  vagaId?: number;
+  titulo?: string;
+  empresa?: string;
+  fixada?: boolean;
+  erro?: string;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta adicionarVagaManual
+export interface JarvisAdicionarVagaData {
+  sucesso?: boolean;
+  vagaId?: number;
+  titulo?: string;
+  empresa?: string;
+  status?: string;
+  erro?: string;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta oQueFazerAgora
+export interface JarvisAcaoVaga {
+  id: number;
+  titulo: string;
+  empresa: string;
+  url: string;
+  status?: string;
+  diasParada?: number;
+  fechaEm?: string;
+  diasRestantes?: number;
+  matchPercent?: number;
+}
+
+export interface JarvisOQueFazerAgoraData {
+  candidaturasParadas: { total: number; top: JarvisAcaoVaga[] };
+  prazosProximos: { total: number; top: JarvisAcaoVaga[] };
+  vagasNovasComBomMatch: { perfilDisponivel: boolean; top: JarvisAcaoVaga[] };
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta compararStackComMercado
+export interface JarvisTagMercado { tag: string; vagasComEssaTag: number }
+
+export interface JarvisCompararMercadoData {
+  tagsDoPerfilReconhecidas?: number;
+  tagsDoPerfilQueBatemComOMercado?: JarvisTagMercado[];
+  tagsMaisPedidasQueFaltamNoPerfil?: JarvisTagMercado[];
+  erro?: string;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta
+// criarLembreteNaAgenda. NÃO cria nada — é só a proposta que o card mostra
+// com um botão de confirmar (ver LembreteAgendaCard em JarvisPanel.tsx).
+export interface JarvisLembreteAgendaData {
+  titulo: string;
+  descricao?: string | null;
+  dueAt?: string | null;
+  prioridade?: string;
+  vagaId?: number;
+  tituloVaga?: string;
+  empresaVaga?: string;
+  urlVaga?: string;
+  erro?: string;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta apagarVaga
+export interface JarvisApagarVagaData {
+  sucesso?: boolean;
+  vagaId?: number;
+  titulo?: string;
+  empresa?: string;
+  erro?: string;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta lembrarPreferencia
+// (não muda nada no banco — quem persiste é o frontend, ver useHunterMemory)
+export interface JarvisLembrarData {
+  sucesso?: boolean;
+  texto?: string;
+  erro?: string;
+}
+
 export interface JarvisToolResult {
   tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil'
-    | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga' | 'atualizarNotaDeVaga';
+    | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga' | 'atualizarNotaDeVaga'
+    | 'gerarCartaDeApresentacao' | 'metricasDeDesempenho' | 'vagasComPrazoProximo' | 'detectarDuplicatas' | 'desempenhoPorFonte' | 'historicoDaEmpresa'
+    | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga' | 'lembrarPreferencia' | 'oQueFazerAgora' | 'compararStackComMercado'
+    | 'criarLembreteNaAgenda';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
-    | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData | JarvisAtualizarNotaData;
+    | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData | JarvisAtualizarNotaData
+    | JarvisCartaData | JarvisMetricasData | JarvisPrazoData | JarvisDuplicatasData | JarvisFontesData | JarvisHistoricoEmpresaData
+    | JarvisFixarVagaData | JarvisAdicionarVagaData | JarvisApagarVagaData | JarvisLembrarData
+    | JarvisOQueFazerAgoraData | JarvisCompararMercadoData | JarvisLembreteAgendaData;
 }
 
 // Pergunta interativa que o Hunter decidiu fazer (ferramenta perguntarUsuario)

@@ -14,8 +14,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
@@ -192,6 +196,13 @@ public class JobAggregatorService {
     // em andamento — distinto de "0 vagas novas" (que é um resultado válido).
     public static final int FETCH_JA_EM_ANDAMENTO = -1;
 
+    // Mais rígido que o 0.6 usado no painel de duplicatas sob demanda (GET
+    // /api/jobs/duplicates) — lá é só um SINAL pro usuário revisar e decidir;
+    // aqui a decisão é automática e silenciosa (a vaga nem chega a ser
+    // criada), então o limiar precisa ser mais conservador pra não perder
+    // vaga de verdade por semelhança de título coincidente.
+    private static final double DUPLICATA_JACCARD_MINIMO = 0.75;
+
     @Transactional
     public int fetchAllJobs() {
         if (!fetchEmAndamento.compareAndSet(false, true)) {
@@ -208,31 +219,62 @@ public class JobAggregatorService {
             allJobs.addAll(querovagastechService.fetchJobs());
             allJobs.addAll(nerdinService.fetchJobs());
 
-            int novos = 0;
-            int enriquecidas = 0;
-            for (Job job : allJobs) {
-                Optional<Job> existente = jobRepository.findByUrl(job.getUrl());
-                if (existente.isEmpty()) {
-                    // Antes, quando o regex não decidia (NAO_INFORMADO), tentava uma
-                    // segunda opinião via IA (AiClassifierService) — removido: na
-                    // prática acertava pouco (título ambíguo pro regex costuma ser
-                    // ambíguo pra IA também) e gastava cota de Gemini à toa em toda
-                    // vaga nova ambígua, sem contrapartida que justificasse.
-                    String seniority = seniorityClassifier.classify(job.getTitle(), job.getTags());
-                    job.setSeniority(seniority);
-                    if ("GUPY".equals(job.getSource()) && job.getSalary() == null) {
-                        job.setSalary(gupyService.fetchSalaryHint(job.getUrl()));
-                    }
-                    jobRepository.save(job);
-                    novos++;
-                } else if (enriquecer(existente.get(), job)) {
-                    jobRepository.save(existente.get());
-                    enriquecidas++;
-                }
+            // Pool de vagas ativas agrupadas por empresa normalizada, pra
+            // achar duplicata entre FONTES diferentes (mesma vaga na Gupy e
+            // via QueroVagasTech, cada uma com URL própria — findByUrl não
+            // pega esse caso). Montado uma vez fora do loop (não uma query
+            // por vaga nova) e atualizado conforme novas vagas entram nesse
+            // mesmo fetch, pra pegar duplicata entre duas fontes buscadas
+            // agora mesmo, não só contra o que já existia antes.
+            Map<String, List<Job>> ativosPorEmpresa = new HashMap<>();
+            for (Job existenteJob : jobRepository.findAll()) {
+                if (existenteJob.isRejected()) continue;
+                ativosPorEmpresa.computeIfAbsent(normalizeCompany(existenteJob.getCompany()), k -> new ArrayList<>()).add(existenteJob);
             }
 
-            log.info("=== Fetch concluído: {} vagas totais, {} novas salvas, {} enriquecidas ===",
-                    allJobs.size(), novos, enriquecidas);
+            int novos = 0;
+            int enriquecidas = 0;
+            int duplicatasEntreFontes = 0;
+            for (Job job : allJobs) {
+                Optional<Job> existente = jobRepository.findByUrl(job.getUrl());
+                if (existente.isPresent()) {
+                    if (enriquecer(existente.get(), job)) {
+                        jobRepository.save(existente.get());
+                        enriquecidas++;
+                    }
+                    continue;
+                }
+
+                // Antes, quando o regex não decidia (NAO_INFORMADO), tentava uma
+                // segunda opinião via IA (AiClassifierService) — removido: na
+                // prática acertava pouco (título ambíguo pro regex costuma ser
+                // ambíguo pra IA também) e gastava cota de Gemini à toa em toda
+                // vaga nova ambígua, sem contrapartida que justificasse.
+                String seniority = seniorityClassifier.classify(job.getTitle(), job.getTags());
+
+                Job duplicataProvavel = acharDuplicataEntreFontes(job, seniority, ativosPorEmpresa);
+                if (duplicataProvavel != null) {
+                    log.info("Fetch: vaga '{}' ({}) tratada como duplicata entre fontes de '{}' ({}), não criada de novo",
+                            job.getTitle(), job.getSource(), duplicataProvavel.getTitle(), duplicataProvavel.getSource());
+                    if (enriquecer(duplicataProvavel, job)) {
+                        jobRepository.save(duplicataProvavel);
+                        enriquecidas++;
+                    }
+                    duplicatasEntreFontes++;
+                    continue;
+                }
+
+                job.setSeniority(seniority);
+                if ("GUPY".equals(job.getSource()) && job.getSalary() == null) {
+                    job.setSalary(gupyService.fetchSalaryHint(job.getUrl()));
+                }
+                jobRepository.save(job);
+                novos++;
+                ativosPorEmpresa.computeIfAbsent(normalizeCompany(job.getCompany()), k -> new ArrayList<>()).add(job);
+            }
+
+            log.info("=== Fetch concluído: {} vagas totais, {} novas salvas, {} enriquecidas, {} duplicatas entre fontes evitadas ===",
+                    allJobs.size(), novos, enriquecidas, duplicatasEntreFontes);
             return novos;
         } finally {
             fetchEmAndamento.set(false);
@@ -276,5 +318,74 @@ public class JobAggregatorService {
             mudou = true;
         }
         return mudou;
+    }
+
+    // ===================== Deduplicação entre fontes =====================
+    // Mesma heurística (empresa normalizada + Jaccard de palavras do título +
+    // senioridade igual) que GET /api/jobs/duplicates usa pra SINALIZAR
+    // duplicata pro usuário revisar — aqui roda automaticamente no fetch,
+    // sem IA (não dá pra gastar cota numa checagem que roda a cada vaga nova
+    // de todo fetch periódico) e com limiar mais alto (ver
+    // DUPLICATA_JACCARD_MINIMO) por decidir sozinha, sem revisão humana.
+
+    private Job acharDuplicataEntreFontes(Job novo, String seniorityNovo, Map<String, List<Job>> ativosPorEmpresa) {
+        String key = normalizeCompany(novo.getCompany());
+        if (key.isBlank()) return null;
+        List<Job> candidatos = ativosPorEmpresa.get(key);
+        if (candidatos == null || candidatos.isEmpty()) return null;
+
+        Set<String> palavrasNovo = titleWords(novo.getTitle());
+        for (Job candidato : candidatos) {
+            boolean mesmaSenioridade = java.util.Objects.equals(seniorityNovo, candidato.getSeniority());
+            if (mesmaSenioridade && jaccard(palavrasNovo, titleWords(candidato.getTitle())) >= DUPLICATA_JACCARD_MINIMO) {
+                return candidato;
+            }
+        }
+        return null;
+    }
+
+    private static final Set<String> COMPANY_SUFFIXES = Set.of(
+            "sa", "s a", "ltda", "me", "eireli", "inc", "llc", "corp", "corporation", "co"
+    );
+
+    private String normalizeCompany(String company) {
+        if (company == null) return "";
+        String norm = normalize(company).replaceAll("[^a-z0-9 ]", " ").trim();
+        StringBuilder sb = new StringBuilder();
+        for (String w : norm.split("\\s+")) {
+            if (COMPANY_SUFFIXES.contains(w)) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(w);
+        }
+        return sb.toString().trim();
+    }
+
+    private static final Set<String> TITLE_STOPWORDS = Set.of(
+            "de", "da", "do", "das", "dos", "e", "para", "com", "em", "a", "o", "i", "ii", "iii"
+    );
+
+    private Set<String> titleWords(String title) {
+        if (title == null) return Set.of();
+        String norm = normalize(title).replaceAll("[^a-z0-9 ]", " ").trim();
+        Set<String> words = new HashSet<>();
+        for (String w : norm.split("\\s+")) {
+            if (w.length() < 2 || TITLE_STOPWORDS.contains(w)) continue;
+            words.add(w);
+        }
+        return words;
+    }
+
+    private double jaccard(Set<String> a, Set<String> b) {
+        if (a.isEmpty() || b.isEmpty()) return 0;
+        Set<String> inter = new HashSet<>(a);
+        inter.retainAll(b);
+        Set<String> union = new HashSet<>(a);
+        union.addAll(b);
+        return (double) inter.size() / union.size();
+    }
+
+    private String normalize(String text) {
+        String decomposed = java.text.Normalizer.normalize(text.toLowerCase(), java.text.Normalizer.Form.NFD);
+        return decomposed.replaceAll("\\p{M}", "");
     }
 }

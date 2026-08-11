@@ -21,6 +21,15 @@ interface Props {
   onToast: (msg: string) => void;
   aiEnabled: boolean;
   sortMode: SortOption;
+  // Pulso temporário quando essa vaga acabou de mudar via chat do Hunter
+  // (marcarStatusDeVaga/atualizarNotaDeVaga) — ajuda a notar a mudança sem
+  // precisar procurar o card na lista depois de mexer pelo chat.
+  highlighted?: boolean;
+  // Pré-filtro heurístico (sem IA, sobreposição de tags do perfil) — ver
+  // POST /api/jobs/quick-match-scores. Só passado pra vagas não vistas,
+  // onde faz sentido triar; badge só aparece a partir de um mínimo de
+  // sobreposição, senão viraria ruído em quase toda vaga.
+  matchPercent?: number;
 }
 
 const techTags = [
@@ -30,6 +39,11 @@ const techTags = [
 ];
 
 const ALL_STATUSES: JobStatus[] = ['NOVA', 'VISTA', 'INTERESSADO', 'APLICADA', 'ANDAMENTO', 'RECUSADA'];
+
+// GET /api/jobs/{id}/events — timeline de status (ver model JobEvent no
+// backend). Só existe evento a partir de quando essa tabela foi criada,
+// vaga antiga não tem histórico retroativo.
+interface JobEventDto { status: JobStatus; occurredAt: string }
 
 function currentStatus(job: Job): JobStatus {
   if (job.rejected) return 'RECUSADA';
@@ -159,6 +173,57 @@ function interviewInfo(dueAt: string | null): { label: string; className: string
   return { label: `🎤 Entrevista em ${days}d`, className: 'badge-deadline--urgent' };
 }
 
+// Checklist dentro da nota — sintaxe Markdown padrão ("- [ ] item" / "- [x]
+// item", o traço é opcional). A nota continua sendo texto livre por baixo
+// (nada muda no backend/model) — só a exibição reconhece essas linhas e
+// vira caixinha clicável em vez de texto solto. O Hunter já lê o campo
+// 'notes' cru, então ele também "vê" o [ ]/[x] sem precisar de nada novo.
+const CHECKLIST_RE = /^(\s*[-*]?\s*)\[([ xX])\]\s?(.*)$/;
+
+function toggleChecklistLine(notes: string, lineIndex: number): string {
+  const linhas = notes.split('\n');
+  const m = linhas[lineIndex]?.match(CHECKLIST_RE);
+  if (!m) return notes;
+  const novoMarcador = m[2].toLowerCase() === 'x' ? ' ' : 'x';
+  linhas[lineIndex] = `${m[1]}[${novoMarcador}] ${m[3]}`;
+  return linhas.join('\n');
+}
+
+function NotesPreview({ notes, onToggle, onOpenEditor }: {
+  notes: string;
+  onToggle: (lineIndex: number) => void;
+  onOpenEditor: () => void;
+}) {
+  const linhas = notes.split('\n');
+  return (
+    <div className="notes-preview-block">
+      <div className="notes-preview-lines">
+        {linhas.map((linha, i) => {
+          const m = linha.match(CHECKLIST_RE);
+          if (!m) {
+            return linha.trim() ? <p key={i} className="notes-preview-text">{linha}</p> : null;
+          }
+          const marcado = m[2].toLowerCase() === 'x';
+          return (
+            <button
+              key={i}
+              type="button"
+              className={`notes-checklist-item ${marcado ? 'notes-checklist-item--done' : ''}`}
+              onClick={() => onToggle(i)}
+            >
+              <span className="notes-checklist-box">{marcado ? '✓' : ''}</span>
+              <span className="notes-checklist-label">{m[3] || '(item vazio)'}</span>
+            </button>
+          );
+        })}
+      </div>
+      <button className="notes-preview-edit" onClick={onOpenEditor} title="Editar notas">
+        📝 editar
+      </button>
+    </div>
+  );
+}
+
 // Gera iniciais da empresa para o avatar fallback
 function companyInitials(name: string): string {
   return name
@@ -168,7 +233,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode, highlighted, matchPercent }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -193,6 +258,9 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const [menuOpen, setMenuOpen] = useState(false);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<JobEventDto[] | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
   const [coverLetterOpen, setCoverLetterOpen] = useState(false);
@@ -255,9 +323,25 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
     }, 800);
   };
 
+  // Busca sob demanda (não no carregamento da lista inteira) — evita N+1
+  // requisições disparando pra cada card visível de uma vez.
+  const handleToggleHistory = () => {
+    const abrindo = !historyOpen;
+    setHistoryOpen(abrindo);
+    if (abrindo && history === null) {
+      setHistoryLoading(true);
+      fetch(`/api/jobs/${job.id}/events`)
+        .then(r => r.json())
+        .then((data: JobEventDto[]) => setHistory(data))
+        .catch(() => setHistory([]))
+        .finally(() => setHistoryLoading(false));
+    }
+  };
+
   return (
     <div
-      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''}`}
+      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''}`}
+      id={`job-card-${job.id}`}
       draggable={job.applied}
       onDragStart={job.applied ? handleDragStart : undefined}
       title={job.applied ? 'Arraste pra outra aba, ou use o menu ⋮' : undefined}
@@ -283,6 +367,14 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
           <div className="card-badges-left">
             {isNew && <span className="badge-new">NOVA</span>}
+            {matchPercent != null && matchPercent >= 50 && (
+              <span
+                className="badge-match"
+                title="Sobreposição de tags técnicas com seu perfil — pré-filtro sem IA, não é uma nota final de compatibilidade"
+              >
+                🎯 {matchPercent}% match
+              </span>
+            )}
             {job.rejected && <span className="badge-rejected">❌ RECUSADA</span>}
             {job.inProgress && !job.rejected && <span className="badge-in-progress">EM ANDAMENTO 🔄</span>}
             {isPlainApplied && <span className="badge-applied">APLICADA ✅</span>}
@@ -355,6 +447,15 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
               📌
             </button>
           )}
+
+          <button
+            className={`btn-pin ${historyOpen ? 'btn-pin--active' : ''}`}
+            onClick={handleToggleHistory}
+            title="Histórico de status dessa vaga"
+            aria-label="Ver histórico de status"
+          >
+            📜
+          </button>
 
           <div className="card-menu" ref={menuRef}>
             <button
@@ -430,6 +531,25 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         </div>
       )}
 
+      {historyOpen && (
+        <div className="card-history-panel">
+          {historyLoading ? (
+            <p className="card-history-empty">Carregando...</p>
+          ) : !history || history.length === 0 ? (
+            <p className="card-history-empty">Sem histórico registrado ainda (só a partir de quando essa vaga mudar de status de novo).</p>
+          ) : (
+            <ul className="card-history-list">
+              {history.map((ev, i) => (
+                <li key={i}>
+                  <span className="card-history-status">{statusMeta[ev.status] ?? ev.status}</span>
+                  <span className="card-history-date">{formatDateFull(ev.occurredAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {/* Notas pessoais */}
       <div className="card-notes-section">
         {notesOpen ? (
@@ -450,7 +570,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             </div>
             <textarea
               className="notes-textarea"
-              placeholder="Salário negociado, contato do recrutador, impressões da entrevista..."
+              placeholder="Salário negociado, contato do recrutador, impressões da entrevista... Linhas '- [ ] item' viram checklist clicável."
               value={notesText}
               onChange={e => handleNotesChange(e.target.value)}
               rows={3}
@@ -458,11 +578,11 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             />
           </div>
         ) : job.notes ? (
-          <button className="notes-preview" onClick={() => setNotesOpen(true)} title="Editar notas">
-            <span className="notes-preview-icon">📝</span>
-            <span className="notes-preview-text">{job.notes}</span>
-            <span className="notes-preview-edit">editar</span>
-          </button>
+          <NotesPreview
+            notes={job.notes}
+            onToggle={lineIndex => onUpdateNotes(job.id, toggleChecklistLine(job.notes ?? '', lineIndex))}
+            onOpenEditor={() => setNotesOpen(true)}
+          />
         ) : (
           <button className="notes-toggle" onClick={() => setNotesOpen(true)}>
             📝 Adicionar nota

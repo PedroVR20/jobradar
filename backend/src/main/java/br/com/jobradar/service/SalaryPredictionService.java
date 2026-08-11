@@ -50,7 +50,7 @@ public class SalaryPredictionService {
     private ModelInfo modelInfo;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public record ModelInfo(int nSamples, double r2, double maeBrl, double maePercent) {}
+    public record ModelInfo(int nSamples, double r2, double maeBrl, double maePercent, String trainedAt) {}
 
     @PostConstruct
     void loadModel() {
@@ -118,8 +118,9 @@ public class SalaryPredictionService {
         Set<String> newTagVocab = new HashSet<>(toStringList(root.path("tagVocab")));
 
         JsonNode m = root.path("metrics");
+        String trainedAt = root.path("trainedAt").isMissingNode() ? null : root.path("trainedAt").asText();
         ModelInfo newModelInfo = new ModelInfo(root.path("nSamples").asInt(), m.path("r2LogScale").asDouble(),
-                m.path("maeBrl").asDouble(), m.path("maePercent").asDouble());
+                m.path("maeBrl").asDouble(), m.path("maePercent").asDouble(), trainedAt);
 
         // Só troca o estado depois de tudo parseado com sucesso — evita
         // deixar o serviço num estado parcialmente atualizado se o JSON

@@ -369,6 +369,16 @@ a:hover { text-decoration: underline; }
   50% { opacity: 0.6; }
 }
 
+.badge-match {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: #fff;
+  letter-spacing: 0.3px;
+}
+
 .badge-applied {
   font-size: 0.65rem;
   font-weight: 700;
@@ -1126,6 +1136,19 @@ a:hover { text-decoration: underline; }
   box-shadow: 0 0 0 1px #6366f122, var(--shadow);
 }
 
+/* Pulso temporário quando a vaga acabou de mudar via chat do Hunter (ver
+   highlightedJobId em App.tsx) — chama atenção sem precisar procurar o
+   card na lista depois de mexer pelo chat. Desliga sozinho (App.tsx tira
+   a prop `highlighted` depois de alguns segundos). */
+.job-card--highlighted {
+  animation: job-card-pulse 1.8s ease-out 2;
+}
+@keyframes job-card-pulse {
+  0% { box-shadow: 0 0 0 0 #6366f166; }
+  70% { box-shadow: 0 0 0 10px #6366f100; }
+  100% { box-shadow: 0 0 0 0 #6366f100; }
+}
+
 /* ============================
    NOTAS PESSOAIS
    ============================ */
@@ -1134,6 +1157,25 @@ a:hover { text-decoration: underline; }
   flex-direction: column;
   gap: 6px;
 }
+
+.card-history-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.card-history-empty { font-size: 0.76rem; color: var(--text-muted); margin: 0; }
+.card-history-list { display: flex; flex-direction: column; gap: 4px; }
+.card-history-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.76rem;
+}
+.card-history-status { color: var(--text); font-weight: 600; }
+.card-history-date { color: var(--text-muted); flex-shrink: 0; }
 
 .notes-toggle {
   display: flex;
@@ -1152,44 +1194,69 @@ a:hover { text-decoration: underline; }
 .notes-toggle:hover { border-color: var(--accent); color: var(--text); }
 
 /* Chip de preview — vaga já tem nota, card fechado */
-.notes-preview {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+.notes-preview-block {
   background: #f59e0b14;
   border: 1px solid #f59e0b3d;
   border-radius: 6px;
   padding: 8px 10px;
-  cursor: pointer;
-  text-align: left;
   width: 100%;
   transition: border-color 0.15s, background 0.15s;
 }
-.notes-preview:hover { border-color: #f59e0b77; background: #f59e0b22; }
+.notes-preview-block:hover { border-color: #f59e0b77; background: #f59e0b22; }
 .notes-preview-icon { flex-shrink: 0; font-size: 0.85rem; margin-top: 1px; }
+.notes-preview-lines { display: flex; flex-direction: column; gap: 3px; }
 .notes-preview-text {
-  flex: 1;
-  min-width: 0;
+  margin: 0;
   font-size: 0.8rem;
   color: var(--text);
   line-height: 1.4;
   white-space: pre-line;
   word-break: break-word;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 .notes-preview-edit {
   flex-shrink: 0;
   font-size: 0.7rem;
   color: var(--yellow);
-  margin-top: 1px;
+  margin-top: 6px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s;
 }
-.notes-preview:hover .notes-preview-edit { opacity: 1; }
+.notes-preview-block:hover .notes-preview-edit { opacity: 1; }
+
+/* Checklist dentro da nota — "- [ ] item" vira caixinha clicável */
+.notes-checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  padding: 1px 0;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+.notes-checklist-box {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border-radius: 4px;
+  border: 1px solid var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  color: var(--green);
+}
+.notes-checklist-item--done .notes-checklist-box { border-color: var(--green); background: #10b98122; }
+.notes-checklist-item--done .notes-checklist-label { color: var(--text-muted); text-decoration: line-through; }
+.notes-checklist-label { line-height: 1.4; word-break: break-word; }
 
 /* Editor — card aberto pra escrever/editar */
 .notes-editor {
@@ -1642,6 +1709,8 @@ a:hover { text-decoration: underline; }
 }
 .profile-file-meta { font-size: 0.72rem; color: var(--text-muted); }
 .profile-file-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+.settings-export-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.settings-export-actions a.btn { text-decoration: none; }
 .profile-file-btn { font-size: 0.75rem; padding: 5px 9px; }
 
 .profile-manual-toggle {
@@ -1791,6 +1860,9 @@ a:hover { text-decoration: underline; }
   background: var(--bg-card2);
   border-radius: 999px;
   padding: 2px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
 }
 .match-plan-steps { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
 /* .match-list li (nas linhas acima) empresta o visual "caixa" pro
@@ -1995,6 +2067,18 @@ a:hover { text-decoration: underline; }
 
 .jarvis-scan-intro { margin-bottom: 0.6rem; }
 .jarvis-scan-warning { margin-top: 0.6rem; color: var(--yellow); font-size: 0.78rem; display: flex; align-items: center; gap: 0.35rem; }
+.jarvis-quota-warning {
+  margin: 0.5rem 0.75rem 0;
+  padding: 0.5rem 0.7rem;
+  background: #f59e0b18;
+  border: 1px solid #f59e0b44;
+  border-radius: 8px;
+  color: var(--yellow);
+  font-size: 0.76rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
 
 .jarvis-hits { display: flex; flex-direction: column; gap: 0.6rem; }
 .jarvis-hit {
@@ -2022,6 +2106,8 @@ a:hover { text-decoration: underline; }
 }
 .jarvis-hit-company { font-size: 0.72rem; color: var(--text-muted); }
 .jarvis-hit-resumo { margin-top: 0.4rem; font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
+.jarvis-hit-resumo--flex { display: flex; align-items: flex-start; gap: 0.35rem; }
+.jarvis-hit-resumo--flex svg { flex-shrink: 0; margin-top: 0.15rem; }
 .jarvis-hit-resumo--icon { display: flex; align-items: center; gap: 0.35rem; color: var(--green); }
 
 .jarvis-compare {
@@ -2059,6 +2145,18 @@ a:hover { text-decoration: underline; }
 
 .jarvis-tool-results { margin-bottom: 0.6rem; }
 .jarvis-tool-results:last-child { margin-bottom: 0; }
+
+.jarvis-tag-mercado-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.jarvis-tag-mercado-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--bg-card2);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+}
+.jarvis-tag-mercado-count { font-size: 0.72rem; color: var(--text-muted); }
 
 .jarvis-thinking { margin-bottom: 0.6rem; }
 .jarvis-thinking-toggle {
@@ -2261,7 +2359,7 @@ a:hover { text-decoration: underline; }
 }
 .jarvis-suggestion-card:hover:not(:disabled) { border-color: var(--accent); color: var(--text); transform: translateX(2px); }
 .jarvis-suggestion-card:disabled { opacity: 0.5; cursor: default; }
-.jarvis-suggestion-icon { flex-shrink: 0; font-size: 0.95rem; }
+.jarvis-suggestion-icon { flex-shrink: 0; display: flex; align-items: center; }
 
 .jarvis-input-row {
   display: flex;
@@ -2443,6 +2541,113 @@ a:hover { text-decoration: underline; }
   font-size: 0.8rem;
 }
 .jarvis-history-item-delete:hover { background: var(--red); color: #fff; }
+.jarvis-history-item-export {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+.jarvis-history-item-export:hover { background: var(--bg-card); color: var(--accent); }
+
+.jarvis-history-wrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.jarvis-history-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.6rem 0.6rem 0;
+  padding: 0.45rem 0.7rem;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-muted);
+}
+.jarvis-history-search input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+.jarvis-history-empty { padding: 1rem 0.75rem; color: var(--text-muted); font-size: 0.82rem; }
+
+.jarvis-history-item-title-row { display: flex; align-items: center; gap: 0.3rem; min-width: 0; }
+.jarvis-history-item-rename {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.jarvis-history-item:hover .jarvis-history-item-rename { opacity: 1; }
+.jarvis-history-item-rename:hover { background: var(--bg-card); color: var(--accent); }
+.jarvis-history-item-title-input {
+  font-size: 0.82rem;
+  color: var(--text);
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 1px 5px;
+  width: 100%;
+  outline: none;
+}
+
+.jarvis-memory-wrap { position: relative; }
+.jarvis-memory-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 260px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  padding: 0.5rem;
+  z-index: 50;
+}
+.jarvis-memory-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 0.2rem 0.3rem 0.5rem;
+}
+.jarvis-memory-list { display: flex; flex-direction: column; gap: 0.3rem; }
+.jarvis-memory-list li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--bg-card2);
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
+}
+.jarvis-memory-remove {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+}
+.jarvis-memory-remove:hover { color: var(--red); }
 
 .jarvis-toggle-btn {
   background: #2dd4bf22;
@@ -2682,6 +2887,49 @@ html.jarvis-resizing .header-inner {
   .view-tabs { flex-wrap: wrap; }
   .view-tab { flex: none; min-width: 0; }
 }
+
+/* Triagem rápida — uma vaga por vez, decisão binária */
+.triage-modal { max-width: 480px; }
+.triage-progress {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0.9rem 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.triage-progress-hint { font-style: italic; }
+.triage-card {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+.triage-card-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.2rem; }
+.triage-card-company { color: var(--text-muted); margin-bottom: 0.4rem; }
+.triage-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+.triage-card-link { margin-top: 0.7rem; display: inline-block; text-decoration: none; }
+.triage-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.triage-actions .btn { flex: 1; justify-content: center; }
+.triage-shortcuts-hint {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 0.6rem;
+}
+.triage-done { text-align: center; padding: 2rem 1rem; }
+.triage-done-emoji { font-size: 2.5rem; margin-bottom: 0.5rem; }
 
 /* Mobile */
 @media (max-width: 600px) {

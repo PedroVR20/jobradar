@@ -1,14 +1,28 @@
 import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  JarvisAcaoVaga,
+  JarvisAdicionarVagaData,
+  JarvisApagarVagaData,
   JarvisAtualizarNotaData,
+  JarvisCartaData,
   JarvisChatResponse,
+  JarvisCompararMercadoData,
   JarvisCompatibilidadeData,
   JarvisCompatibilidadeHit,
   JarvisDetalharVagasData,
+  JarvisDuplicatasData,
+  JarvisFixarVagaData,
+  JarvisFontesData,
+  JarvisLembrarData,
+  JarvisLembreteAgendaData,
+  JarvisHistoricoEmpresaData,
   JarvisListarVagasData,
   JarvisMarcarStatusData,
+  JarvisMetricasData,
+  JarvisOQueFazerAgoraData,
   JarvisPendingQuestion,
+  JarvisPrazoData,
   JarvisResumoFunilData,
   JarvisSalarioData,
   JarvisSalarioVaga,
@@ -19,8 +33,15 @@ import {
 } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
+import { useAiStatus } from '../hooks/useAiStatus';
+import { useHunterMemory } from '../hooks/useHunterMemory';
+import { useAgenda } from '../hooks/useAgenda';
 import { HunterIcon } from './HunterIcon';
-import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon, MicIcon, NoteIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
+import {
+  BookIcon, ChartIcon, ChatBubbleIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon,
+  CycleIcon, DownloadIcon, HistoryIcon, MicIcon, NoteIcon, PencilIcon, PlusIcon, SearchIcon,
+  SuccessIcon, TargetIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, TimerIcon, TrashIcon, WarningIcon,
+} from './HunterMiniIcons';
 
 // Preferência de "modo compacto" (esconde os cards visuais, só texto) —
 // persistida à parte do resto do estado do chat, é uma preferência de
@@ -59,15 +80,19 @@ declare global {
 interface Props {
   onClose: () => void;
   // Avisa o App.tsx pra recarregar a lista de vagas quando o Hunter mudou
-  // algo de verdade (hoje só marcarStatusDeVaga) — sem isso o card mudado
-  // só refletiria depois de um F5, mesmo a mudança já valendo no banco.
-  onJobsChanged?: () => void;
+  // algo de verdade — sem isso o card mudado só refletiria depois de um F5,
+  // mesmo a mudança já valendo no banco. vagaId (quando dá pra saber qual
+  // vaga foi) liga o pulso visual nesse card específico (ver App.tsx).
+  onJobsChanged?: (vagaId?: number) => void;
 }
 
 type Message =
   | { id: number; role: 'user'; text: string; imageDataUrl?: string }
   | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[]; thinking?: string | null; pendingQuestion?: JarvisPendingQuestion | null; isGreeting?: boolean }
-  | { id: number; role: 'assistant-loading' }
+  // livePhrase: preenchido em tempo real pelos eventos SSE (ver
+  // /assistant/chat/stream) — quando presente, LoadingPhrase mostra a
+  // narração REAL do passo atual em vez do ciclo de frases genéricas.
+  | { id: number; role: 'assistant-loading'; livePhrase?: string }
   // Marcador que substitui as mensagens mais antigas cortadas quando uma
   // conversa passa do teto salvo (ver MAX_STORED_PER_CONVO) — em vez de só
   // sumir sem deixar rastro, fica esse aviso de quantas ficaram de fora.
@@ -89,9 +114,9 @@ interface Conversation {
 }
 
 const SUGESTOES = [
-  { icon: '🎯', text: 'Compatibilidade com vagas de hoje' },
-  { icon: '🔄', text: 'Dê uma olhada nas minhas vagas em andamento' },
-  { icon: '📊', text: 'Resumo rápido do meu funil' },
+  { Icon: TargetIcon, text: 'Compatibilidade com vagas de hoje' },
+  { Icon: CycleIcon, text: 'Dê uma olhada nas minhas vagas em andamento' },
+  { Icon: ChartIcon, text: 'Resumo rápido do meu funil' },
 ];
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
@@ -142,6 +167,43 @@ function readFileAsAttachedImage(file: File): Promise<AttachedImage> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+// ===================== Streaming (SSE) =====================
+// POST /api/jobs/assistant/chat/stream devolve text/event-stream — o
+// navegador não tem um EventSource nativo pra POST (só GET), então lê o
+// corpo da resposta como stream manualmente via fetch + ReadableStream.
+// Formato de cada evento: "event: NOME\ndata: {...json...}\n\n".
+async function consumeSseStream(
+  response: Response,
+  onEvent: (eventName: string, data: unknown) => void
+): Promise<void> {
+  const reader = response.body?.getReader();
+  if (!reader) return;
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary: number;
+    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+      const rawEvent = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      let eventName = 'message';
+      const dataLines: string[] = [];
+      for (const line of rawEvent.split('\n')) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+      }
+      if (dataLines.length === 0) continue;
+      try {
+        onEvent(eventName, JSON.parse(dataLines.join('\n')));
+      } catch {
+        // linha malformada — ignora esse evento em vez de derrubar o stream inteiro
+      }
+    }
+  }
 }
 
 // ===================== Markdown "lite" =====================
@@ -383,7 +445,7 @@ function ListarVagasCard({ data }: { data: JarvisListarVagasData }) {
                 <span className="jarvis-hit-company">{v.company}</span>
               </div>
             </div>
-            {v.notes && <p className="jarvis-hit-resumo">📝 {v.notes}</p>}
+            {v.notes && <p className="jarvis-hit-resumo jarvis-hit-resumo--flex"><NoteIcon /> {v.notes}</p>}
           </div>
         );
       })}
@@ -582,7 +644,7 @@ function ChatGapItem({ jobId, gap, candidateProfile, feedbackContext }: {
       {plan && open && (
         <div className="match-plan">
           {plan.resumo && <p className="match-plan-resumo">{plan.resumo}</p>}
-          {plan.tempoEstimado && <span className="match-plan-tempo">⏱ {plan.tempoEstimado}</span>}
+          {plan.tempoEstimado && <span className="match-plan-tempo"><TimerIcon /> {plan.tempoEstimado}</span>}
           {plan.passos.length > 0 && (
             <ol className="match-plan-steps">
               {plan.passos.map((passo, i) => <li key={i}>{passo}</li>)}
@@ -717,8 +779,15 @@ function SalarioCard({ data }: { data: JarvisSalarioData }) {
     <>
       <p className="jarvis-scan-intro">
         Estimei o salário de {data.vagas.length} vaga{data.vagas.length === 1 ? '' : 's'}
-        {data.totalEncontradas > data.vagas.length ? ` (de ${data.totalEncontradas} encontradas)` : ''}:
+        {data.totalEncontradas > data.vagas.length ? ` (de ${data.totalEncontradas} encontradas)` : ''}
+        {data.margemErroPercent != null ? ` — estimativa aproximada, margem de erro média de ±${data.margemErroPercent}%` : ''}:
       </p>
+      {data.modeloDesatualizado && (
+        <p className="jarvis-scan-warning">
+          <WarningIcon /> Modelo não é retreinado há {data.modeloDiasDesdeTreino} dias — pode estar defasado em
+          relação ao mercado atual.
+        </p>
+      )}
       <SalarioDashboard vagas={data.vagas} />
       <div className="jarvis-hits">
         {data.vagas.map(v => (
@@ -732,6 +801,12 @@ function SalarioCard({ data }: { data: JarvisSalarioData }) {
                 <span className="jarvis-hit-company">{v.empresa}</span>
               </div>
             </div>
+            {v.estimativa != null && data.margemErroPercent != null && (
+              <p className="jarvis-hit-resumo" style={{ color: 'var(--text-muted)' }}>
+                Provável faixa: {formatBRL(Math.round(v.estimativa * (1 - data.margemErroPercent / 100)))} –{' '}
+                {formatBRL(Math.round(v.estimativa * (1 + data.margemErroPercent / 100)))}
+              </p>
+            )}
             {v.salarioInformado && <p className="jarvis-hit-resumo">Salário informado na vaga: {v.salarioInformado}</p>}
           </div>
         ))}
@@ -769,7 +844,7 @@ function DetalharVagasCard({ data }: { data: JarvisDetalharVagasData }) {
                   {v.tags.map(t => <span key={t} className="jarvis-tag-pill">{t}</span>)}
                 </div>
               )}
-              {v.notas && <p className="jarvis-hit-resumo">📝 {v.notas}</p>}
+              {v.notas && <p className="jarvis-hit-resumo jarvis-hit-resumo--flex"><NoteIcon /> {v.notas}</p>}
             </div>
           );
         })}
@@ -800,7 +875,7 @@ function DetalharVagasCard({ data }: { data: JarvisDetalharVagasData }) {
           {v.tags.map(t => <span key={t} className="jarvis-tag-pill">{t}</span>)}
         </div>
       )}
-      {v.notas && <p className="jarvis-hit-resumo">📝 {v.notas}</p>}
+      {v.notas && <p className="jarvis-hit-resumo jarvis-hit-resumo--flex"><NoteIcon /> {v.notas}</p>}
     </div>
   );
 }
@@ -861,6 +936,201 @@ function VagasParadasCard({ data }: { data: JarvisVagasParadasData }) {
   );
 }
 
+function CartaCard({ data }: { data: JarvisCartaData }) {
+  const [copiado, setCopiado] = useState(false);
+  if (!data.carta) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui gerar a carta agora.'}</p>;
+  }
+  const handleCopiar = () => {
+    navigator.clipboard.writeText(data.carta!).then(() => {
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 1500);
+    });
+  };
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        <span className="jarvis-hit-company">{data.empresa}</span>
+      </div>
+      <p className="jarvis-hit-resumo" style={{ whiteSpace: 'pre-line' }}>{data.carta}</p>
+      <button type="button" className="jarvis-msg-action-btn" onClick={handleCopiar} title="Copiar carta" style={{ marginTop: '0.4rem' }}>
+        {copiado ? <CheckIcon /> : <CopyIcon />} <span style={{ marginLeft: '0.3rem', fontSize: '0.72rem' }}>{copiado ? 'Copiado' : 'Copiar'}</span>
+      </button>
+    </div>
+  );
+}
+
+function MetricasCard({ data }: { data: JarvisMetricasData }) {
+  const itens: [string, string][] = [
+    ['Total aplicadas', String(data.totalAplicadas)],
+    ['Em andamento', String(data.emAndamento)],
+    ['Recusadas', String(data.recusadas)],
+    ['Aguardando retorno', String(data.aguardandoRetorno)],
+    ['Taxa de resposta', data.taxaRespostaPercent != null ? `${data.taxaRespostaPercent}%` : '—'],
+    ['Dias até andamento (média)', data.tempoMedioAteAndamentoDias != null ? `${data.tempoMedioAteAndamentoDias}d` : '—'],
+    ['Dias até recusa (média)', data.tempoMedioAteRecusaDias != null ? `${data.tempoMedioAteRecusaDias}d` : '—'],
+  ];
+  return (
+    <div className="jarvis-stats-grid">
+      {itens.map(([label, value]) => (
+        <div key={label} className="jarvis-stat">
+          <span className="jarvis-stat-value">{value}</span>
+          <span className="jarvis-stat-label">{label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PrazoCard({ data }: { data: JarvisPrazoData }) {
+  if (data.vagas.length === 0) {
+    return <p className="jarvis-scan-intro">Nenhuma vaga fechando nos próximos {data.diasMaximo} dias.</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.vagas.map(v => {
+        const meta = STATUS_META[v.status] ?? { label: v.status, color: 'var(--text-muted)' };
+        return (
+          <div key={v.id} className="jarvis-hit">
+            <div className="jarvis-hit-head">
+              <span className="jarvis-hit-score" style={{ color: 'var(--red)', borderColor: 'var(--red)' }}>
+                {v.diasRestantes === 0 ? 'fecha hoje' : `${v.diasRestantes}d`}
+              </span>
+              <div className="jarvis-hit-title">
+                <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+                <span className="jarvis-hit-company">{v.empresa}</span>
+              </div>
+            </div>
+            <p className="jarvis-hit-resumo" style={{ color: meta.color }}>{meta.label}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AcaoVagaRow({ v, badge, badgeColor }: { v: JarvisAcaoVaga; badge: string; badgeColor: string }) {
+  return (
+    <div key={v.id} className="jarvis-hit">
+      <div className="jarvis-hit-head">
+        <span className="jarvis-hit-score" style={{ color: badgeColor, borderColor: badgeColor }}>{badge}</span>
+        <div className="jarvis-hit-title">
+          <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+          <span className="jarvis-hit-company">{v.empresa}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OQueFazerAgoraCard({ data }: { data: JarvisOQueFazerAgoraData }) {
+  const nada = data.candidaturasParadas.top.length === 0
+    && data.prazosProximos.top.length === 0
+    && data.vagasNovasComBomMatch.top.length === 0;
+  if (nada) {
+    return <p className="jarvis-scan-intro">Sem pendência urgente agora — tudo em dia.</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.prazosProximos.top.map(v => (
+        <AcaoVagaRow key={`prazo-${v.id}`} v={v} badge={v.diasRestantes === 0 ? 'fecha hoje' : `${v.diasRestantes}d`} badgeColor="var(--red)" />
+      ))}
+      {data.candidaturasParadas.top.map(v => (
+        <AcaoVagaRow key={`parada-${v.id}`} v={v} badge={`${v.diasParada}d parada`} badgeColor="var(--yellow)" />
+      ))}
+      {data.vagasNovasComBomMatch.top.map(v => (
+        <AcaoVagaRow key={`match-${v.id}`} v={v} badge={`${v.matchPercent}% match`} badgeColor="var(--accent)" />
+      ))}
+    </div>
+  );
+}
+
+function CompararMercadoCard({ data }: { data: JarvisCompararMercadoData }) {
+  if (data.erro) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro}</p>;
+  }
+  const faltando = data.tagsMaisPedidasQueFaltamNoPerfil ?? [];
+  if (faltando.length === 0) {
+    return <p className="jarvis-scan-intro">Seu perfil já cobre as tags mais pedidas do feed atual.</p>;
+  }
+  return (
+    <div className="jarvis-tag-mercado-list">
+      {faltando.map(t => (
+        <div key={t.tag} className="jarvis-tag-mercado-item">
+          <span className="tag tag--tech">{t.tag}</span>
+          <span className="jarvis-tag-mercado-count">{t.vagasComEssaTag} vaga{t.vagasComEssaTag === 1 ? '' : 's'}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DuplicatasCard({ data }: { data: JarvisDuplicatasData }) {
+  if (data.grupos.length === 0) {
+    return <p className="jarvis-scan-intro">Não achei nenhuma duplicata provável.</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.grupos.map((g, i) => (
+        <div key={i} className="jarvis-hit">
+          <div className="jarvis-hit-title"><span>{g.empresa}</span></div>
+          {g.vagas.map(v => (
+            <p key={v.id} className="jarvis-hit-resumo">
+              <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a> — {v.fonte}
+            </p>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FontesCard({ data }: { data: JarvisFontesData }) {
+  if (data.fontes.length === 0) {
+    return <p className="jarvis-scan-intro">Sem dados de fonte ainda.</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.fontes.map(f => (
+        <div key={f.fonte} className="jarvis-hit">
+          <div className="jarvis-hit-head">
+            <span className="jarvis-hit-score" style={{ color: 'var(--green)', borderColor: 'var(--green)' }}>
+              {f.emAndamento} em andamento
+            </span>
+            <div className="jarvis-hit-title"><span>{f.fonte}</span></div>
+          </div>
+          <p className="jarvis-hit-resumo">{f.totalVagas} vagas no total · {f.aplicadas} aplicadas</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HistoricoEmpresaCard({ data }: { data: JarvisHistoricoEmpresaData }) {
+  if (data.vagas.length === 0) {
+    return <p className="jarvis-scan-intro">Não achei nenhuma vaga dessa empresa no seu histórico.</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.vagas.map(v => {
+        const meta = STATUS_META[v.status] ?? { label: v.status, color: 'var(--text-muted)' };
+        return (
+          <div key={v.id} className="jarvis-hit">
+            <div className="jarvis-hit-head">
+              <span className="jarvis-hit-score" style={{ color: meta.color, borderColor: meta.color }}>{meta.label}</span>
+              <div className="jarvis-hit-title">
+                <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+                <span className="jarvis-hit-company">{v.empresa}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Confirmação visual de uma ferramenta que escreve — mostra o "antes/depois"
 // pra deixar claro o que mudou de verdade no banco (a lista de vagas por
 // trás do chat já recarrega sozinha, ver onJobsChanged em handleSend).
@@ -901,13 +1171,211 @@ function AtualizarNotaCard({ data }: { data: JarvisAtualizarNotaData }) {
   );
 }
 
+function LembrarCard({ data }: { data: JarvisLembrarData }) {
+  if (!data.sucesso) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui guardar essa preferência.'}</p>;
+  }
+  return (
+    <p className="jarvis-hit-resumo jarvis-hit-resumo--icon">
+      <ThinkingIcon /> Vou lembrar: <strong>{data.texto}</strong>
+    </p>
+  );
+}
+
+// O backend do Job Radar nunca fala com a Agenda — esse card é quem cria de
+// verdade, via useAgenda (mesmo hook que AgendaModal/InterviewModal já
+// usam). Conecta primeiro se ainda não tiver token salvo, mesma UX do resto
+// do app.
+function LembreteAgendaCard({ data }: { data: JarvisLembreteAgendaData }) {
+  const { isConnected, savedEmail, login, createTask, linkTask } = useAgenda();
+  const [step, setStep] = useState<'proposta' | 'connect' | 'criado'>('proposta');
+  const [email, setEmail] = useState(savedEmail());
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
+
+  if (data.erro) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro}</p>;
+  }
+
+  const handleCreate = async () => {
+    if (!isConnected()) { setStep('connect'); return; }
+    setSending(true);
+    setSendError('');
+    const result = await createTask({
+      title: data.titulo,
+      description: data.descricao || (data.urlVaga ? `🔗 ${data.urlVaga}` : undefined),
+      dueAt: data.dueAt || undefined,
+      priority: (data.prioridade as 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL') || 'NORMAL',
+    });
+    setSending(false);
+    if (result !== 'unauthorized' && result !== 'error') {
+      if (data.vagaId) linkTask(data.vagaId, result.id, data.dueAt ?? null);
+      setStep('criado');
+    } else if (result === 'unauthorized') {
+      setStep('connect');
+      setSendError('Sessão expirada — conecta de novo.');
+    } else {
+      setSendError('Erro ao criar o lembrete. Tenta de novo?');
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError('');
+    const result = await login(email, password);
+    setLoginLoading(false);
+    if (result === 'ok') {
+      setStep('proposta');
+      handleCreate();
+    } else if (result === 'invalid') {
+      setLoginError('E-mail ou senha incorretos.');
+    } else {
+      setLoginError('Não consegui conectar à Agenda. Ela está rodando?');
+    }
+  };
+
+  if (step === 'criado') {
+    return <p className="jarvis-hit-resumo jarvis-hit-resumo--icon"><SuccessIcon /> Lembrete criado na Agenda.</p>;
+  }
+
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        {data.empresaVaga && <span className="jarvis-hit-company">{data.tituloVaga} — {data.empresaVaga}</span>}
+      </div>
+      {data.descricao && <p className="jarvis-hit-resumo">{data.descricao}</p>}
+      <p className="jarvis-hit-resumo" style={{ color: 'var(--text-muted)' }}>
+        {data.dueAt ? new Date(data.dueAt).toLocaleString('pt-BR') : 'Sem data definida'} · Prioridade {data.prioridade ?? 'NORMAL'}
+      </p>
+
+      {step === 'connect' && (
+        <form className="agenda-form" onSubmit={handleLogin} style={{ marginTop: '0.5rem' }}>
+          <input
+            className="agenda-input"
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="seu@email.com"
+            required
+          />
+          <input
+            className="agenda-input"
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="senha"
+            required
+            style={{ marginTop: '0.35rem' }}
+          />
+          {loginError && <p className="agenda-error">{loginError}</p>}
+          <button type="submit" className="btn btn-primary" disabled={loginLoading} style={{ marginTop: '0.5rem' }}>
+            {loginLoading ? 'Conectando...' : 'Conectar e criar'}
+          </button>
+        </form>
+      )}
+
+      {step === 'proposta' && (
+        <>
+          {sendError && <p className="agenda-error">{sendError}</p>}
+          <button type="button" className="jarvis-msg-action-btn" onClick={handleCreate} disabled={sending} style={{ marginTop: '0.4rem' }}>
+            {sending ? 'Criando...' : '📅 Criar lembrete na Agenda'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function FixarVagaCard({ data }: { data: JarvisFixarVagaData }) {
+  if (!data.sucesso) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui fixar/desafixar essa vaga.'}</p>;
+  }
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        <span className="jarvis-hit-company">{data.empresa}</span>
+      </div>
+      <p className="jarvis-hit-resumo jarvis-hit-resumo--icon">
+        <SuccessIcon /> {data.fixada ? 'Fixada no topo' : 'Desafixada'}
+      </p>
+    </div>
+  );
+}
+
+function AdicionarVagaCard({ data }: { data: JarvisAdicionarVagaData }) {
+  if (!data.sucesso) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui adicionar essa vaga.'}</p>;
+  }
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        <span className="jarvis-hit-company">{data.empresa}</span>
+      </div>
+      <p className="jarvis-hit-resumo jarvis-hit-resumo--icon">
+        <SuccessIcon /> Adicionada ({STATUS_META[data.status ?? '']?.label ?? data.status})
+      </p>
+    </div>
+  );
+}
+
+function ApagarVagaCard({ data }: { data: JarvisApagarVagaData }) {
+  if (!data.sucesso) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui apagar essa vaga.'}</p>;
+  }
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        <span className="jarvis-hit-company">{data.empresa}</span>
+      </div>
+      <p className="jarvis-hit-resumo jarvis-hit-resumo--icon"><SuccessIcon /> Apagada permanentemente</p>
+    </div>
+  );
+}
+
+// Rótulo pra cada ferramenta real, mostrado assim que o evento SSE
+// "tool_call" chega (ver /assistant/chat/stream) — a narração de verdade,
+// não mais só uma aproximação por palavra-chave da mensagem do usuário.
+const TOOL_PHRASES: Record<string, string> = {
+  listarVagas: 'Buscando suas vagas...',
+  resumoFunil: 'Calculando o resumo do funil...',
+  compatibilidadeComVagasRecentes: 'Analisando compatibilidade com o Gemini...',
+  compatibilidadeComVagasDoFunil: 'Analisando compatibilidade com o Gemini...',
+  estimativaSalarialDeVagas: 'Estimando a faixa salarial...',
+  detalharVagas: 'Buscando os detalhes da vaga...',
+  vagasParecidas: 'Procurando vagas parecidas...',
+  vagasParadas: 'Verificando candidaturas paradas...',
+  marcarStatusDeVaga: 'Atualizando o status da vaga...',
+  atualizarNotaDeVaga: 'Salvando a nota...',
+  gerarCartaDeApresentacao: 'Escrevendo a carta de apresentação...',
+  metricasDeDesempenho: 'Calculando métricas de desempenho...',
+  vagasComPrazoProximo: 'Verificando prazos de candidatura...',
+  detectarDuplicatas: 'Procurando vagas duplicadas...',
+  desempenhoPorFonte: 'Cruzando desempenho por fonte...',
+  historicoDaEmpresa: 'Buscando histórico da empresa...',
+  fixarVaga: 'Fixando a vaga...',
+  adicionarVagaManual: 'Adicionando a vaga...',
+  apagarVaga: 'Removendo a vaga...',
+  lembrarPreferencia: 'Guardando a preferência...',
+  oQueFazerAgora: 'Montando o panorama do dia...',
+  compararStackComMercado: 'Comparando seu perfil com o mercado...',
+  criarLembreteNaAgenda: 'Montando a proposta de lembrete...',
+  perguntarUsuario: 'Preparando uma pergunta...',
+};
+
 // Frases que revezam enquanto espera a resposta — mesma ideia do texto de
-// status que o Claude Code mostra enquanto trabalha. Não dá pra narrar o
-// passo REAL em tempo real (as chamadas de ferramenta acontecem todas no
-// backend, dentro de uma única troca — o navegador só vê o resultado final
-// pronto, sem streaming). Como aproximação: lê palavras-chave da MENSAGEM
-// que o usuário acabou de mandar e escolhe um conjunto de frases relacionado
-// ao assunto, em vez de um ciclo genérico sempre igual não importa o pedido.
+// status que o Claude Code mostra enquanto trabalha. É o FALLBACK: usado
+// antes do primeiro evento SSE chegar, ou se o navegador cair pro caminho
+// sem streaming (ver handleSend). Lê palavras-chave da MENSAGEM que o
+// usuário acabou de mandar e escolhe um conjunto de frases relacionado ao
+// assunto, em vez de um ciclo genérico sempre igual não importa o pedido.
 interface FraseContexto { userText: string; hasImage: boolean }
 
 const FRASE_SETS: { test: (ctx: FraseContexto) => boolean; frases: string[] }[] = [
@@ -942,7 +1410,7 @@ function escolherFrases(ctx: FraseContexto): string[] {
   return [...(grupo ? grupo.frases : DEFAULT_PHRASES), 'Escrevendo resposta...'];
 }
 
-function LoadingPhrase({ userText, hasImage }: { userText: string; hasImage: boolean }) {
+function LoadingPhrase({ userText, hasImage, livePhrase }: { userText: string; hasImage: boolean; livePhrase?: string }) {
   const frases = escolherFrases({ userText, hasImage });
   const [index, setIndex] = useState(0);
   useEffect(() => {
@@ -952,15 +1420,19 @@ function LoadingPhrase({ userText, hasImage }: { userText: string; hasImage: boo
     // aparecer, sumir e voltar 2-3 vezes antes da resposta chegar de
     // verdade, o que é enganoso (parecia que já tinha começado a escrever
     // e não tinha). Agora ela aparece uma vez só e fica ali até acabar.
+    // Só roda o ciclo genérico enquanto não tem narração real chegando —
+    // ver comentário no bloco TOOL_PHRASES acima.
+    if (livePhrase) return;
     const id = setInterval(() => {
       setIndex(i => (i < frases.length - 1 ? i + 1 : i));
     }, 1800);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userText, hasImage]);
-  // key={index} força remontar o <span> a cada troca, pra animação de fade
+  }, [userText, hasImage, livePhrase]);
+  // key={texto} força remontar o <span> a cada troca, pra animação de fade
   // rodar de novo em cada frase (senão só o texto trocaria sem transição).
-  return <span key={index} className="jarvis-typing-phrase">{frases[index]}</span>;
+  const texto = livePhrase ?? frases[index];
+  return <span key={texto} className="jarvis-typing-phrase">{texto}</span>;
 }
 
 // Cronômetro tipo o do Claude Code — conta quanto tempo a espera está
@@ -1110,6 +1582,32 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <MarcarStatusCard data={result.data as JarvisMarcarStatusData} />;
     case 'atualizarNotaDeVaga':
       return <AtualizarNotaCard data={result.data as JarvisAtualizarNotaData} />;
+    case 'gerarCartaDeApresentacao':
+      return <CartaCard data={result.data as JarvisCartaData} />;
+    case 'metricasDeDesempenho':
+      return <MetricasCard data={result.data as JarvisMetricasData} />;
+    case 'vagasComPrazoProximo':
+      return <PrazoCard data={result.data as JarvisPrazoData} />;
+    case 'detectarDuplicatas':
+      return <DuplicatasCard data={result.data as JarvisDuplicatasData} />;
+    case 'desempenhoPorFonte':
+      return <FontesCard data={result.data as JarvisFontesData} />;
+    case 'historicoDaEmpresa':
+      return <HistoricoEmpresaCard data={result.data as JarvisHistoricoEmpresaData} />;
+    case 'fixarVaga':
+      return <FixarVagaCard data={result.data as JarvisFixarVagaData} />;
+    case 'adicionarVagaManual':
+      return <AdicionarVagaCard data={result.data as JarvisAdicionarVagaData} />;
+    case 'apagarVaga':
+      return <ApagarVagaCard data={result.data as JarvisApagarVagaData} />;
+    case 'lembrarPreferencia':
+      return <LembrarCard data={result.data as JarvisLembrarData} />;
+    case 'oQueFazerAgora':
+      return <OQueFazerAgoraCard data={result.data as JarvisOQueFazerAgoraData} />;
+    case 'compararStackComMercado':
+      return <CompararMercadoCard data={result.data as JarvisCompararMercadoData} />;
+    case 'criarLembreteNaAgenda':
+      return <LembreteAgendaCard data={result.data as JarvisLembreteAgendaData} />;
     default:
       return null;
   }
@@ -1117,37 +1615,115 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
 
 // ===================== Histórico de conversas =====================
 
+// Só ativa o modo de edição do título quando clica no lápis (não no botão
+// inteiro, que já serve pra abrir a conversa) — Enter/blur salva, Escape
+// cancela sem mudar nada.
+function EditableTitle({ title, onRename }: { title: string; onRename: (novo: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) { setDraft(title); inputRef.current?.focus(); inputRef.current?.select(); }
+  }, [editing, title]);
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        className="jarvis-history-item-title-input"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onClick={e => e.stopPropagation()}
+        onBlur={() => { onRename(draft); setEditing(false); }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { onRename(draft); setEditing(false); }
+          if (e.key === 'Escape') setEditing(false);
+        }}
+      />
+    );
+  }
+  return (
+    <span className="jarvis-history-item-title-row">
+      <span className="jarvis-history-item-title">{title}</span>
+      <span
+        className="jarvis-history-item-rename"
+        role="button"
+        aria-label="Renomear conversa"
+        onClick={e => { e.stopPropagation(); setEditing(true); }}
+      >
+        <PencilIcon />
+      </span>
+    </span>
+  );
+}
+
 function HistoryView({
-  conversations, activeId, onSelect, onDelete,
+  conversations, activeId, onSelect, onDelete, onRename, onExport,
 }: {
   conversations: Conversation[];
   activeId: string;
   onSelect: (id: string) => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
+  onRename: (id: string, title: string) => void;
+  onExport: (c: Conversation) => void;
 }) {
+  const [busca, setBusca] = useState('');
   const ordered = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+  const termo = busca.trim().toLowerCase();
+  // Busca no título E no texto das mensagens — não só no título, senão não
+  // acha uma conversa antiga só porque não lembra o nome dela.
+  const filtradas = termo
+    ? ordered.filter(c =>
+        c.title.toLowerCase().includes(termo)
+        || c.messages.some(m => 'text' in m && m.text?.toLowerCase().includes(termo)))
+    : ordered;
   return (
-    <div className="jarvis-history-list">
-      {ordered.map(c => (
-        <button
-          key={c.id}
-          className={`jarvis-history-item ${c.id === activeId ? 'jarvis-history-item--active' : ''}`}
-          onClick={() => onSelect(c.id)}
-        >
-          <div className="jarvis-history-item-main">
-            <span className="jarvis-history-item-title">{c.title}</span>
-            <span className="jarvis-history-item-time">{relativeTime(c.updatedAt)}</span>
-          </div>
-          <span
-            className="jarvis-history-item-delete"
-            role="button"
-            aria-label="Apagar conversa"
-            onClick={e => onDelete(c.id, e)}
+    <div className="jarvis-history-wrap">
+      {conversations.length > 4 && (
+        <div className="jarvis-history-search">
+          <SearchIcon />
+          <input
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar nas conversas..."
+            aria-label="Buscar nas conversas"
+          />
+        </div>
+      )}
+      <div className="jarvis-history-list">
+        {filtradas.length === 0 && (
+          <p className="jarvis-history-empty">Nenhuma conversa encontrada.</p>
+        )}
+        {filtradas.map(c => (
+          <button
+            key={c.id}
+            className={`jarvis-history-item ${c.id === activeId ? 'jarvis-history-item--active' : ''}`}
+            onClick={() => onSelect(c.id)}
           >
-            🗑
-          </span>
-        </button>
-      ))}
+            <div className="jarvis-history-item-main">
+              <EditableTitle title={c.title} onRename={novo => onRename(c.id, novo)} />
+              <span className="jarvis-history-item-time">{relativeTime(c.updatedAt)}</span>
+            </div>
+            <span
+              className="jarvis-history-item-export"
+              role="button"
+              aria-label="Exportar conversa em markdown"
+              onClick={e => { e.stopPropagation(); onExport(c); }}
+            >
+              <DownloadIcon />
+            </span>
+            <span
+              className="jarvis-history-item-delete"
+              role="button"
+              aria-label="Apagar conversa"
+              onClick={e => onDelete(c.id, e)}
+            >
+              <TrashIcon />
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1168,6 +1744,13 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   const { buildContext: buildChatFeedbackContext } = useAiFeedback('jarvis-chat');
   const combinedFeedbackContext = () =>
     [buildMatchFeedbackContext(), buildChatFeedbackContext()].filter(s => s.trim()).join('\n');
+  // Aviso de cota baixa — mesmo endpoint que ⚙️ Configurações usa, refresh()
+  // chamado de novo depois de cada resposta do Hunter pra refletir o consumo
+  // em tempo real (não é só um número estático do momento em que abriu).
+  const { keyPool, refresh: refreshAiStatus } = useAiStatus();
+  const quotaBaixa = keyPool != null && keyPool.total > 0 && keyPool.availableToday <= Math.max(1, Math.ceil(keyPool.total * 0.15));
+  const hunterMemory = useHunterMemory();
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>(loadConversations);
   const [activeId, setActiveId] = useState<string>(loadActiveId);
   const [view, setView] = useState<'chat' | 'history'>('chat');
@@ -1297,6 +1880,12 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
 
   const addMessage = (m: Omit<Message, 'id'>) => patchActive(msgs => [...msgs, { ...m, id: nextId++ } as Message]);
   const removeLoading = () => patchActive(msgs => msgs.filter(m => m.role !== 'assistant-loading'));
+  // Atualiza a frase da bolha de loading em tempo real conforme os eventos
+  // SSE chegam (ver handleSend/consumeSseStream) — a mesma bolha, só troca o
+  // texto mostrado dentro dela.
+  const setLoadingPhase = (phrase: string) => {
+    patchActive(msgs => msgs.map(m => (m.role === 'assistant-loading' ? { ...m, livePhrase: phrase } : m)));
+  };
 
   const handleNewConversation = () => {
     if (messages.length <= 1) { setView('chat'); return; } // já tá numa conversa vazia, não duplica
@@ -1331,6 +1920,52 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
     window.setTimeout(onClose, 180); // acompanha a duração da animação de saída
   };
 
+  // Renomear conversa — usado pelo clique no lápis de cada item do histórico
+  // (ver EditableTitle em HistoryView). Título vazio não salva (mantém o
+  // anterior), evita ficar com item sem nome nenhum na lista.
+  const handleRenameConversation = (id: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    setConversations(prev => prev.map(c => (c.id === id ? { ...c, title: trimmed } : c)));
+  };
+
+  // Exporta a conversa inteira como .md — ignora mensagens de "carregando"
+  // (não tem texto de verdade) e a pergunta interativa vira só o texto da
+  // pergunta em si (o card com botões não faz sentido fora do app).
+  const handleExportConversation = (c: Conversation) => {
+    const corpo = c.messages
+      .filter((m): m is Extract<Message, { role: 'user' | 'assistant' }> =>
+        (m.role === 'user' || m.role === 'assistant') && !!m.text.trim())
+      .map(m => `**${m.role === 'user' ? 'Você' : 'Hunter'}:**\n\n${m.text}`)
+      .join('\n\n---\n\n');
+    const md = `# ${c.title}\n\n${corpo}\n`;
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${c.title.replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 60) || 'conversa'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Esc fecha o painel de qualquer lugar (mesmo com foco no textarea) —
+  // padrão comum de modal/painel lateral. Ctrl+K (App.tsx) faz o toggle;
+  // aqui só o fechar mesmo.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleRequestClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Foco automático no campo de mensagem assim que o painel abre — evita ter
+  // que clicar no campo toda vez que abre com Ctrl+K ou pelo botão.
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
   // Chat livre com function-calling de verdade: manda o histórico da
   // conversa ativa inteiro pro backend, e é o próprio Gemini que decide se e
   // quais ferramentas chamar (listarVagas, resumoFunil,
@@ -1362,14 +1997,17 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
     addMessage({ role: 'assistant-loading' } as Omit<Message, 'id'>);
 
     try {
-      const res = await fetch('/api/jobs/assistant/chat', {
+      const res = await fetch('/api/jobs/assistant/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ history, candidateProfile: profile, feedbackContext: combinedFeedbackContext() }),
+        body: JSON.stringify({
+          history, candidateProfile: profile, feedbackContext: combinedFeedbackContext(),
+          memoryContext: hunterMemory.buildContext(),
+        }),
       });
-      removeLoading();
 
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
+        removeLoading();
         const err = await res.json().catch(() => null);
         addMessage({
           role: 'assistant',
@@ -1378,7 +2016,36 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
         return;
       }
 
-      const data = (await res.json()) as JarvisChatResponse;
+      // Consome o stream — "tool_call" narra em tempo real (ver TOOL_PHRASES/
+      // setLoadingPhase); "final" traz o mesmo payload que a resposta síncrona
+      // de antes trazia inteiro de uma vez. Se a conexão cair no meio sem
+      // nenhum evento "final" chegar, finalData fica null e cai no aviso de
+      // erro abaixo, em vez de travar esperando pra sempre.
+      let finalData: JarvisChatResponse | null = null;
+      let streamErrorMsg: string | null = null;
+      await consumeSseStream(res, (eventName, raw) => {
+        if (eventName === 'tool_call') {
+          const tool = (raw as { tool?: string }).tool;
+          if (tool) setLoadingPhase(TOOL_PHRASES[tool] ?? `Usando ${tool}...`);
+        } else if (eventName === 'final') {
+          finalData = raw as JarvisChatResponse;
+        } else if (eventName === 'error') {
+          streamErrorMsg = (raw as { error?: string }).error ?? 'Deu erro falando com o Hunter.';
+        }
+      });
+
+      removeLoading();
+
+      if (streamErrorMsg) {
+        addMessage({ role: 'assistant', text: streamErrorMsg } as Omit<Message, 'id'>);
+        return;
+      }
+      if (!finalData) {
+        addMessage({ role: 'assistant', text: 'A conexão caiu no meio da resposta — tenta de novo?' } as Omit<Message, 'id'>);
+        return;
+      }
+
+      const data = finalData as JarvisChatResponse;
       addMessage({
         role: 'assistant',
         // BUG corrigido: quando tinha pendingQuestion, text ficava vazio —
@@ -1396,13 +2063,25 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
         pendingQuestion: data.pendingQuestion,
       } as Omit<Message, 'id'>);
 
-      // marcarStatusDeVaga/atualizarNotaDeVaga mudam dado de verdade no banco
-      // — avisa o App.tsx pra recarregar a lista, senão o card só refletiria
-      // após um F5.
-      const mudouAlgo = data.toolResults?.some(
-        tr => (tr.tool === 'marcarStatusDeVaga' || tr.tool === 'atualizarNotaDeVaga') && (tr.data as { sucesso?: boolean })?.sucesso
+      // Ferramentas que mudam dado de verdade no banco — avisa o App.tsx pra
+      // recarregar a lista, senão o card só refletiria após um F5. Passa o
+      // vagaId (quando a ferramenta devolveu) pra ligar o pulso visual
+      // naquele card específico.
+      const escritaOk = data.toolResults?.find(
+        tr => (tr.tool === 'marcarStatusDeVaga' || tr.tool === 'atualizarNotaDeVaga' || tr.tool === 'fixarVaga'
+          || tr.tool === 'adicionarVagaManual' || tr.tool === 'apagarVaga')
+          && (tr.data as { sucesso?: boolean })?.sucesso
       );
-      if (mudouAlgo) onJobsChanged?.();
+      if (escritaOk) onJobsChanged?.((escritaOk.data as { vagaId?: number }).vagaId);
+
+      // lembrarPreferencia não muda nada no banco — quem persiste é o
+      // frontend mesmo (ver useHunterMemory), o backend só devolve o texto.
+      const lembrou = data.toolResults?.find(
+        tr => tr.tool === 'lembrarPreferencia' && (tr.data as { sucesso?: boolean })?.sucesso
+      );
+      if (lembrou) hunterMemory.add((lembrou.data as { texto: string }).texto);
+
+      refreshAiStatus();
     } catch {
       removeLoading();
       addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);
@@ -1543,7 +2222,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   useEffect(() => () => { recognitionRef.current?.stop(); }, []);
 
   return createPortal(
-    <div className={`jarvis-panel ${closing ? 'jarvis-panel--closing' : ''}`}>
+    <div className={`jarvis-panel ${closing ? 'jarvis-panel--closing' : ''}`} role="dialog" aria-modal="false" aria-label="Hunter, assistente do Job Radar">
       <div
         className={`jarvis-resize-handle ${resizing ? 'jarvis-resize-handle--active' : ''}`}
         onPointerDown={handleResizeStart}
@@ -1551,7 +2230,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       />
       <div className="jarvis-header">
         <span className="jarvis-header-title">
-          {view === 'history' ? '🕘 Histórico' : <><HunterIcon size={19} alive /> Hunter</>}
+          {view === 'history' ? <><HistoryIcon size={16} /> Histórico</> : <><HunterIcon size={19} alive /> Hunter</>}
         </span>
         <div className="jarvis-header-actions">
           <button
@@ -1559,7 +2238,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
             onClick={() => setView(v => (v === 'history' ? 'chat' : 'history'))}
             title={view === 'history' ? 'Voltar pro chat' : 'Ver conversas anteriores'}
           >
-            {view === 'history' ? '💬' : '🕘'}
+            {view === 'history' ? <ChatBubbleIcon /> : <HistoryIcon />}
           </button>
           <button
             className={`jarvis-header-icon-btn ${compactMode ? 'jarvis-header-icon-btn--active' : ''}`}
@@ -1569,10 +2248,58 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           >
             <CompactIcon />
           </button>
-          <button className="jarvis-header-icon-btn" onClick={handleNewConversation} title="Nova conversa">➕</button>
+          {hunterMemory.items.length > 0 && (
+            <div className="jarvis-memory-wrap">
+              <button
+                className={`jarvis-header-icon-btn ${memoryOpen ? 'jarvis-header-icon-btn--active' : ''}`}
+                onClick={() => setMemoryOpen(o => !o)}
+                title="Preferências que o Hunter lembra entre conversas"
+                aria-label="Ver preferências lembradas"
+              >
+                <ThinkingIcon />
+              </button>
+              {memoryOpen && (
+                <div className="jarvis-memory-popover">
+                  <div className="jarvis-memory-popover-head">
+                    <span>O que o Hunter lembra</span>
+                    <button
+                      className="jarvis-history-item-delete"
+                      onClick={hunterMemory.clear}
+                      title="Esquecer tudo"
+                      aria-label="Esquecer tudo"
+                    >
+                      <TrashIcon />
+                    </button>
+                  </div>
+                  <ul className="jarvis-memory-list">
+                    {hunterMemory.items.map(item => (
+                      <li key={item.texto}>
+                        <span>{item.texto}</span>
+                        <button
+                          className="jarvis-memory-remove"
+                          onClick={() => hunterMemory.remove(item.texto)}
+                          aria-label={`Esquecer "${item.texto}"`}
+                        >
+                          <CloseIcon size={10} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          <button className="jarvis-header-icon-btn" onClick={handleNewConversation} title="Nova conversa"><PlusIcon /></button>
           <button className="jarvis-header-icon-btn" onClick={handleRequestClose} aria-label="Fechar"><CloseIcon size={13} /></button>
         </div>
       </div>
+
+      {quotaBaixa && view === 'chat' && (
+        <p className="jarvis-quota-warning">
+          <WarningIcon /> Cota da IA quase no fim hoje ({keyPool!.availableToday} de {keyPool!.total} keys
+          disponíveis) — respostas podem parar de funcionar até amanhã.
+        </p>
+      )}
 
       {view === 'history' ? (
         <HistoryView
@@ -1580,10 +2307,12 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           activeId={resolvedActiveId}
           onSelect={handleSelectConversation}
           onDelete={handleDeleteConversation}
+          onRename={handleRenameConversation}
+          onExport={handleExportConversation}
         />
       ) : (
         <>
-          <div className="jarvis-messages" ref={scrollRef}>
+          <div className="jarvis-messages" ref={scrollRef} role="log" aria-live="polite" aria-relevant="additions">
             {messages.map((m, idx) => {
               // "Novo turno" = mudou quem está falando (ou é a primeira
               // mensagem) — só nesse caso soma o respiro extra entre bolhas.
@@ -1627,6 +2356,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                       <LoadingPhrase
                         userText={gatilho?.role === 'user' ? gatilho.text : ''}
                         hasImage={gatilho?.role === 'user' && !!gatilho.imageDataUrl}
+                        livePhrase={m.livePhrase}
                       />
                     </div>
                   </div>
@@ -1684,7 +2414,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
               <div className="jarvis-suggestions">
                 {SUGESTOES.map(s => (
                   <button key={s.text} className="jarvis-suggestion-card" onClick={() => handleSend(s.text)} disabled={busy}>
-                    <span className="jarvis-suggestion-icon">{s.icon}</span>
+                    <span className="jarvis-suggestion-icon"><s.Icon /></span>
                     <span>{s.text}</span>
                   </button>
                 ))}

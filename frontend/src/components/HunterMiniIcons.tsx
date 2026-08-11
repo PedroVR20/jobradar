@@ -141,6 +141,84 @@ export function CloseIcon({ size = 12 }: IconProps) {
   );
 }
 
+export function HistoryIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="10" cy="10.5" r="7" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M10 6.5V10.5L13 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6.5 3.5L4 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function ChatBubbleIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M3.5 5.5C3.5 4.4 4.4 3.5 5.5 3.5H14.5C15.6 3.5 16.5 4.4 16.5 5.5V11.5C16.5 12.6 15.6 13.5 14.5 13.5H8.5L5 16.5V13.5H5.5C4.4 13.5 3.5 12.6 3.5 11.5V5.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function PlusIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <line x1="10" y1="4" x2="10" y2="16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="4" y1="10" x2="16" y2="10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function TrashIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M4 6H16" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M7 6V4.5C7 3.9 7.4 3.5 8 3.5H12C12.6 3.5 13 3.9 13 4.5V6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5.5 6L6.2 15.5C6.25 16.1 6.75 16.5 7.3 16.5H12.7C13.25 16.5 13.75 16.1 13.8 15.5L14.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function TargetIcon({ size = 15 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="10" cy="10" r="4" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="10" cy="10" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function CycleIcon({ size = 15 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M16 8.5C15.5 5.5 13 3.5 10 3.5C7 3.5 4.5 5.5 4 8.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M4 11.5C4.5 14.5 7 16.5 10 16.5C13 16.5 15.5 14.5 16 11.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M13.5 8.5H16.2V5.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6.5 11.5H3.8V14.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function ChartIcon({ size = 15 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <line x1="4" y1="16" x2="4" y2="9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="10" y1="16" x2="10" y2="4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="16" y1="16" x2="16" y2="12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function TimerIcon({ size = 12 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="10" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M10 7.5V11L12.5 12.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="8" y1="2.5" x2="12" y2="2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // Balãozinho de pensamento com 3 pontinhos — não é um cérebro literal de
 // propósito, combina mais com a estética de robô do resto do mascote (a
 // mesma linguagem visual da antena/engrenagem) do que um emoji de anatomia.
@@ -154,6 +232,34 @@ export function ThinkingIcon({ size = 13 }: IconProps) {
       <circle cx="7.3" cy="9" r="0.9" fill="currentColor" />
       <circle cx="10" cy="9" r="0.9" fill="currentColor" />
       <circle cx="12.7" cy="9" r="0.9" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function PencilIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M12.5 4L16 7.5L7 16.5H3.5V13L12.5 4Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M10.7 5.8L14.2 9.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function DownloadIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M10 3.5V12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M6.2 9.2L10 13L13.8 9.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 15.5H16" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function SearchIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="9" cy="9" r="5.5" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M13.2 13.2L16.5 16.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   );
 }

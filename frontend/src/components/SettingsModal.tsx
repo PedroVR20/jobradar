@@ -356,6 +356,22 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
         </div>
 
         <div className="settings-section">
+          <h3 className="settings-section-title">💾 Backup dos dados</h3>
+          <p className="agenda-hint">
+            Baixa todas as vagas salvas no Job Radar (título, status, notas, tudo) num arquivo —
+            útil antes de mexer em algo arriscado, ou pra levar os dados pra outra ferramenta.
+          </p>
+          <div className="settings-export-actions">
+            <a className="btn btn-ghost" href="/api/jobs/export?format=json" download>
+              ⬇ Exportar JSON
+            </a>
+            <a className="btn btn-ghost" href="/api/jobs/export?format=csv" download>
+              ⬇ Exportar CSV
+            </a>
+          </div>
+        </div>
+
+        <div className="settings-section">
           <h3 className="settings-section-title">🔒 Área avançada</h3>
           <p className="agenda-hint">
             Retreina o modelo de estimativa de salário com as vagas mais recentes do banco — protegido
