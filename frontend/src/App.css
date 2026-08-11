@@ -2196,32 +2196,6 @@ a:hover { text-decoration: underline; }
 .jarvis-hit-resumo--flex svg { flex-shrink: 0; margin-top: 0.15rem; }
 .jarvis-hit-resumo--icon { display: flex; align-items: center; gap: 0.35rem; color: var(--green); }
 
-/* Card da pesquisa na internet (pesquisarNaInternet, grounding real do
-   Gemini) — resumo + lista de fontes sempre visível embaixo (nunca
-   escondida), pra dar pra checar de onde veio a informação. */
-.jarvis-web-card { display: flex; flex-direction: column; gap: 0.5rem; }
-.jarvis-web-resumo { font-size: 0.84rem; line-height: 1.55; }
-.jarvis-web-fontes {
-  border-top: 1px solid var(--border);
-  padding-top: 0.45rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.jarvis-web-fontes-label {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.68rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.jarvis-web-fontes ul { list-style: none; display: flex; flex-direction: column; gap: 0.2rem; }
-.jarvis-web-fontes li { font-size: 0.76rem; }
-.jarvis-web-fontes a { color: var(--accent); text-decoration: none; }
-.jarvis-web-fontes a:hover { text-decoration: underline; }
-
 .jarvis-compare {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

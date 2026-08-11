@@ -405,19 +405,6 @@ export interface JarvisBuscaSemanticaData {
   erro?: string;
 }
 
-// POST /api/jobs/assistant/chat — resultado da ferramenta pesquisarNaInternet
-// (pesquisa de verdade via grounding nativo do Gemini, não os dados do
-// próprio Job Radar — ver GeminiService.webSearch)
-export interface JarvisFonteWeb {
-  titulo: string;
-  url: string;
-}
-export interface JarvisPesquisaInternetData {
-  consulta: string;
-  resumo?: string;
-  fontes?: JarvisFonteWeb[];
-  erro?: string;
-}
 
 // POST /api/jobs/assistant/chat — resultado da ferramenta apagarVaga
 export interface JarvisApagarVagaData {
@@ -441,13 +428,12 @@ export interface JarvisToolResult {
     | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga' | 'atualizarNotaDeVaga'
     | 'gerarCartaDeApresentacao' | 'metricasDeDesempenho' | 'vagasComPrazoProximo' | 'detectarDuplicatas' | 'desempenhoPorFonte' | 'historicoDaEmpresa'
     | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga' | 'lembrarPreferencia' | 'oQueFazerAgora' | 'compararStackComMercado'
-    | 'criarLembreteNaAgenda' | 'buscarVagasPorSignificado' | 'pesquisarNaInternet';
+    | 'criarLembreteNaAgenda' | 'buscarVagasPorSignificado';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
     | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData | JarvisAtualizarNotaData
     | JarvisCartaData | JarvisMetricasData | JarvisPrazoData | JarvisDuplicatasData | JarvisFontesData | JarvisHistoricoEmpresaData
     | JarvisFixarVagaData | JarvisAdicionarVagaData | JarvisApagarVagaData | JarvisLembrarData
-    | JarvisOQueFazerAgoraData | JarvisCompararMercadoData | JarvisLembreteAgendaData | JarvisBuscaSemanticaData
-    | JarvisPesquisaInternetData;
+    | JarvisOQueFazerAgoraData | JarvisCompararMercadoData | JarvisLembreteAgendaData | JarvisBuscaSemanticaData;
 }
 
 // Pergunta interativa que o Hunter decidiu fazer (ferramenta perguntarUsuario)
