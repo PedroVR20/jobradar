@@ -274,6 +274,14 @@ export function SpeakerIcon({ size = 14 }: IconProps) {
   );
 }
 
+export function LightningIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M11 2.5L4.5 11.5H9.5L8.5 17.5L15.5 8.5H10.5L11 2.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function SpeakerMuteIcon({ size = 14 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">

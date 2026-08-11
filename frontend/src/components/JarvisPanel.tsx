@@ -41,14 +41,15 @@ import { HunterIcon } from './HunterIcon';
 import {
   BookIcon, ChartIcon, ChatBubbleIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon,
   CycleIcon, DownloadIcon, HistoryIcon, MicIcon, NoteIcon, PencilIcon, PlusIcon, SearchIcon,
-  SpeakerIcon, SpeakerMuteIcon, SuccessIcon, TargetIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon,
-  TimerIcon, TrashIcon, WarningIcon,
+  LightningIcon, SpeakerIcon, SpeakerMuteIcon, SuccessIcon, TargetIcon, ThinkingIcon, ThumbDownIcon,
+  ThumbUpIcon, TimerIcon, TrashIcon, WarningIcon,
 } from './HunterMiniIcons';
 
 // Preferência de "modo compacto" (esconde os cards visuais, só texto) —
 // persistida à parte do resto do estado do chat, é uma preferência de
 // exibição, não algo específico de uma conversa.
 const COMPACT_MODE_KEY = 'jobradar:jarvis-compact-mode';
+const FAST_MODE_KEY = 'jobradar:jarvis-fast-mode';
 
 // Ditado por voz (Web Speech API) — só Chrome/Edge/derivados suportam hoje
 // (window.SpeechRecognition ainda não existe no lib.dom.d.ts do TypeScript
@@ -1888,6 +1889,13 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   const [compactMode, setCompactMode] = useState(() => {
     try { return localStorage.getItem(COMPACT_MODE_KEY) === '1'; } catch { return false; }
   });
+  // Modo rápido (⚡) — controle explícito de gasto de cota: desliga o
+  // raciocínio (includeThoughts) e pede economia nas ferramentas caras
+  // (compatibilidade, carta) no backend. Padrão desligado (modo "profundo",
+  // comportamento de sempre) — é um opt-in, não muda nada pra quem não mexe.
+  const [fastMode, setFastMode] = useState(() => {
+    try { return localStorage.getItem(FAST_MODE_KEY) === '1'; } catch { return false; }
+  });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1902,6 +1910,10 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   useEffect(() => {
     try { localStorage.setItem(COMPACT_MODE_KEY, compactMode ? '1' : '0'); } catch { /* ignore */ }
   }, [compactMode]);
+
+  useEffect(() => {
+    try { localStorage.setItem(FAST_MODE_KEY, fastMode ? '1' : '0'); } catch { /* ignore */ }
+  }, [fastMode]);
 
   // loadConversations() e loadActiveId() são inicializadores independentes
   // do useState (cada um roda separado) — quando o localStorage começa
@@ -2130,7 +2142,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
         signal: controller.signal,
         body: JSON.stringify({
           history, candidateProfile: profile, feedbackContext: combinedFeedbackContext(),
-          memoryContext: hunterMemory.buildContext(),
+          memoryContext: hunterMemory.buildContext(), fastMode,
         }),
       });
 
@@ -2435,6 +2447,14 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
             aria-label="Alternar modo compacto"
           >
             <CompactIcon />
+          </button>
+          <button
+            className={`jarvis-header-icon-btn ${fastMode ? 'jarvis-header-icon-btn--active' : ''}`}
+            onClick={() => setFastMode(f => !f)}
+            title={fastMode ? 'Modo rápido ativado (⚡ economiza cota — desliga o raciocínio e evita ferramentas caras). Clique pra voltar ao modo profundo.' : 'Modo profundo (padrão). Clique pra ativar o modo rápido ⚡'}
+            aria-label="Alternar modo rápido"
+          >
+            <LightningIcon />
           </button>
           {hunterMemory.items.length > 0 && (
             <div className="jarvis-memory-wrap">

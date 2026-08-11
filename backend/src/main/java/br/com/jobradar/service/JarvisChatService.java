@@ -330,6 +330,11 @@ public class JarvisChatService {
         return conversar(historico, candidateProfile, feedbackContext, memoryContext, NOOP_LISTENER);
     }
 
+    public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext, String memoryContext,
+                                  ChatProgressListener listener) {
+        return conversar(historico, candidateProfile, feedbackContext, memoryContext, listener, false);
+    }
+
     // feedbackContext: 👍/👎 salvos em ⚙️/nos cards de vaga (useAiFeedback no
     // frontend) pras análises de compatibilidade — antes só chegava nos
     // endpoints diretos (match-score, learning-plan), nunca no chat. Agora o
@@ -342,8 +347,13 @@ public class JarvisChatService {
     // me mostra vaga remota" ou "não quero nada de SP". Vive inteiramente no
     // localStorage do navegador (useHunterMemory) — o backend não persiste
     // nada, só recebe a lista pronta a cada requisição e injeta na instrução.
+    //
+    // fastMode: toggle explícito do usuário (⚡ no cabeçalho do chat) pra
+    // controlar gasto de cota — desliga includeThoughts (raciocínio custa
+    // tokens de saída extras) e pede pro modelo evitar ferramentas caras
+    // (compatibilidade, carta) a menos que seja exatamente o pedido.
     public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext, String memoryContext,
-                                  ChatProgressListener listener) {
+                                  ChatProgressListener listener, boolean fastMode) {
         if (listener == null) listener = NOOP_LISTENER;
         if (historico == null || historico.isEmpty()) {
             return new ChatOutcome(null, null, List.of(), "Mensagem vazia.", false);
@@ -404,11 +414,20 @@ public class JarvisChatService {
         // Preferências que o usuário pediu EXPLICITAMENTE pra lembrar (não é
         // feedback de estilo, são fatos/regras reais pra aplicar sempre que
         // relevante — ex: filtro implícito de local/modalidade em listarVagas).
-        String systemInstructionFinal = memoryContext != null && !memoryContext.isBlank()
+        String systemInstructionComMemoria = memoryContext != null && !memoryContext.isBlank()
                 ? systemInstructionComFeedback + "\n\nPreferências que o usuário já pediu pra você lembrar entre " +
                         "conversas (aplique sempre que fizer sentido pro pedido atual, sem precisar que ele repita):\n" +
                         memoryContext
                 : systemInstructionComFeedback;
+        // Modo rápido (⚡, toggle explícito do usuário no cabeçalho do chat) —
+        // controle direto de gasto de cota: desliga o raciocínio (includeThoughts
+        // custa tokens de saída extras em toda resposta) e pede economia nas
+        // ferramentas que gastam IA de verdade.
+        String systemInstructionFinal = fastMode
+                ? systemInstructionComMemoria + "\n\nModo rápido ativado pelo usuário: seja econômico. Evite chamar " +
+                        "compatibilidadeComVagasRecentes, compatibilidadeComVagasDoFunil ou gerarCartaDeApresentacao " +
+                        "a menos que seja exatamente o que foi pedido, prefira respostas mais curtas e diretas."
+                : systemInstructionComMemoria;
 
         for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
             if (listener.isCancelled()) {
@@ -416,7 +435,7 @@ public class JarvisChatService {
             }
             ChatProgressListener listenerFinal = listener;
             GeminiService.ChatResult resultado = geminiService.chatStream(
-                    systemInstructionFinal, contents, tools, true, listenerFinal::onAnswerChunk);
+                    systemInstructionFinal, contents, tools, !fastMode, listenerFinal::onAnswerChunk);
             if (!resultado.ok()) {
                 return new ChatOutcome(null, null, toolResults, resultado.errorMessage(), resultado.rateLimited());
             }
