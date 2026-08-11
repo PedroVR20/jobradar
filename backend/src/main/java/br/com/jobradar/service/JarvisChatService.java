@@ -155,6 +155,17 @@ public class JarvisChatService {
             pelo que "parece" na imagem sem confirmar via listarVagas. Se a busca não
             achar nada compatível, diga isso e pergunte mais detalhes, não invente.
 
+            perguntarUsuario: quando você tem uma dúvida real que só o usuário
+            resolve (ex: "compara a vaga X" achou duas empresas diferentes com
+            título parecido, ou marcarStatusDeVaga ficou ambíguo sobre qual vaga),
+            chame essa ferramenta em vez de adivinhar ou perguntar só em texto —
+            ela mostra botões clicáveis de verdade pro usuário escolher (mais um
+            campo livre se fizer sentido ter "outra opção"). Use com moderação: só
+            quando a ambiguidade é real e impede continuar direito, não pra
+            confirmar coisa óbvia. Depois que o usuário responder, a pergunta e a
+            resposta aparecem no histórico normalmente — continue o raciocínio
+            considerando a resposta dada.
+
             Se o usuário perguntar algo sem relação com o Job Radar (vagas,
             candidatura, perfil, salário), explique educadamente que você só ajuda
             com isso.
@@ -188,12 +199,29 @@ public class JarvisChatService {
 
     public record ToolResultPayload(String tool, Object data) {}
 
+    // Pergunta interativa que o Hunter decidiu fazer (ferramenta
+    // perguntarUsuario) — diferente de toda outra ferramenta, essa NÃO
+    // resolve na hora: a conversa "pausa" aqui, o frontend mostra os botões,
+    // e só quando o usuário escolhe uma opção (virando uma mensagem normal
+    // de novo) é que o Hunter continua. Não precisa guardar nenhum estado
+    // de function-call/thoughtSignature entre requisições pra isso funcionar
+    // — cada chamada a /assistant/chat já reconstrói o histórico inteiro do
+    // zero a partir do texto puro das mensagens anteriores (ver conversar()),
+    // então a pergunta + resposta escolhida viram só mais duas mensagens
+    // normais na próxima chamada, sem nenhum encanamento especial.
+    public record PendingQuestion(String pergunta, List<String> opcoes, boolean permiteOutro) {}
+
     // thinking: raciocínio real do Gemini antes da resposta final (ver
     // GeminiService.chat(..., includeThoughts=true)) — null quando a rodada
     // que produziu a resposta não veio com pensamento (a API nem sempre
     // manda, mesmo pedindo) ou quando o modelo respondeu direto sem "pensar"
     // visivelmente numa pergunta simples.
-    public record ChatOutcome(String reply, String thinking, List<ToolResultPayload> toolResults, String errorMessage, boolean rateLimited) {
+    public record ChatOutcome(String reply, String thinking, List<ToolResultPayload> toolResults, String errorMessage,
+                               boolean rateLimited, PendingQuestion pendingQuestion) {
+        public ChatOutcome(String reply, String thinking, List<ToolResultPayload> toolResults, String errorMessage, boolean rateLimited) {
+            this(reply, thinking, toolResults, errorMessage, rateLimited, null);
+        }
+
         public boolean ok() {
             return errorMessage == null;
         }
@@ -257,6 +285,15 @@ public class JarvisChatService {
 
             GeminiService.FunctionCallRequest chamada = resultado.functionCall();
             log.info("Jarvis: chamando ferramenta '{}' com args {}", chamada.name(), chamada.args());
+
+            // perguntarUsuario é diferente de todas as outras: não resolve
+            // sozinha, então NÃO adiciona nada em contents nem continua o
+            // loop — a conversa pausa aqui de verdade, devolvendo a pergunta
+            // pro frontend. Ver comentário completo no record PendingQuestion.
+            if ("perguntarUsuario".equals(chamada.name())) {
+                return new ChatOutcome(null, resultado.thinking(), toolResults, null, false, extrairPendingQuestion(chamada.args()));
+            }
+
             Object dado = executarFerramenta(chamada, candidateProfile, feedbackContext);
             toolResults.add(new ToolResultPayload(chamada.name(), dado));
 
@@ -358,6 +395,20 @@ public class JarvisChatService {
                 "required", List.of("vagaId", "status")
         );
 
+        Map<String, Object> perguntarUsuarioParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "pergunta", Map.of("type", "STRING", "description", "A pergunta em si, curta e direta."),
+                        "opcoes", Map.of(
+                                "type", "ARRAY",
+                                "items", Map.of("type", "STRING"),
+                                "description", "2 a 5 opções curtas que o usuário pode clicar pra responder."
+                        ),
+                        "permiteOutro", Map.of("type", "BOOLEAN", "description", "true se faz sentido o usuário poder digitar uma resposta livre além das opções.")
+                ),
+                "required", List.of("pergunta", "opcoes")
+        );
+
         return List.of(
                 new GeminiService.FunctionDeclaration("listarVagas",
                         "Lista vagas do usuário, opcionalmente filtradas por status (ex: em andamento, aplicadas), período ou busca por texto. " +
@@ -416,8 +467,25 @@ public class JarvisChatService {
                                 "isso 'no escuro' ou em lote sem o usuário ter apontado exatamente qual vaga. Se " +
                                 "houver ambiguidade sobre qual vaga (mais de uma batendo com a busca), pergunte antes " +
                                 "de chamar, não escolha sozinho.",
-                        marcarStatusParams)
+                        marcarStatusParams),
+                new GeminiService.FunctionDeclaration("perguntarUsuario",
+                        "Faz uma pergunta de múltipla escolha pro usuário quando você tem uma dúvida real que só ele " +
+                                "resolve (ex: qual entre duas vagas parecidas, ou confirmar algo antes de mudar status " +
+                                "de verdade). Diferente das outras ferramentas, essa PAUSA a conversa — você só continua " +
+                                "depois que o usuário escolher uma opção (ou digitar a própria resposta, se permiteOutro). " +
+                                "Use com moderação: só quando a ambiguidade realmente impede continuar direito.",
+                        perguntarUsuarioParams)
         );
+    }
+
+    @SuppressWarnings("unchecked")
+    private PendingQuestion extrairPendingQuestion(Map<String, Object> args) {
+        String pergunta = args.get("pergunta") instanceof String s ? s : "Pode confirmar o que você quer dizer?";
+        List<String> opcoes = args.get("opcoes") instanceof List<?> l
+                ? (List<String>) l.stream().filter(String.class::isInstance).toList()
+                : List.of();
+        boolean permiteOutro = args.get("permiteOutro") instanceof Boolean b && b;
+        return new PendingQuestion(pergunta, opcoes, permiteOutro);
     }
 
     private Object executarFerramenta(GeminiService.FunctionCallRequest chamada, String candidateProfile, String feedbackContext) {

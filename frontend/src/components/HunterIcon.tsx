@@ -14,9 +14,14 @@ interface Props {
   // repetido em cada card de vaga (menu 🤖 IA) — dezenas piscando ao mesmo
   // tempo na tela seria barulho visual, não charme.
   alive?: boolean;
+  // Mostra uma "?" saltitando perto da cabeça — usado só na mensagem que
+  // tem uma pergunta interativa pendente (ferramenta perguntarUsuario),
+  // pra deixar visualmente óbvio que ele está esperando o usuário escolher
+  // algo, não só "pensando" normal.
+  questioning?: boolean;
 }
 
-export function HunterIcon({ size = 20, alive = false }: Props) {
+export function HunterIcon({ size = 20, alive = false, questioning = false }: Props) {
   const teeth = Array.from({ length: 8 });
   return (
     <svg
@@ -44,6 +49,15 @@ export function HunterIcon({ size = 20, alive = false }: Props) {
         <circle className="hunter-eye" cx="13.2" cy="17.5" r="1.6" />
         <circle className="hunter-eye" cx="18.8" cy="17.5" r="1.6" />
       </g>
+
+      {/* "?" saltitando — só quando questioning=true, fora do grupo da
+          cabeça de propósito (não deve girar/tremer junto com o balanço). */}
+      {questioning && (
+        <g className="hunter-question">
+          <circle cx="26" cy="6.5" r="5.4" className="hunter-question-badge" />
+          <text x="26" y="9.4" textAnchor="middle" className="hunter-question-mark">?</text>
+        </g>
+      )}
 
       {/* Engrenagem no canto — gira quando passa o mouse no botão */}
       <g className="hunter-gear" transform="translate(23.5, 23)">

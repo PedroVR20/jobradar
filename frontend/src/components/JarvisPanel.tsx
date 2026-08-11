@@ -7,6 +7,7 @@ import {
   JarvisDetalharVagasData,
   JarvisListarVagasData,
   JarvisMarcarStatusData,
+  JarvisPendingQuestion,
   JarvisResumoFunilData,
   JarvisSalarioData,
   JarvisSalarioVaga,
@@ -17,7 +18,7 @@ import {
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { HunterIcon } from './HunterIcon';
-import { CheckIcon, CopyIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon } from './HunterMiniIcons';
+import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CopyIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
 
 interface Props {
   onClose: () => void;
@@ -29,7 +30,7 @@ interface Props {
 
 type Message =
   | { id: number; role: 'user'; text: string; imageDataUrl?: string }
-  | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[]; thinking?: string | null }
+  | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[]; thinking?: string | null; pendingQuestion?: JarvisPendingQuestion | null }
   | { id: number; role: 'assistant-loading' };
 
 // Imagem anexada/colada no chat, já convertida — dataUrl é só pra pré-visualizar
@@ -531,7 +532,8 @@ function ChatGapItem({ jobId, gap, candidateProfile, feedbackContext }: {
     <li className="match-gap-item">
       <span className="match-gap-text">{gap}</span>
       <button type="button" className="match-plan-btn" onClick={handleGeneratePlan} disabled={loading}>
-        {loading ? '⏳ Gerando plano...' : plan ? (open ? '📚 Ocultar plano' : '📚 Ver plano') : '📚 Plano de ação'}
+        {!loading && <BookIcon />}
+        <span>{loading ? 'Gerando plano...' : plan ? (open ? 'Ocultar plano' : 'Ver plano') : 'Plano de ação'}</span>
       </button>
       {error && <p className="agenda-error match-gap-error">{error}</p>}
       {plan && open && (
@@ -586,7 +588,7 @@ function CompatibilidadeCard({ data, candidateProfile, planFeedbackContext }: {
             <p className="jarvis-hit-resumo">{h.resumo}</p>
             {!!h.pontosFortes?.length && (
               <div className="match-section">
-                <h4 className="match-section-title match-section-title--good">✅ Pontos fortes</h4>
+                <h4 className="match-section-title match-section-title--good"><SuccessIcon /> Pontos fortes</h4>
                 <ul className="match-list">
                   {h.pontosFortes.map((p, i) => <li key={i}>{p}</li>)}
                 </ul>
@@ -594,7 +596,7 @@ function CompatibilidadeCard({ data, candidateProfile, planFeedbackContext }: {
             )}
             {!!h.pontosFaltando?.length && (
               <div className="match-section">
-                <h4 className="match-section-title match-section-title--gap">⚠️ Pontos a desenvolver</h4>
+                <h4 className="match-section-title match-section-title--gap"><WarningIcon /> Pontos a desenvolver</h4>
                 <ul className="match-list">
                   {h.pontosFaltando.map((p, i) => (
                     <ChatGapItem key={i} jobId={h.id} gap={p} candidateProfile={candidateProfile} feedbackContext={planFeedbackContext} />
@@ -605,7 +607,7 @@ function CompatibilidadeCard({ data, candidateProfile, planFeedbackContext }: {
           </div>
         ))}
       </div>
-      {data.erro && <p className="jarvis-scan-warning">⚠️ {data.erro}</p>}
+      {data.erro && <p className="jarvis-scan-warning"><WarningIcon /> {data.erro}</p>}
     </>
   );
 }
@@ -794,7 +796,7 @@ function VagasParecidasCard({ data }: { data: JarvisVagasParecidasData }) {
 // trás do chat já recarrega sozinha, ver onJobsChanged em handleSend).
 function MarcarStatusCard({ data }: { data: JarvisMarcarStatusData }) {
   if (!data.sucesso) {
-    return <p className="jarvis-scan-warning">⚠️ {data.erro ?? 'Não consegui mudar o status dessa vaga.'}</p>;
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui mudar o status dessa vaga.'}</p>;
   }
   const antes = data.statusAntes ? (STATUS_META[data.statusAntes]?.label ?? data.statusAntes) : '—';
   const depois = data.statusNovo ? (STATUS_META[data.statusNovo]?.label ?? data.statusNovo) : '—';
@@ -804,32 +806,63 @@ function MarcarStatusCard({ data }: { data: JarvisMarcarStatusData }) {
         <span>{data.titulo}</span>
         <span className="jarvis-hit-company">{data.empresa}</span>
       </div>
-      <p className="jarvis-hit-resumo">✅ {antes} → <strong>{depois}</strong></p>
+      <p className="jarvis-hit-resumo jarvis-hit-resumo--icon"><SuccessIcon /> {antes} → <strong>{depois}</strong></p>
     </div>
   );
 }
 
 // Frases que revezam enquanto espera a resposta — mesma ideia do texto de
-// status que o Claude Code mostra enquanto trabalha, adaptado pro que o
-// Hunter realmente faz (não é genérico tipo "carregando...").
-const THINKING_PHRASES = [
-  'Pensando...',
-  'Vasculhando o feed...',
-  'Cruzando com seu perfil...',
-  'Consultando o funil...',
-  'Comparando vagas...',
-  'Escrevendo resposta...',
+// status que o Claude Code mostra enquanto trabalha. Não dá pra narrar o
+// passo REAL em tempo real (as chamadas de ferramenta acontecem todas no
+// backend, dentro de uma única troca — o navegador só vê o resultado final
+// pronto, sem streaming). Como aproximação: lê palavras-chave da MENSAGEM
+// que o usuário acabou de mandar e escolhe um conjunto de frases relacionado
+// ao assunto, em vez de um ciclo genérico sempre igual não importa o pedido.
+interface FraseContexto { userText: string; hasImage: boolean }
+
+const FRASE_SETS: { test: (ctx: FraseContexto) => boolean; frases: string[] }[] = [
+  { test: ctx => ctx.hasImage,
+    frases: ['Abrindo o print...', 'Analisando a imagem...', 'Procurando a vaga correspondente...'] },
+  { test: ctx => /interessad/i.test(ctx.userText),
+    frases: ['Entrando na aba Interessado...', 'Olhando suas vagas marcadas...'] },
+  { test: ctx => /andamento/i.test(ctx.userText),
+    frases: ['Entrando na aba Em Andamento...', 'Conferindo o processo seletivo...'] },
+  { test: ctx => /aplicad/i.test(ctx.userText),
+    frases: ['Entrando na aba Aplicadas...', 'Conferindo suas candidaturas...'] },
+  { test: ctx => /recusad/i.test(ctx.userText),
+    frases: ['Entrando na aba Recusadas...', 'Revendo o que ficou pra trás...'] },
+  { test: ctx => /(parecid|similar)/i.test(ctx.userText),
+    frases: ['Comparando tags de vagas...', 'Procurando vagas parecidas...'] },
+  { test: ctx => /(sal[aá]rio|quanto pagam|faixa salarial)/i.test(ctx.userText),
+    frases: ['Rodando a estimativa salarial...', 'Comparando faixas de salário...'] },
+  { test: ctx => /(compat[ií]vel|compatibilidade)/i.test(ctx.userText),
+    frases: ['Comparando com seu perfil...', 'Calculando compatibilidade...', 'Lendo pontos fortes e fracos...'] },
+  { test: ctx => /(marca|muda(r)? o status|marcar como)/i.test(ctx.userText),
+    frases: ['Atualizando o status da vaga...', 'Salvando a mudança...'] },
+  { test: ctx => /(detalh|explica a vaga|me conta sobre)/i.test(ctx.userText),
+    frases: ['Buscando os detalhes da vaga...', 'Reunindo as informações salvas...'] },
+  { test: ctx => /(funil|resumo|quantas vagas)/i.test(ctx.userText),
+    frases: ['Consultando o funil...', 'Contando as vagas por status...'] },
 ];
 
-function LoadingPhrase() {
+const DEFAULT_PHRASES = ['Pensando...', 'Vasculhando o feed...'];
+
+function escolherFrases(ctx: FraseContexto): string[] {
+  const grupo = FRASE_SETS.find(s => s.test(ctx));
+  return [...(grupo ? grupo.frases : DEFAULT_PHRASES), 'Escrevendo resposta...'];
+}
+
+function LoadingPhrase({ userText, hasImage }: { userText: string; hasImage: boolean }) {
+  const frases = escolherFrases({ userText, hasImage });
   const [index, setIndex] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setIndex(i => (i + 1) % THINKING_PHRASES.length), 1800);
+    const id = setInterval(() => setIndex(i => (i + 1) % frases.length), 1800);
     return () => clearInterval(id);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userText, hasImage]);
   // key={index} força remontar o <span> a cada troca, pra animação de fade
   // rodar de novo em cada frase (senão só o texto trocaria sem transição).
-  return <span key={index} className="jarvis-typing-phrase">{THINKING_PHRASES[index]}</span>;
+  return <span key={index} className="jarvis-typing-phrase">{frases[index]}</span>;
 }
 
 // Raciocínio real do Gemini antes da resposta — recolhido por padrão (é
@@ -848,6 +881,63 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
         <span>{open ? 'Ocultar raciocínio' : 'Ver raciocínio'}</span>
       </button>
       {open && <div className="jarvis-thinking-text">{renderMarkdownLite(thinking)}</div>}
+    </div>
+  );
+}
+
+// Pergunta interativa (ferramenta perguntarUsuario) — botões de verdade em
+// vez do Hunter só perguntar em texto solto. `locked` é true quando essa
+// pergunta já tem uma resposta na sequência da conversa (não é a última
+// mensagem mais) — nesse caso mostra só o que foi escolhido, sem poder
+// clicar de novo. `onAnswer` reaproveita o mesmo handleSend de sempre: a
+// resposta escolhida vira uma mensagem de usuário comum, e o histórico
+// completo (pergunta + resposta) volta pro backend na próxima chamada —
+// não precisa de nenhum encanamento especial pra "retomar" o Gemini.
+function PendingQuestionCard({ question, locked, answeredWith, onAnswer }: {
+  question: JarvisPendingQuestion; locked: boolean; answeredWith?: string; onAnswer: (texto: string) => void;
+}) {
+  const [outro, setOutro] = useState('');
+  const [showOutro, setShowOutro] = useState(false);
+
+  return (
+    <div className="jarvis-question">
+      <p className="jarvis-question-text">{question.pergunta}</p>
+      <div className="jarvis-question-options">
+        {question.opcoes.map(op => (
+          <button
+            key={op}
+            type="button"
+            className={`jarvis-question-btn ${answeredWith === op ? 'jarvis-question-btn--picked' : ''}`}
+            onClick={() => !locked && onAnswer(op)}
+            disabled={locked}
+          >
+            {op}
+          </button>
+        ))}
+        {question.permiteOutro && !locked && !showOutro && (
+          <button type="button" className="jarvis-question-btn jarvis-question-btn--outro" onClick={() => setShowOutro(true)}>
+            Outra opção...
+          </button>
+        )}
+      </div>
+      {showOutro && !locked && (
+        <div className="jarvis-question-outro-row">
+          <input
+            className="jarvis-question-outro-input"
+            value={outro}
+            onChange={e => setOutro(e.target.value)}
+            placeholder="Digite sua resposta..."
+            autoFocus
+            onKeyDown={e => { if (e.key === 'Enter' && outro.trim()) onAnswer(outro.trim()); }}
+          />
+          <button type="button" className="jarvis-question-btn" onClick={() => outro.trim() && onAnswer(outro.trim())} disabled={!outro.trim()}>
+            enviar
+          </button>
+        </div>
+      )}
+      {locked && answeredWith && !question.opcoes.includes(answeredWith) && (
+        <p className="jarvis-question-answered">Você respondeu: <strong>{answeredWith}</strong></p>
+      )}
     </div>
   );
 }
@@ -1149,9 +1239,12 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       const data = (await res.json()) as JarvisChatResponse;
       addMessage({
         role: 'assistant',
-        text: data.reply ?? 'Não consegui gerar uma resposta dessa vez — tenta reformular?',
+        // Quando tem pendingQuestion, reply vem null de propósito — o card
+        // da pergunta é o conteúdo da mensagem, não precisa de texto solto.
+        text: data.pendingQuestion ? '' : (data.reply ?? 'Não consegui gerar uma resposta dessa vez — tenta reformular?'),
         toolResults: data.toolResults,
         thinking: data.thinking,
+        pendingQuestion: data.pendingQuestion,
       } as Omit<Message, 'id'>);
 
       // marcarStatusDeVaga muda dado de verdade no banco — avisa o App.tsx
@@ -1281,7 +1374,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
             {view === 'history' ? '💬' : '🕘'}
           </button>
           <button className="jarvis-header-icon-btn" onClick={handleNewConversation} title="Nova conversa">➕</button>
-          <button className="jarvis-header-icon-btn" onClick={handleRequestClose} aria-label="Fechar">✕</button>
+          <button className="jarvis-header-icon-btn" onClick={handleRequestClose} aria-label="Fechar"><CloseIcon size={13} /></button>
         </div>
       </div>
 
@@ -1295,7 +1388,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       ) : (
         <>
           <div className="jarvis-messages" ref={scrollRef}>
-            {messages.map(m => {
+            {messages.map((m, idx) => {
               if (m.role === 'user') {
                 return (
                   <div key={m.id} className="jarvis-bubble jarvis-bubble--user">
@@ -1305,19 +1398,36 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                 );
               }
               if (m.role === 'assistant-loading') {
+                // A mensagem logo antes da de loading é sempre a pergunta que
+                // disparou essa espera (ver handleSend) — usa o texto dela
+                // pra escolher frases relacionadas ao que foi pedido, em vez
+                // de um ciclo genérico sempre igual.
+                const gatilho = messages[idx - 1];
                 return (
                   <div key={m.id} className="jarvis-msg-row">
                     <span className="jarvis-avatar"><HunterIcon size={22} alive /></span>
                     <div className="jarvis-bubble jarvis-bubble--assistant jarvis-bubble--loading">
                       <span className="jarvis-typing"><span></span><span></span><span></span></span>
-                      <LoadingPhrase />
+                      <LoadingPhrase
+                        userText={gatilho?.role === 'user' ? gatilho.text : ''}
+                        hasImage={gatilho?.role === 'user' && !!gatilho.imageDataUrl}
+                      />
                     </div>
                   </div>
                 );
               }
+              // Uma pergunta pendente só continua "ao vivo" (clicável +
+              // animação de "?") enquanto for a última mensagem — assim que
+              // o usuário responde, a resposta vira a próxima mensagem (role
+              // 'user') e a pergunta passa a mostrar só o que foi escolhido.
+              const isLastMsg = idx === messages.length - 1;
+              const proximaMsg = messages[idx + 1];
+              const respostaDada = m.pendingQuestion && proximaMsg?.role === 'user' ? proximaMsg.text : undefined;
+              const perguntaAoVivo = !!m.pendingQuestion && isLastMsg;
+
               return (
                 <div key={m.id} className="jarvis-msg-row">
-                  <span className="jarvis-avatar"><HunterIcon size={22} alive /></span>
+                  <span className="jarvis-avatar"><HunterIcon size={22} alive questioning={perguntaAoVivo} /></span>
                   <div className="jarvis-bubble jarvis-bubble--assistant">
                     {m.thinking && <ThinkingBlock thinking={m.thinking} />}
                     {m.toolResults && m.toolResults.length > 0 && (
@@ -1332,8 +1442,19 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                         ))}
                       </div>
                     )}
-                    {renderMarkdownLite(m.text)}
-                    <ChatMessageActions text={m.text} featureKey="jarvis-chat" />
+                    {m.pendingQuestion ? (
+                      <PendingQuestionCard
+                        question={m.pendingQuestion}
+                        locked={!perguntaAoVivo}
+                        answeredWith={respostaDada}
+                        onAnswer={texto => handleSend(texto)}
+                      />
+                    ) : (
+                      <>
+                        {renderMarkdownLite(m.text)}
+                        <ChatMessageActions text={m.text} featureKey="jarvis-chat" />
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -1351,12 +1472,12 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
             )}
           </div>
 
-          {attachError && <p className="jarvis-attach-error">⚠️ {attachError}</p>}
+          {attachError && <p className="jarvis-attach-error"><WarningIcon /> {attachError}</p>}
 
           {attachedImage && (
             <div className="jarvis-attach-preview">
               <img src={attachedImage.dataUrl} alt="Print a anexar" />
-              <button type="button" className="jarvis-attach-remove" onClick={() => setAttachedImage(null)} aria-label="Remover imagem">✕</button>
+              <button type="button" className="jarvis-attach-remove" onClick={() => setAttachedImage(null)} aria-label="Remover imagem"><CloseIcon /></button>
             </div>
           )}
 
@@ -1376,7 +1497,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
               aria-label="Anexar print"
               title="Anexar print (ou cole com Ctrl+V no campo de texto)"
             >
-              📎
+              <ClipIcon />
             </button>
             <textarea
               ref={textareaRef}

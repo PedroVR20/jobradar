@@ -1066,6 +1066,7 @@ public class JobController {
         body.put("reply", resultado.reply());
         body.put("thinking", resultado.thinking());
         body.put("toolResults", resultado.toolResults());
+        body.put("pendingQuestion", resultado.pendingQuestion());
         return ResponseEntity.ok(body);
     }
 }

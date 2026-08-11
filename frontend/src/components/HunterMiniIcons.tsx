@@ -46,6 +46,55 @@ export function CheckIcon({ size = 14 }: IconProps) {
   );
 }
 
+export function BookIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M10 5.5C9 4.5 7 4 4.5 4.2C4 4.24 3.6 4.65 3.6 5.15V14.15C3.6 14.75 4.15 15.2 4.7 15.1C6.7 14.8 8.7 15.3 10 16.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 5.5C11 4.5 13 4 15.5 4.2C16 4.24 16.4 4.65 16.4 5.15V14.15C16.4 14.75 15.85 15.2 15.3 15.1C13.3 14.8 11.3 15.3 10 16.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="10" y1="5.5" x2="10" y2="16.2" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
+export function SuccessIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M6.8 10.2L8.8 12.2L13.2 7.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function WarningIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M10 3.2L17.3 15.8C17.6 16.35 17.2 17 16.6 17H3.4C2.8 17 2.4 16.35 2.7 15.8L10 3.2Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <line x1="10" y1="8.3" x2="10" y2="11.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <circle cx="10" cy="14.1" r="0.9" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function ClipIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path
+        d="M6 11L12.5 4.5C14 3 16.3 3 17.7 4.5C19 6 19 8.2 17.7 9.5L10.3 17C9.3 18 7.6 18 6.6 17C5.6 16 5.6 14.3 6.6 13.3L13 6.9C13.5 6.4 14.3 6.4 14.8 6.9C15.2 7.4 15.2 8.1 14.8 8.6L9.5 13.9"
+        stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function CloseIcon({ size = 12 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <line x1="4" y1="4" x2="16" y2="16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="16" y1="4" x2="4" y2="16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // Balãozinho de pensamento com 3 pontinhos — não é um cérebro literal de
 // propósito, combina mais com a estética de robô do resto do mascote (a
 // mesma linguagem visual da antena/engrenagem) do que um emoji de anatomia.

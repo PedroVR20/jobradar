@@ -221,6 +221,15 @@ export interface JarvisToolResult {
     | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisMarcarStatusData;
 }
 
+// Pergunta interativa que o Hunter decidiu fazer (ferramenta perguntarUsuario)
+// — quando presente, reply vem null: a conversa "pausou" esperando o usuário
+// escolher uma opção (ou digitar a própria resposta, se permiteOutro).
+export interface JarvisPendingQuestion {
+  pergunta: string;
+  opcoes: string[];
+  permiteOutro: boolean;
+}
+
 export interface JarvisChatResponse {
   reply: string | null;
   // Raciocínio real do Gemini antes de chegar na resposta — só vem quando a
@@ -228,6 +237,7 @@ export interface JarvisChatResponse {
   // vir null mesmo numa pergunta que teoricamente "merecia" pensar mais.
   thinking?: string | null;
   toolResults: JarvisToolResult[];
+  pendingQuestion?: JarvisPendingQuestion | null;
 }
 
 // POST /api/jobs/admin/retrain-salary-model — botão "🔒 Retreinar" em Configurações
