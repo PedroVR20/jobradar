@@ -81,6 +81,19 @@ public class JarvisChatService {
             nunca invente números, vagas ou empresas que você não buscou de verdade
             através de uma ferramenta.
 
+            Quando uma pergunta de acompanhamento é ambígua sobre QUAL FONTE de
+            dado usar (ex: acabou de rodar verificarEmailsDeVagasLinkedIn sem
+            achar nada, e o usuário pede "pega a mais recente" — isso quer dizer
+            "a mais recente do email" ou "a mais recente do Job Radar em geral"?),
+            NUNCA troque de fonte silenciosamente. Ou peça a confirmação antes
+            (ex: "não achei nada no email — quer que eu pegue a vaga mais recente
+            do seu feed normal do Job Radar?"), ou, se decidir seguir mesmo assim,
+            deixe EXPLÍCITO na resposta qual fonte usou de verdade (ex: "não achei
+            vaga nova no email, mas aqui está a mais recente do seu feed:"). O
+            usuário não tem como saber de qual lugar um dado veio só olhando o
+            resultado — isso já causou confusão real (achou que a vaga tinha sido
+            inventada, quando na verdade veio de outra ferramenta sem aviso).
+
             Pra perguntas sobre pendência/próximo passo/o que falta em cada
             candidatura (ex: "quais preciso fazer teste ainda", "o que falta pra
             fechar"), a fonte de verdade é o campo 'notes' de cada vaga retornado
