@@ -1298,9 +1298,16 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       const data = (await res.json()) as JarvisChatResponse;
       addMessage({
         role: 'assistant',
-        // Quando tem pendingQuestion, reply vem null de propósito — o card
-        // da pergunta é o conteúdo da mensagem, não precisa de texto solto.
-        text: data.pendingQuestion ? '' : (data.reply ?? 'Não consegui gerar uma resposta dessa vez — tenta reformular?'),
+        // BUG corrigido: quando tinha pendingQuestion, text ficava vazio —
+        // a pergunta só existia visualmente (via PendingQuestionCard), nunca
+        // ia pro histórico de texto puro que volta pro backend na PRÓXIMA
+        // chamada (ver handleSend/historicoAnterior). Resultado: o Hunter
+        // "esquecia" que tinha perguntado algo, porque a mensagem dele no
+        // histórico aparecia como se não tivesse dito nada — daí ele
+        // perguntava de novo e de novo, achando que ainda não tinha
+        // perguntado. Agora o texto da pergunta vai pro histórico também,
+        // só a INTERFACE prioriza mostrar o card em vez do texto solto.
+        text: data.pendingQuestion ? data.pendingQuestion.pergunta : (data.reply ?? 'Não consegui gerar uma resposta dessa vez — tenta reformular?'),
         toolResults: data.toolResults,
         thinking: data.thinking,
         pendingQuestion: data.pendingQuestion,
