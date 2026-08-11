@@ -1971,6 +1971,17 @@ a:hover { text-decoration: underline; }
   0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
   30% { transform: translateY(-4px); opacity: 1; }
 }
+.jarvis-typing-phrase {
+  margin-left: 8px;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  font-style: italic;
+  animation: jarvis-phrase-fade 0.4s ease-out;
+}
+@keyframes jarvis-phrase-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 
 .jarvis-md-p { margin: 0 0 0.5rem; }
 .jarvis-md-p:last-child { margin-bottom: 0; }
@@ -2056,19 +2067,88 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
   padding: 0;
   font-style: italic;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 .jarvis-thinking-toggle:hover { color: var(--text); }
+/* Sem card/borda de propósito — texto solto, itálico, mais discreto que a
+   resposta em si, pra lembrar o jeito que o Claude Code mostra raciocínio
+   (parte do fluxo da conversa, não um bloco separado chamando atenção). */
 .jarvis-thinking-text {
-  margin-top: 0.4rem;
-  padding: 0.6rem 0.75rem;
-  background: var(--bg-card2);
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  font-size: 0.76rem;
-  line-height: 1.5;
+  margin-top: 0.35rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border);
+  font-size: 0.78rem;
+  line-height: 1.55;
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* Rodapé de ações da mensagem (copiar + feedback), igual ao do Claude Code */
+.jarvis-msg-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.jarvis-msg-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.jarvis-msg-action-btn:hover { color: var(--text); background: var(--bg-card2); }
+
+.jarvis-compact-feedback { display: flex; align-items: center; gap: 0.3rem; }
+.jarvis-compact-feedback-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.jarvis-compact-feedback-btn:hover { color: var(--green); background: var(--bg-card2); }
+.jarvis-compact-feedback-btn--down:hover { color: var(--red); }
+.jarvis-compact-feedback--done {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--green);
+  font-size: 0.72rem;
+}
+.jarvis-compact-feedback-more {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  margin-left: 0.2rem;
+}
+.jarvis-compact-feedback-more:hover { color: var(--text); }
+.jarvis-compact-feedback-more:disabled { opacity: 0.4; cursor: default; }
+.jarvis-compact-feedback-input {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  color: var(--text);
+  width: 160px;
+}
+.jarvis-compact-feedback-input:focus { outline: none; border-color: var(--accent); }
 
 .jarvis-stats-grid {
   display: grid;
@@ -2364,6 +2444,18 @@ a:hover { text-decoration: underline; }
 }
 .hunter-icon--alive .hunter-gear { animation: hunter-gear-idle 3.6s infinite ease-in-out; }
 
+/* Balanço de cabeça — quarta animação idle do mascote (antes só piscava e
+   flutuava). Pivô perto da base do grupo (antena+cabeça+visor+olhos), tipo
+   balançando a partir do "pescoço", não do centro — fica mais natural.
+   Timing (5s) propositalmente diferente do da engrenagem (3.6s) e do
+   piscar (4.5s), pra não sincronizar tudo e parecer um metrônomo só. */
+.hunter-head-group { transform-box: fill-box; transform-origin: 50% 90%; }
+@keyframes hunter-head-tilt {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+.hunter-icon--alive .hunter-head-group { animation: hunter-head-tilt 5s infinite ease-in-out; }
+
 /* Com o Jarvis aberto, empurra o conteúdo principal em vez de deixar o
    painel sobrepor os cards por cima — sem isso, a última coluna da grade
    ficava escondida atrás da gaveta fixa. Acompanha --jarvis-panel-width
@@ -2412,13 +2504,17 @@ html.jarvis-resizing .header-inner {
   background: var(--bg-card2);
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 1rem;
-  padding: 4px 10px;
+  padding: 6px 10px;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.ai-feedback-btn:hover { border-color: var(--text-muted); }
-.ai-feedback-btn--active { border-color: var(--accent); background: #6366f122; }
+.ai-feedback-btn:hover { border-color: var(--text-muted); color: var(--text); }
+.ai-feedback-btn--active { border-color: var(--accent); background: #6366f122; color: var(--green); }
+.ai-feedback-btn--down.ai-feedback-btn--active { border-color: var(--red); background: #ef444422; color: var(--red); }
 .ai-feedback-form { display: flex; flex-direction: column; gap: 0.5rem; }
 .ai-feedback-save { align-self: flex-end; font-size: 0.78rem; padding: 5px 12px; }
 .ai-feedback-saved { font-size: 0.78rem; color: var(--green); margin: 0; }

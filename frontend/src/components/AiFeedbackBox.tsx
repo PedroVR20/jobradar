@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAiFeedback } from '../hooks/useAiFeedback';
+import { ThumbDownIcon, ThumbUpIcon } from './HunterMiniIcons';
 
 interface Props {
   // Chave que separa o histórico por recurso (ex: "cover-letter",
@@ -44,15 +45,15 @@ export function AiFeedbackBox({ featureKey, label = 'Essa geração ficou boa?' 
             onClick={() => handleRate('like')}
             aria-label="Gostei"
           >
-            👍
+            <ThumbUpIcon />
           </button>
           <button
             type="button"
-            className={`ai-feedback-btn ${rating === 'dislike' ? 'ai-feedback-btn--active' : ''}`}
+            className={`ai-feedback-btn ai-feedback-btn--down ${rating === 'dislike' ? 'ai-feedback-btn--active' : ''}`}
             onClick={() => handleRate('dislike')}
             aria-label="Não gostei"
           >
-            👎
+            <ThumbDownIcon />
           </button>
         </div>
       </div>

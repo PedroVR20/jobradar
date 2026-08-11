@@ -16,8 +16,8 @@ import {
 } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
-import { AiFeedbackBox } from './AiFeedbackBox';
 import { HunterIcon } from './HunterIcon';
+import { CheckIcon, CopyIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon } from './HunterMiniIcons';
 
 interface Props {
   onClose: () => void;
@@ -418,12 +418,83 @@ function CompatDashboard({ hits }: { hits: JarvisCompatibilidadeHit[] }) {
   );
 }
 
+// Versão enxuta do AiFeedbackBox (que continua igual nos outros modais —
+// carta, match-score, perguntas de entrevista) só pro chat: aqui a mesma
+// caixa reaparece a cada resposta, então um bloco grande com rótulo +
+// textarea sempre visível + histórico "Ver feedback salvo" empilhava e
+// poluía a conversa rápido. Essa versão: ícones só, 1 clique já salva e
+// TRAVA (sem like/dislike infinito na mesma resposta), campo de comentário
+// só aparece se o usuário quiser (clica "+ comentário" depois de avaliar),
+// sem lista de histórico — ela ainda existe em ⚙️/nos outros modais, só não
+// precisa reaparecer aqui toda hora. Mesma featureKey/pool de sempre (ver
+// useAiFeedback), então o que é avaliado aqui conta junto com o resto.
+function CompactFeedback({ featureKey }: { featureKey: string }) {
+  const { addFeedback } = useAiFeedback(featureKey);
+  const [rating, setRating] = useState<'like' | 'dislike' | null>(null);
+  const [done, setDone] = useState(false);
+  const [showComment, setShowComment] = useState(false);
+  const [comment, setComment] = useState('');
+
+  const handlePick = (r: 'like' | 'dislike') => {
+    if (done) return;
+    setRating(r);
+    addFeedback(r, '');
+    setDone(true);
+  };
+
+  const handleAddComment = () => {
+    if (!rating || !comment.trim()) return;
+    addFeedback(rating, comment); // soma outra entrada com o comentário — a de cima já ficou sem
+    setShowComment(false);
+  };
+
+  if (done && !showComment) {
+    return (
+      <div className="jarvis-compact-feedback jarvis-compact-feedback--done">
+        <CheckIcon size={12} />
+        <span>Feedback registrado</span>
+        <button type="button" className="jarvis-compact-feedback-more" onClick={() => setShowComment(true)}>
+          + comentário
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="jarvis-compact-feedback">
+      {!done ? (
+        <>
+          <button type="button" className="jarvis-compact-feedback-btn" onClick={() => handlePick('like')} aria-label="Gostei">
+            <ThumbUpIcon />
+          </button>
+          <button type="button" className="jarvis-compact-feedback-btn jarvis-compact-feedback-btn--down" onClick={() => handlePick('dislike')} aria-label="Não gostei">
+            <ThumbDownIcon />
+          </button>
+        </>
+      ) : (
+        <>
+          <input
+            className="jarvis-compact-feedback-input"
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            placeholder="O que achou? (opcional)"
+            autoFocus
+            onKeyDown={e => { if (e.key === 'Enter') handleAddComment(); }}
+          />
+          <button type="button" className="jarvis-compact-feedback-more" onClick={handleAddComment} disabled={!comment.trim()}>
+            enviar
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Mesmo componente/endpoint que o "📚 Plano de ação" do modal de compatibilidade
 // (ver GapItem em MatchScoreModal.tsx) — só troca `job: Job` por `jobId:
 // number` porque aqui só temos o id/título/empresa da vaga (JarvisCompatibilidadeHit),
-// não o objeto Job inteiro. Usa a MESMA featureKey 'learning-plan' no
-// AiFeedbackBox — o 👍/👎 dado aqui cai no mesmo pool de feedback que o
-// modal já usa, então o que o usuário avalia num lugar vale pro outro também.
+// não o objeto Job inteiro. Usa a MESMA featureKey 'learning-plan' que o
+// modal já usa — o feedback dado aqui cai no mesmo pool.
 function ChatGapItem({ jobId, gap, candidateProfile, feedbackContext }: {
   jobId: number; gap: string; candidateProfile: string; feedbackContext: string;
 }) {
@@ -472,7 +543,7 @@ function ChatGapItem({ jobId, gap, candidateProfile, feedbackContext }: {
               {plan.passos.map((passo, i) => <li key={i}>{passo}</li>)}
             </ol>
           )}
-          <AiFeedbackBox featureKey="learning-plan" label="Esse plano ficou bom?" />
+          <CompactFeedback featureKey="learning-plan" />
         </div>
       )}
     </li>
@@ -738,17 +809,67 @@ function MarcarStatusCard({ data }: { data: JarvisMarcarStatusData }) {
   );
 }
 
+// Frases que revezam enquanto espera a resposta — mesma ideia do texto de
+// status que o Claude Code mostra enquanto trabalha, adaptado pro que o
+// Hunter realmente faz (não é genérico tipo "carregando...").
+const THINKING_PHRASES = [
+  'Pensando...',
+  'Vasculhando o feed...',
+  'Cruzando com seu perfil...',
+  'Consultando o funil...',
+  'Comparando vagas...',
+  'Escrevendo resposta...',
+];
+
+function LoadingPhrase() {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setIndex(i => (i + 1) % THINKING_PHRASES.length), 1800);
+    return () => clearInterval(id);
+  }, []);
+  // key={index} força remontar o <span> a cada troca, pra animação de fade
+  // rodar de novo em cada frase (senão só o texto trocaria sem transição).
+  return <span key={index} className="jarvis-typing-phrase">{THINKING_PHRASES[index]}</span>;
+}
+
 // Raciocínio real do Gemini antes da resposta — recolhido por padrão (é
 // texto de "rascunho mental", não a resposta em si, então não compete por
 // atenção com ela). Só existe o botão quando thinking vem preenchido.
+// Estilo pensado pra lembrar o bloco de raciocínio do próprio Claude Code
+// (itálico, cor discreta, fluindo junto do texto) em vez de um card isolado
+// com borda — e o ícone é desenhado (ThinkingIcon), não emoji do sistema,
+// que em alguns SOs nem renderiza (foi assim que achamos esse ajuste).
 function ThinkingBlock({ thinking }: { thinking: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="jarvis-thinking">
       <button type="button" className="jarvis-thinking-toggle" onClick={() => setOpen(o => !o)}>
-        {open ? '🧠 Ocultar raciocínio' : '🧠 Ver raciocínio'}
+        <ThinkingIcon />
+        <span>{open ? 'Ocultar raciocínio' : 'Ver raciocínio'}</span>
       </button>
       {open && <div className="jarvis-thinking-text">{renderMarkdownLite(thinking)}</div>}
+    </div>
+  );
+}
+
+// Barra de ações embaixo de cada resposta do Hunter — copiar mensagem +
+// feedback compacto, igual ao rodapé de mensagem do próprio Claude Code.
+function ChatMessageActions({ text, featureKey }: { text: string; featureKey: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <div className="jarvis-msg-actions">
+      <button type="button" className="jarvis-msg-action-btn" onClick={handleCopy} title="Copiar mensagem" aria-label="Copiar mensagem">
+        {copied ? <CheckIcon /> : <CopyIcon />}
+      </button>
+      <CompactFeedback featureKey={featureKey} />
     </div>
   );
 }
@@ -1189,6 +1310,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                     <span className="jarvis-avatar"><HunterIcon size={22} alive /></span>
                     <div className="jarvis-bubble jarvis-bubble--assistant jarvis-bubble--loading">
                       <span className="jarvis-typing"><span></span><span></span><span></span></span>
+                      <LoadingPhrase />
                     </div>
                   </div>
                 );
@@ -1211,7 +1333,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                       </div>
                     )}
                     {renderMarkdownLite(m.text)}
-                    <AiFeedbackBox featureKey="jarvis-chat" label="Essa resposta foi útil?" />
+                    <ChatMessageActions text={m.text} featureKey="jarvis-chat" />
                   </div>
                 </div>
               );

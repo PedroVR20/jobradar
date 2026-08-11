@@ -28,17 +28,22 @@ export function HunterIcon({ size = 20, alive = false }: Props) {
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
     >
-      {/* Antena com pontinha que pulsa, tipo "sinal de rádio" ligado */}
-      <line x1="16" y1="9" x2="16" y2="4" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round" />
-      <circle className="hunter-antenna-tip" cx="16" cy="3.2" r="1.8" fill="var(--green)" />
+      {/* Cabeça inteira (antena + cabeça + visor + olhos) num grupo só, pra
+          balançar junto quando "viva" — se só a cabeça girasse sem o visor/
+          olhos junto, ficaria parecendo que a cara descolou da caixa. */}
+      <g className="hunter-head-group">
+        {/* Antena com pontinha que pulsa, tipo "sinal de rádio" ligado */}
+        <line x1="16" y1="9" x2="16" y2="4" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round" />
+        <circle className="hunter-antenna-tip" cx="16" cy="3.2" r="1.8" fill="var(--green)" />
 
-      {/* Cabeça */}
-      <rect x="6" y="9" width="20" height="16" rx="6" fill="var(--accent)" />
+        {/* Cabeça */}
+        <rect x="6" y="9" width="20" height="16" rx="6" fill="var(--accent)" />
 
-      {/* Visor com os olhos */}
-      <rect x="9.5" y="14" width="13" height="7" rx="3.5" className="hunter-visor" />
-      <circle className="hunter-eye" cx="13.2" cy="17.5" r="1.6" />
-      <circle className="hunter-eye" cx="18.8" cy="17.5" r="1.6" />
+        {/* Visor com os olhos */}
+        <rect x="9.5" y="14" width="13" height="7" rx="3.5" className="hunter-visor" />
+        <circle className="hunter-eye" cx="13.2" cy="17.5" r="1.6" />
+        <circle className="hunter-eye" cx="18.8" cy="17.5" r="1.6" />
+      </g>
 
       {/* Engrenagem no canto — gira quando passa o mouse no botão */}
       <g className="hunter-gear" transform="translate(23.5, 23)">
