@@ -102,4 +102,37 @@ class JarvisChatServiceTest {
         Map<String, Object> mapa = (Map<String, Object>) resultado;
         assertThat(mapa).containsKey("erro");
     }
+
+    @Test
+    void tentarFastPath_respondeResumoDoFunilSemChamarGemini() {
+        when(jobRepository.findAll()).thenReturn(List.of(job("NOVA"), job("APLICADA"), job("RECUSADA")));
+
+        JarvisChatService.ChatOutcome resultado = service.tentarFastPath("Quantas vagas eu tenho?", toolName -> { });
+
+        assertThat(resultado).isNotNull();
+        assertThat(resultado.ok()).isTrue();
+        assertThat(resultado.reply()).contains("3 vagas no total");
+        assertThat(resultado.toolResults()).hasSize(1);
+        assertThat(resultado.toolResults().get(0).tool()).isEqualTo("resumoFunil");
+    }
+
+    @Test
+    void tentarFastPath_naoDisparaEmPerguntaComContextoExtra() {
+        // "quantas vagas eu tenho no Itaú" não é a mesma pergunta que
+        // "quantas vagas eu tenho" — precisa cair no LLM normal, não no
+        // fast-path (que só bate em correspondência EXATA da frase inteira).
+        JarvisChatService.ChatOutcome resultado = service.tentarFastPath("quantas vagas eu tenho no Itaú", toolName -> { });
+
+        assertThat(resultado).isNull();
+    }
+
+    @Test
+    void tentarFastPath_ignoraAcentuacaoEPontuacao() {
+        when(jobRepository.findAll()).thenReturn(List.of(job("NOVA")));
+
+        JarvisChatService.ChatOutcome resultado = service.tentarFastPath("Resumo do meu funil!", toolName -> { });
+
+        assertThat(resultado).isNotNull();
+        assertThat(resultado.reply()).contains("1 vagas no total");
+    }
 }

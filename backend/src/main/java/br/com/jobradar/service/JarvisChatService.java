@@ -340,6 +340,19 @@ public class JarvisChatService {
             return new ChatOutcome(null, null, List.of(), "Mensagem vazia.", false);
         }
 
+        // Fast-path sem IA: um punhado de perguntas triviais e determinísticas
+        // (ex: "quantas vagas eu tenho") não precisam de function-calling
+        // nenhum — respondidas na hora, sem gastar uma chamada de cota (que
+        // hoje é o recurso mais escasso do Hunter, ver KeyPoolStatus). Só
+        // dispara em correspondência EXATA da mensagem inteira (normalizada),
+        // não substring — uma pergunta com contexto extra ("quantas vagas eu
+        // tenho no Itaú") cai pro caminho normal do LLM, como deveria.
+        ChatMessage ultimaMensagem = historico.get(historico.size() - 1);
+        if ("user".equals(ultimaMensagem.role()) && !ultimaMensagem.temImagem()) {
+            ChatOutcome fastPath = tentarFastPath(ultimaMensagem.text(), listener);
+            if (fastPath != null) return fastPath;
+        }
+
         List<ChatMessage> recortado = historico.size() > MAX_HISTORY_MESSAGES
                 ? historico.subList(historico.size() - MAX_HISTORY_MESSAGES, historico.size())
                 : historico;
@@ -367,6 +380,13 @@ public class JarvisChatService {
         // nunca via esse histórico, então o 👍/👎 que o usuário dava numa
         // resposta comum do Hunter não tinha efeito nenhum. Anexado aqui na
         // instrução de sistema, vale pra QUALQUER resposta da conversa.
+        //
+        // Sobre cache implícito do Gemini (que depende de PREFIXO idêntico
+        // entre chamadas): checado de propósito — SYSTEM_INSTRUCTION (a parte
+        // grande e estável, ~12k caracteres) já vem SEMPRE primeiro, com
+        // feedback/memória (o que varia por usuário/sessão) concatenado
+        // DEPOIS. Ou seja, o prefixo cacheável já fica intacto do jeito que
+        // está — não tinha nada de fato quebrado aqui pra corrigir.
         String systemInstructionComFeedback = feedbackContext != null && !feedbackContext.isBlank()
                 ? SYSTEM_INSTRUCTION + "\n\nFeedback que o usuário já deu sobre suas respostas anteriores " +
                         "(curtiu/não curtiu + comentário) — leve em conta pra ajustar tom, formato ou nível " +
@@ -416,6 +436,48 @@ public class JarvisChatService {
                 "Essa pergunta pediu mais passos do que eu consigo resolver de uma vez — tenta reformular de um jeito mais direto?",
                 null, toolResults, null, false
         );
+    }
+
+    // ===================== Fast-path sem IA =====================
+
+    // Correspondência exata (não substring) contra a mensagem inteira,
+    // normalizada (sem acento, minúscula, sem pontuação final) — cobre só as
+    // formas mais comuns de pedir o resumo do funil. Qualquer variação fora
+    // dessa lista cai pro LLM normalmente, sem risco de "roubar" uma pergunta
+    // mais nuançada que só parece com essas.
+    private static final Set<String> FAST_PATH_RESUMO_FUNIL = Set.of(
+            "quantas vagas eu tenho", "quantas vagas tenho", "quantas vagas eu apliquei",
+            "quantas vagas apliquei", "quantas vagas tem", "quantas vagas eu tenho no total",
+            "resumo do funil", "resumo do meu funil", "resumo rapido do funil",
+            "qual o resumo do funil", "me da um resumo do funil"
+    );
+
+    // Package-private de propósito — testável direto em JarvisChatServiceTest.
+    ChatOutcome tentarFastPath(String textoUsuario, ChatProgressListener listener) {
+        if (textoUsuario == null || textoUsuario.isBlank()) return null;
+        String normalizado = normalizarFastPath(textoUsuario);
+
+        if (FAST_PATH_RESUMO_FUNIL.contains(normalizado)) {
+            listener.onToolCall("resumoFunil");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> resumo = (Map<String, Object>) executarResumoFunil();
+            String reply = String.format(
+                    "Você tem %d vagas no total: %d novas, %d vistas, %d com interesse marcado, " +
+                            "%d aplicadas, %d em andamento e %d recusadas.",
+                    (Long) resumo.get("total"), (Long) resumo.get("novas"), (Long) resumo.get("vistas"),
+                    (Long) resumo.get("interessadas"), (Long) resumo.get("aplicadas"),
+                    (Long) resumo.get("emAndamento"), (Long) resumo.get("recusadas"));
+            List<ToolResultPayload> resultados = List.of(new ToolResultPayload("resumoFunil", resumo));
+            return new ChatOutcome(reply, null, resultados, null, false);
+        }
+
+        return null;
+    }
+
+    private String normalizarFastPath(String texto) {
+        String semAcento = java.text.Normalizer.normalize(texto.toLowerCase().trim(), java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "");
+        return semAcento.replaceAll("[?!.]+$", "").trim();
     }
 
     // ===================== Definição das ferramentas =====================
