@@ -36,6 +36,7 @@ public class JarvisChatService {
     private final SalaryPredictionService salaryPredictionService;
     private final JobStatusService jobStatusService;
     private final CoverLetterService coverLetterService;
+    private final SeniorityClassifier seniorityClassifier;
 
     // compatibilidadeComVagasDoFunil analisa DIRETO (sem pré-filtro), porque
     // o grupo já vem pequeno por natureza (é o funil curado do próprio
@@ -328,7 +329,8 @@ public class JarvisChatService {
                                 "enum", List.of("NOVA", "VISTA", "INTERESSADO", "APLICADA", "ANDAMENTO", "RECUSADA")
                         ),
                         "dias", Map.of("type", "INTEGER", "description", "Só vagas publicadas nos últimos N dias. Omita pra não filtrar por data."),
-                        "busca", Map.of("type", "STRING", "description", "Termo de busca livre em título/empresa/tags, ex: nome de uma empresa específica."),
+                        "busca", Map.of("type", "STRING", "description", "Termo de busca livre em título/empresa/tags, ex: nome de uma empresa específica ou uma tecnologia."),
+                        "salarioMinimo", Map.of("type", "INTEGER", "description", "Só vagas com estimativa salarial (modelo próprio, sem IA) maior ou igual a esse valor em reais. Vaga sem estimativa disponível nunca bate esse filtro."),
                         "limite", Map.of("type", "INTEGER", "description", "Máximo de vagas a retornar. Padrão 10, máximo 20.")
                 )
         );
@@ -425,6 +427,33 @@ public class JarvisChatService {
         Map<String, Object> duplicatasParams = Map.of("type", "OBJECT", "properties", Map.of());
 
         Map<String, Object> fontesParams = Map.of("type", "OBJECT", "properties", Map.of());
+
+        Map<String, Object> fixarVagaParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "vagaId", Map.of("type", "INTEGER", "description", "ID da vaga (peça pra listarVagas primeiro se só tiver título/empresa)."),
+                        "fixar", Map.of("type", "BOOLEAN", "description", "true pra fixar no topo, false pra desafixar.")
+                ),
+                "required", List.of("vagaId", "fixar")
+        );
+
+        Map<String, Object> adicionarVagaParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "titulo", Map.of("type", "STRING", "description", "Título da vaga."),
+                        "empresa", Map.of("type", "STRING", "description", "Nome da empresa."),
+                        "url", Map.of("type", "STRING", "description", "Link da vaga."),
+                        "salario", Map.of("type", "STRING", "description", "Salário informado, opcional, texto livre (ex: 'R$ 6.000/mês')."),
+                        "modalidade", Map.of("type", "STRING", "description", "Opcional.", "enum", List.of("REMOTO", "HIBRIDO", "PRESENCIAL")),
+                        "estado", Map.of("type", "STRING", "description", "Estado por extenso, opcional (ex: 'São Paulo')."),
+                        "status", Map.of(
+                                "type", "STRING",
+                                "description", "Status inicial no funil, opcional. Padrão APLICADA (fluxo normal: 'achei essa vaga fora do Job Radar e já apliquei').",
+                                "enum", List.of("NOVA", "VISTA", "INTERESSADO", "APLICADA", "ANDAMENTO", "RECUSADA")
+                        )
+                ),
+                "required", List.of("titulo", "empresa", "url")
+        );
 
         Map<String, Object> historicoEmpresaParams = Map.of(
                 "type", "OBJECT",
@@ -557,6 +586,16 @@ public class JarvisChatService {
                                 "'quais candidaturas esfriaram'. Não usa IA, é só data de status × hoje. NÃO confundir " +
                                 "com resumoFunil (que só conta quantas tem em cada bucket, sem falar de tempo parado).",
                         vagasParadasParams),
+                new GeminiService.FunctionDeclaration("fixarVaga",
+                        "Fixa (ou desfixa) uma vaga no topo da lista — mesma ação do pin ⭐ de cada card. Muda dado " +
+                                "de verdade. Só numa vaga claramente identificada.",
+                        fixarVagaParams),
+                new GeminiService.FunctionDeclaration("adicionarVagaManual",
+                        "Adiciona uma vaga achada fora do Job Radar (LinkedIn, indicação, etc.) — mesma função do " +
+                                "botão '➕ Adicionar vaga'. Muda dado de verdade (cria uma vaga nova, ou atualiza se já " +
+                                "existir uma com a mesma URL). Peça título, empresa e link antes de chamar se o " +
+                                "usuário não tiver dado os três.",
+                        adicionarVagaParams),
                 new GeminiService.FunctionDeclaration("marcarStatusDeVaga",
                         "Move uma vaga específica pra outro status do funil (ex: marcar como aplicada, interessado, " +
                                 "recusada) — muda dado de verdade (junto com atualizarNotaDeVaga, as únicas duas que " +
@@ -611,6 +650,8 @@ public class JarvisChatService {
             case "detalharVagas" -> executarDetalharVagas(chamada.args());
             case "vagasParecidas" -> executarVagasParecidas(chamada.args());
             case "vagasParadas" -> executarVagasParadas(chamada.args());
+            case "fixarVaga" -> executarFixarVaga(chamada.args());
+            case "adicionarVagaManual" -> executarAdicionarVagaManual(chamada.args());
             case "marcarStatusDeVaga" -> executarMarcarStatus(chamada.args());
             case "atualizarNotaDeVaga" -> executarAtualizarNota(chamada.args());
             default -> Map.of("erro", "Ferramenta desconhecida: " + chamada.name());
@@ -623,6 +664,7 @@ public class JarvisChatService {
         String status = args.get("status") instanceof String s && !s.isBlank() ? s.toUpperCase() : null;
         Integer dias = args.get("dias") instanceof Number n ? n.intValue() : null;
         String busca = args.get("busca") instanceof String s && !s.isBlank() ? s : null;
+        Integer salarioMinimo = args.get("salarioMinimo") instanceof Number n ? n.intValue() : null;
         int limite = args.get("limite") instanceof Number n ? Math.min(20, Math.max(1, n.intValue())) : 10;
 
         LocalDateTime postedAfter = dias != null && dias > 0 ? LocalDateTime.now().minusDays(dias) : null;
@@ -631,6 +673,10 @@ public class JarvisChatService {
                 .filter(j -> statusBate(j, status))
                 .filter(j -> postedAfter == null || (j.getPostedAt() != null && j.getPostedAt().isAfter(postedAfter)))
                 .filter(j -> busca == null || contemBusca(j, busca))
+                // Estimativa só é calculada quando o filtro de salário é usado
+                // (é barato — modelo de regressão puro, não IA — mas ainda
+                // assim não vale computar pra toda vaga sempre à toa).
+                .filter(j -> salarioMinimo == null || estimativaBate(j, salarioMinimo))
                 .sorted(Comparator.comparing(Job::getPostedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
 
@@ -683,6 +729,17 @@ public class JarvisChatService {
     private boolean contemBusca(Job j, String busca) {
         String haystack = (j.getTitle() + " " + j.getCompany() + " " + (j.getTags() != null ? j.getTags() : "")).toLowerCase();
         return haystack.contains(busca.toLowerCase());
+    }
+
+    // Mesmo modelo de regressão puro Java das outras ferramentas de salário
+    // (SalaryPredictionService) — vaga sem estimativa disponível nunca bate
+    // um filtro de salário mínimo (não dá pra confirmar, não assume).
+    private boolean estimativaBate(Job j, int salarioMinimo) {
+        List<String> tags = j.getTags() == null || j.getTags().isBlank()
+                ? List.of() : Arrays.asList(j.getTags().split(","));
+        return salaryPredictionService.predict(j.getSeniority(), tags, j.getWorkplaceType(), j.getState())
+                .map(estimativa -> estimativa >= salarioMinimo)
+                .orElse(false);
     }
 
     private Object executarResumoFunil() {
@@ -1212,9 +1269,74 @@ public class JarvisChatService {
         return m;
     }
 
-    // ÚNICA ferramenta que escreve — todas as outras só leem. Ver guidance
-    // na SYSTEM_INSTRUCTION e na descrição da ferramenta sobre só chamar com
-    // a vaga claramente identificada, nunca "no escuro".
+    private Object executarFixarVaga(Map<String, Object> args) {
+        Long vagaId = args.get("vagaId") instanceof Number n ? n.longValue() : null;
+        Boolean fixar = args.get("fixar") instanceof Boolean b ? b : null;
+        if (vagaId == null || fixar == null) {
+            return Map.of("erro", "Preciso do id da vaga e se é pra fixar (true) ou desafixar (false).");
+        }
+        Optional<Job> jobOpt = jobRepository.findById(vagaId);
+        if (jobOpt.isEmpty()) {
+            return Map.of("erro", "Não achei a vaga de id " + vagaId + " — pode ter sido apagada.");
+        }
+        Job job = jobOpt.get();
+        job.setFavorited(fixar);
+        jobRepository.save(job);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("sucesso", true);
+        m.put("vagaId", vagaId);
+        m.put("titulo", job.getTitle());
+        m.put("empresa", job.getCompany());
+        m.put("fixada", fixar);
+        return m;
+    }
+
+    // Mesma lógica de POST /api/jobs/manual — cria vaga nova ou atualiza se
+    // já existir uma com a mesma URL. Status padrão APLICADA (fluxo normal:
+    // "achei essa vaga fora do Job Radar e já apliquei"), igual o botão
+    // "➕ Adicionar vaga" do frontend.
+    private Object executarAdicionarVagaManual(Map<String, Object> args) {
+        String titulo = args.get("titulo") instanceof String s && !s.isBlank() ? s : null;
+        String empresa = args.get("empresa") instanceof String s && !s.isBlank() ? s : null;
+        String url = args.get("url") instanceof String s && !s.isBlank() ? s : null;
+        if (titulo == null || empresa == null || url == null) {
+            return Map.of("erro", "Preciso de título, empresa e link da vaga.");
+        }
+        String status = args.get("status") instanceof String s && !s.isBlank() ? s.toUpperCase() : "APLICADA";
+        if (!JobStatusService.VALID_STATUSES.contains(status)) {
+            return Map.of("erro", "Status inválido (" + JobStatusService.VALID_STATUSES + ").");
+        }
+        String salario = args.get("salario") instanceof String s ? s : null;
+        String modalidade = args.get("modalidade") instanceof String s && !s.isBlank() ? s.toUpperCase() : null;
+        String estado = args.get("estado") instanceof String s ? s : null;
+
+        Job job = jobRepository.findByUrl(url).orElseGet(Job::new);
+        job.setTitle(titulo);
+        job.setCompany(empresa);
+        job.setUrl(url);
+        job.setSource(job.getSource() == null ? "MANUAL" : job.getSource());
+        job.setSeniority(seniorityClassifier.classify(titulo, null));
+        job.setSalary(salario);
+        job.setWorkplaceType(modalidade);
+        job.setState(estado);
+        job.setPostedAt(job.getPostedAt() != null ? job.getPostedAt() : LocalDateTime.now());
+        job.setFetchedAt(LocalDateTime.now());
+        jobStatusService.aplicarEsalvar(job, status);
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("sucesso", true);
+        m.put("vagaId", job.getId());
+        m.put("titulo", job.getTitle());
+        m.put("empresa", job.getCompany());
+        m.put("status", status);
+        return m;
+    }
+
+    // ÚNICA ferramenta de MUDANÇA DE STATUS — as outras que escrevem
+    // (fixarVaga, atualizarNotaDeVaga, adicionarVagaManual) mexem em campos
+    // diferentes. Ver guidance na SYSTEM_INSTRUCTION e na descrição da
+    // ferramenta sobre só chamar com a vaga claramente identificada, nunca
+    // "no escuro".
     private Object executarMarcarStatus(Map<String, Object> args) {
         Long vagaId = args.get("vagaId") instanceof Number n ? n.longValue() : null;
         String status = args.get("status") instanceof String s && !s.isBlank() ? s.toUpperCase() : null;

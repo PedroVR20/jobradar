@@ -1,14 +1,22 @@
 import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  JarvisAdicionarVagaData,
   JarvisAtualizarNotaData,
+  JarvisCartaData,
   JarvisChatResponse,
   JarvisCompatibilidadeData,
   JarvisCompatibilidadeHit,
   JarvisDetalharVagasData,
+  JarvisDuplicatasData,
+  JarvisFixarVagaData,
+  JarvisFontesData,
+  JarvisHistoricoEmpresaData,
   JarvisListarVagasData,
   JarvisMarcarStatusData,
+  JarvisMetricasData,
   JarvisPendingQuestion,
+  JarvisPrazoData,
   JarvisResumoFunilData,
   JarvisSalarioData,
   JarvisSalarioVaga,
@@ -866,6 +874,145 @@ function VagasParadasCard({ data }: { data: JarvisVagasParadasData }) {
   );
 }
 
+function CartaCard({ data }: { data: JarvisCartaData }) {
+  const [copiado, setCopiado] = useState(false);
+  if (!data.carta) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui gerar a carta agora.'}</p>;
+  }
+  const handleCopiar = () => {
+    navigator.clipboard.writeText(data.carta!).then(() => {
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 1500);
+    });
+  };
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        <span className="jarvis-hit-company">{data.empresa}</span>
+      </div>
+      <p className="jarvis-hit-resumo" style={{ whiteSpace: 'pre-line' }}>{data.carta}</p>
+      <button type="button" className="jarvis-msg-action-btn" onClick={handleCopiar} title="Copiar carta" style={{ marginTop: '0.4rem' }}>
+        {copiado ? <CheckIcon /> : <CopyIcon />} <span style={{ marginLeft: '0.3rem', fontSize: '0.72rem' }}>{copiado ? 'Copiado' : 'Copiar'}</span>
+      </button>
+    </div>
+  );
+}
+
+function MetricasCard({ data }: { data: JarvisMetricasData }) {
+  const itens: [string, string][] = [
+    ['Total aplicadas', String(data.totalAplicadas)],
+    ['Em andamento', String(data.emAndamento)],
+    ['Recusadas', String(data.recusadas)],
+    ['Aguardando retorno', String(data.aguardandoRetorno)],
+    ['Taxa de resposta', data.taxaRespostaPercent != null ? `${data.taxaRespostaPercent}%` : '—'],
+    ['Dias até andamento (média)', data.tempoMedioAteAndamentoDias != null ? `${data.tempoMedioAteAndamentoDias}d` : '—'],
+    ['Dias até recusa (média)', data.tempoMedioAteRecusaDias != null ? `${data.tempoMedioAteRecusaDias}d` : '—'],
+  ];
+  return (
+    <div className="jarvis-stats-grid">
+      {itens.map(([label, value]) => (
+        <div key={label} className="jarvis-stat">
+          <span className="jarvis-stat-value">{value}</span>
+          <span className="jarvis-stat-label">{label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PrazoCard({ data }: { data: JarvisPrazoData }) {
+  if (data.vagas.length === 0) {
+    return <p className="jarvis-scan-intro">Nenhuma vaga fechando nos próximos {data.diasMaximo} dias.</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.vagas.map(v => {
+        const meta = STATUS_META[v.status] ?? { label: v.status, color: 'var(--text-muted)' };
+        return (
+          <div key={v.id} className="jarvis-hit">
+            <div className="jarvis-hit-head">
+              <span className="jarvis-hit-score" style={{ color: 'var(--red)', borderColor: 'var(--red)' }}>
+                {v.diasRestantes === 0 ? 'fecha hoje' : `${v.diasRestantes}d`}
+              </span>
+              <div className="jarvis-hit-title">
+                <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+                <span className="jarvis-hit-company">{v.empresa}</span>
+              </div>
+            </div>
+            <p className="jarvis-hit-resumo" style={{ color: meta.color }}>{meta.label}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DuplicatasCard({ data }: { data: JarvisDuplicatasData }) {
+  if (data.grupos.length === 0) {
+    return <p className="jarvis-scan-intro">Não achei nenhuma duplicata provável.</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.grupos.map((g, i) => (
+        <div key={i} className="jarvis-hit">
+          <div className="jarvis-hit-title"><span>{g.empresa}</span></div>
+          {g.vagas.map(v => (
+            <p key={v.id} className="jarvis-hit-resumo">
+              <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a> — {v.fonte}
+            </p>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FontesCard({ data }: { data: JarvisFontesData }) {
+  if (data.fontes.length === 0) {
+    return <p className="jarvis-scan-intro">Sem dados de fonte ainda.</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.fontes.map(f => (
+        <div key={f.fonte} className="jarvis-hit">
+          <div className="jarvis-hit-head">
+            <span className="jarvis-hit-score" style={{ color: 'var(--green)', borderColor: 'var(--green)' }}>
+              {f.emAndamento} em andamento
+            </span>
+            <div className="jarvis-hit-title"><span>{f.fonte}</span></div>
+          </div>
+          <p className="jarvis-hit-resumo">{f.totalVagas} vagas no total · {f.aplicadas} aplicadas</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HistoricoEmpresaCard({ data }: { data: JarvisHistoricoEmpresaData }) {
+  if (data.vagas.length === 0) {
+    return <p className="jarvis-scan-intro">Não achei nenhuma vaga dessa empresa no seu histórico.</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.vagas.map(v => {
+        const meta = STATUS_META[v.status] ?? { label: v.status, color: 'var(--text-muted)' };
+        return (
+          <div key={v.id} className="jarvis-hit">
+            <div className="jarvis-hit-head">
+              <span className="jarvis-hit-score" style={{ color: meta.color, borderColor: meta.color }}>{meta.label}</span>
+              <div className="jarvis-hit-title">
+                <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+                <span className="jarvis-hit-company">{v.empresa}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Confirmação visual de uma ferramenta que escreve — mostra o "antes/depois"
 // pra deixar claro o que mudou de verdade no banco (a lista de vagas por
 // trás do chat já recarrega sozinha, ver onJobsChanged em handleSend).
@@ -902,6 +1049,40 @@ function AtualizarNotaCard({ data }: { data: JarvisAtualizarNotaData }) {
           <NoteIcon /> {data.notaNova}
         </p>
       )}
+    </div>
+  );
+}
+
+function FixarVagaCard({ data }: { data: JarvisFixarVagaData }) {
+  if (!data.sucesso) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui fixar/desafixar essa vaga.'}</p>;
+  }
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        <span className="jarvis-hit-company">{data.empresa}</span>
+      </div>
+      <p className="jarvis-hit-resumo jarvis-hit-resumo--icon">
+        <SuccessIcon /> {data.fixada ? 'Fixada no topo' : 'Desafixada'}
+      </p>
+    </div>
+  );
+}
+
+function AdicionarVagaCard({ data }: { data: JarvisAdicionarVagaData }) {
+  if (!data.sucesso) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui adicionar essa vaga.'}</p>;
+  }
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        <span className="jarvis-hit-company">{data.empresa}</span>
+      </div>
+      <p className="jarvis-hit-resumo jarvis-hit-resumo--icon">
+        <SuccessIcon /> Adicionada ({STATUS_META[data.status ?? '']?.label ?? data.status})
+      </p>
     </div>
   );
 }
@@ -1115,6 +1296,22 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <MarcarStatusCard data={result.data as JarvisMarcarStatusData} />;
     case 'atualizarNotaDeVaga':
       return <AtualizarNotaCard data={result.data as JarvisAtualizarNotaData} />;
+    case 'gerarCartaDeApresentacao':
+      return <CartaCard data={result.data as JarvisCartaData} />;
+    case 'metricasDeDesempenho':
+      return <MetricasCard data={result.data as JarvisMetricasData} />;
+    case 'vagasComPrazoProximo':
+      return <PrazoCard data={result.data as JarvisPrazoData} />;
+    case 'detectarDuplicatas':
+      return <DuplicatasCard data={result.data as JarvisDuplicatasData} />;
+    case 'desempenhoPorFonte':
+      return <FontesCard data={result.data as JarvisFontesData} />;
+    case 'historicoDaEmpresa':
+      return <HistoricoEmpresaCard data={result.data as JarvisHistoricoEmpresaData} />;
+    case 'fixarVaga':
+      return <FixarVagaCard data={result.data as JarvisFixarVagaData} />;
+    case 'adicionarVagaManual':
+      return <AdicionarVagaCard data={result.data as JarvisAdicionarVagaData} />;
     default:
       return null;
   }
@@ -1401,12 +1598,13 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
         pendingQuestion: data.pendingQuestion,
       } as Omit<Message, 'id'>);
 
-      // marcarStatusDeVaga/atualizarNotaDeVaga mudam dado de verdade no banco
-      // — avisa o App.tsx pra recarregar a lista, senão o card só refletiria
-      // após um F5. Passa o vagaId (quando a ferramenta devolveu) pra ligar
-      // o pulso visual naquele card específico.
+      // Ferramentas que mudam dado de verdade no banco — avisa o App.tsx pra
+      // recarregar a lista, senão o card só refletiria após um F5. Passa o
+      // vagaId (quando a ferramenta devolveu) pra ligar o pulso visual
+      // naquele card específico.
       const escritaOk = data.toolResults?.find(
-        tr => (tr.tool === 'marcarStatusDeVaga' || tr.tool === 'atualizarNotaDeVaga') && (tr.data as { sucesso?: boolean })?.sucesso
+        tr => (tr.tool === 'marcarStatusDeVaga' || tr.tool === 'atualizarNotaDeVaga' || tr.tool === 'fixarVaga' || tr.tool === 'adicionarVagaManual')
+          && (tr.data as { sucesso?: boolean })?.sucesso
       );
       if (escritaOk) onJobsChanged?.((escritaOk.data as { vagaId?: number }).vagaId);
     } catch {
