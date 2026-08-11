@@ -262,6 +262,93 @@ public class GeminiService {
         return new EmbedResult(null, ultimoErro);
     }
 
+    // ===================== Pesquisa na internet (Google Search grounding) =====================
+    // Não é um function-call do Hunter chamando uma API de busca externa
+    // nossa — é a ferramenta NATIVA "googleSearch" da própria API do Gemini
+    // (grounding): o Gemini pesquisa de verdade e devolve texto já embasado +
+    // as fontes usadas (groundingChunks). Não precisa de key de busca
+    // separada (Bing/SerpApi/etc.), só a mesma GEMINI_API_KEY já configurada.
+    //
+    // De propósito uma requisição ISOLADA (mesmo padrão de embedContent, não
+    // reaproveita chat()/attemptWithPool): misturar "tools: [googleSearch]"
+    // com o array de functionDeclarations do resto do Hunter no MESMO
+    // request nunca foi testado aqui, e um erro de shape ali quebraria o
+    // loop de function-calling inteiro — isolado, se essa chamada falhar só
+    // essa UMA ferramenta falha (tratado como qualquer outro erro de
+    // ferramenta, mensagem amigável, resto da conversa segue normal).
+    public record WebSource(String titulo, String url) {}
+
+    public record WebSearchResult(String resumo, List<WebSource> fontes, String errorMessage) {
+        public boolean ok() {
+            return errorMessage == null;
+        }
+    }
+
+    public WebSearchResult webSearch(String consulta) {
+        if (!isEnabled()) {
+            return new WebSearchResult(null, List.of(), "Recurso de IA não configurado.");
+        }
+        if (consulta == null || consulta.isBlank()) {
+            return new WebSearchResult(null, List.of(), "Pesquisa vazia.");
+        }
+
+        Map<String, Object> body = Map.of(
+                "contents", List.of(Map.of("role", "user", "parts", List.of(Map.of("text", consulta)))),
+                "tools", List.of(Map.of("googleSearch", Map.of()))
+        );
+
+        int size = pool.size();
+        String ultimoErro = "Não foi possível pesquisar na internet agora.";
+        for (int i = 0; i < size; i++) {
+            KeySlot slot = pool.get(Math.floorMod(cursor.getAndIncrement(), size));
+            if (slot.isExhaustedToday()) continue;
+            try {
+                String url = "https://generativelanguage.googleapis.com/v1beta/models/"
+                        + model + ":generateContent?key=" + slot.key;
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+                slot.requestsToday.incrementAndGet();
+
+                String response = restTemplate.postForObject(url, request, String.class);
+                JsonNode root = mapper.readTree(response);
+                JsonNode parts = root.at("/candidates/0/content/parts");
+                StringBuilder texto = new StringBuilder();
+                for (JsonNode part : parts) {
+                    JsonNode textNode = part.path("text");
+                    if (textNode.isMissingNode()) continue;
+                    if (texto.length() > 0) texto.append("\n\n");
+                    texto.append(textNode.asText());
+                }
+                if (texto.length() == 0) {
+                    ultimoErro = "O Gemini não devolveu texto pra essa pesquisa.";
+                    continue;
+                }
+
+                List<WebSource> fontes = new ArrayList<>();
+                JsonNode chunks = root.at("/candidates/0/groundingMetadata/groundingChunks");
+                for (JsonNode chunk : chunks) {
+                    JsonNode web = chunk.path("web");
+                    if (web.isMissingNode()) continue;
+                    String link = web.path("uri").asText(null);
+                    if (link == null) continue;
+                    String titulo = web.path("title").asText(null);
+                    fontes.add(new WebSource(titulo != null && !titulo.isBlank() ? titulo : link, link));
+                }
+                return new WebSearchResult(texto.toString().trim(), fontes, null);
+            } catch (HttpClientErrorException e) {
+                log.warn("Gemini webSearch: key ...{} falhou ({}): {}", slot.tail, e.getStatusCode(), e.getMessage());
+                ultimoErro = "Gemini recusou a requisição de pesquisa (erro " + e.getStatusCode().value() + ").";
+            } catch (RestClientException e) {
+                ultimoErro = "Gemini indisponível no momento (rede/timeout).";
+            } catch (Exception e) {
+                log.warn("Erro ao processar pesquisa na internet do Gemini: {}", e.getMessage());
+                ultimoErro = "Erro ao processar o resultado da pesquisa.";
+            }
+        }
+        return new WebSearchResult(null, List.of(), ultimoErro);
+    }
+
     // ===================== Chat livre com function-calling (Jarvis) =====================
 
     public record FunctionDeclaration(String name, String description, Map<String, Object> parametersSchema) {}

@@ -23,6 +23,7 @@ import {
   JarvisMetricasData,
   JarvisOQueFazerAgoraData,
   JarvisPendingQuestion,
+  JarvisPesquisaInternetData,
   JarvisPrazoData,
   JarvisResumoFunilData,
   JarvisSalarioData,
@@ -134,6 +135,12 @@ const SLASH_COMMANDS: { cmd: string; label: string; phrase: string }[] = [
   { cmd: '/compatibilidade', label: 'Compatibilidade de hoje', phrase: 'Qual minha compatibilidade com as vagas de hoje?' },
   { cmd: '/prazos', label: 'Prazos próximos', phrase: 'Quais vagas têm prazo próximo do fim?' },
   { cmd: '/agora', label: 'O que fazer agora', phrase: 'O que eu deveria fazer agora, priorizando o que importa?' },
+  { cmd: '/dashboard', label: 'Métricas de desempenho', phrase: 'Me mostra o dashboard de desempenho das minhas candidaturas' },
+  { cmd: '/grafico', label: 'Faixa salarial (gráfico)', phrase: 'Monta um gráfico da faixa salarial das minhas vagas em andamento' },
+  { cmd: '/fontes', label: 'Desempenho por fonte', phrase: 'Qual fonte de vaga tá me dando mais retorno?' },
+  { cmd: '/duplicatas', label: 'Vagas duplicadas', phrase: 'Tem alguma vaga duplicada no meu feed?' },
+  { cmd: '/mercado', label: 'Perfil vs. mercado', phrase: 'Compara meu perfil com o que o mercado mais pede' },
+  { cmd: '/pesquisar', label: 'Pesquisar na internet', phrase: 'Pesquisa na internet: ' },
 ];
 
 // Estilo de resposta — presets de tom (Normal/Conciso/Formal), inspirado nos
@@ -1255,6 +1262,33 @@ function BuscaSemanticaCard({ data }: { data: JarvisBuscaSemanticaData }) {
   );
 }
 
+// Resumo escrito pelo próprio Gemini a partir de uma pesquisa real
+// (grounding, ver GeminiService.webSearch) — as fontes são o que dá pra
+// confiar no resumo, por isso ficam sempre visíveis embaixo, nunca
+// escondidas atrás de um "ver mais".
+function PesquisaInternetCard({ data }: { data: JarvisPesquisaInternetData }) {
+  if (data.erro) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro}</p>;
+  }
+  return (
+    <div className="jarvis-web-card">
+      {data.resumo && <div className="jarvis-web-resumo">{renderMarkdownLite(data.resumo)}</div>}
+      {data.fontes && data.fontes.length > 0 && (
+        <div className="jarvis-web-fontes">
+          <span className="jarvis-web-fontes-label"><SearchIcon size={12} /> Fontes</span>
+          <ul>
+            {data.fontes.map((f, i) => (
+              <li key={i}>
+                <a href={f.url} target="_blank" rel="noopener noreferrer">{f.titulo}</a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LembreteAgendaCard({ data }: { data: JarvisLembreteAgendaData }) {
   const { isConnected, savedEmail, login, createTask, linkTask } = useAgenda();
   const [step, setStep] = useState<'proposta' | 'connect' | 'criado'>('proposta');
@@ -1437,6 +1471,7 @@ const TOOL_PHRASES: Record<string, string> = {
   compararStackComMercado: 'Comparando seu perfil com o mercado...',
   criarLembreteNaAgenda: 'Montando a proposta de lembrete...',
   buscarVagasPorSignificado: 'Buscando por significado...',
+  pesquisarNaInternet: 'Pesquisando na internet...',
   perguntarUsuario: 'Preparando uma pergunta...',
 };
 
@@ -1759,6 +1794,8 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <LembreteAgendaCard data={result.data as JarvisLembreteAgendaData} />;
     case 'buscarVagasPorSignificado':
       return <BuscaSemanticaCard data={result.data as JarvisBuscaSemanticaData} />;
+    case 'pesquisarNaInternet':
+      return <PesquisaInternetCard data={result.data as JarvisPesquisaInternetData} />;
     default:
       return null;
   }
@@ -1774,7 +1811,7 @@ const TOOL_CATEGORY: Record<string, 'escrita' | 'ia'> = {
   lembrarPreferencia: 'escrita',
   compatibilidadeComVagasRecentes: 'ia', compatibilidadeComVagasDoFunil: 'ia',
   estimativaSalarialDeVagas: 'ia', gerarCartaDeApresentacao: 'ia', oQueFazerAgora: 'ia',
-  compararStackComMercado: 'ia', buscarVagasPorSignificado: 'ia',
+  compararStackComMercado: 'ia', buscarVagasPorSignificado: 'ia', pesquisarNaInternet: 'ia',
 };
 
 // ===================== Histórico de conversas =====================

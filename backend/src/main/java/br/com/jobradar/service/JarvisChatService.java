@@ -693,6 +693,17 @@ public class JarvisChatService {
                 "required", List.of("consulta")
         );
 
+        Map<String, Object> pesquisarNaInternetParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "consulta", Map.of("type", "STRING", "description",
+                                "O que pesquisar, em linguagem natural (ex: 'faixa salarial de desenvolvedor pleno " +
+                                        "React em 2026', 'reviews da empresa X no Glassdoor', 'o que é a metodologia Y'). " +
+                                        "Vira uma busca de verdade na internet, não é um palpite do modelo.")
+                ),
+                "required", List.of("consulta")
+        );
+
         Map<String, Object> lembreteAgendaParams = Map.of(
                 "type", "OBJECT",
                 "properties", Map.of(
@@ -890,6 +901,15 @@ public class JarvisChatService {
                                 "que ainda não foi processada por essa feature (recente/backfill pendente) não aparece no " +
                                 "resultado — se vier vazio, tente listarVagas com busca por palavra-chave como alternativa.",
                         buscaSemanticaParams),
+                new GeminiService.FunctionDeclaration("pesquisarNaInternet",
+                        "Pesquisa de verdade na internet (Google Search, via grounding nativo do Gemini) e devolve um " +
+                                "resumo com fontes reais — use quando o pedido precisar de informação ATUAL ou externa " +
+                                "que não está nos dados do Job Radar (ex: faixa salarial de mercado, reputação de uma " +
+                                "empresa, o que é uma tecnologia/certificação, notícias recentes). NÃO use pra perguntas " +
+                                "sobre as vagas/candidaturas do próprio usuário — isso é sempre outra ferramenta " +
+                                "(listarVagas, resumoFunil, etc.), nunca pesquisa externa. Usa cota de IA (uma chamada " +
+                                "extra ao Gemini) — não abuse pra coisa que você já sabe com confiança.",
+                        pesquisarNaInternetParams),
                 new GeminiService.FunctionDeclaration("criarLembreteNaAgenda",
                         "Monta a PROPOSTA de um lembrete/tarefa pra Agenda Pessoal (app separado) — NÃO cria nada " +
                                 "de verdade, o backend do Job Radar nunca fala com a Agenda diretamente. A interface " +
@@ -963,6 +983,7 @@ public class JarvisChatService {
             case "fixarVaga" -> executarFixarVaga(chamada.args());
             case "adicionarVagaManual" -> executarAdicionarVagaManual(chamada.args());
             case "buscarVagasPorSignificado" -> executarBuscaSemantica(chamada.args());
+            case "pesquisarNaInternet" -> executarPesquisarNaInternet(chamada.args());
             case "criarLembreteNaAgenda" -> executarCriarLembreteNaAgenda(chamada.args());
             case "apagarVaga" -> executarApagarVaga(chamada.args());
             case "lembrarPreferencia" -> executarLembrarPreferencia(chamada.args());
@@ -1736,6 +1757,25 @@ public class JarvisChatService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("consulta", consulta);
         m.put("vagas", vagas);
+        return m;
+    }
+
+    private Object executarPesquisarNaInternet(Map<String, Object> args) {
+        String consulta = args.get("consulta") instanceof String s && !s.isBlank() ? s : null;
+        if (consulta == null) {
+            return Map.of("erro", "Preciso saber o que pesquisar.");
+        }
+        GeminiService.WebSearchResult resultado = geminiService.webSearch(consulta);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("consulta", consulta);
+        if (!resultado.ok()) {
+            m.put("erro", resultado.errorMessage());
+            return m;
+        }
+        m.put("resumo", resultado.resumo());
+        m.put("fontes", resultado.fontes().stream()
+                .map(f -> (Map<String, Object>) (Map<String, ?>) Map.of("titulo", f.titulo(), "url", f.url()))
+                .toList());
         return m;
     }
 
