@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  JarvisAtualizarNotaData,
   JarvisChatResponse,
   JarvisCompatibilidadeData,
   JarvisCompatibilidadeHit,
@@ -19,7 +20,7 @@ import {
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { HunterIcon } from './HunterIcon';
-import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon, MicIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
+import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon, MicIcon, NoteIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
 
 // Preferência de "modo compacto" (esconde os cards visuais, só texto) —
 // persistida à parte do resto do estado do chat, é uma preferência de
@@ -860,7 +861,7 @@ function VagasParadasCard({ data }: { data: JarvisVagasParadasData }) {
   );
 }
 
-// Confirmação visual da ÚNICA ferramenta que escreve — mostra o "antes/depois"
+// Confirmação visual de uma ferramenta que escreve — mostra o "antes/depois"
 // pra deixar claro o que mudou de verdade no banco (a lista de vagas por
 // trás do chat já recarrega sozinha, ver onJobsChanged em handleSend).
 function MarcarStatusCard({ data }: { data: JarvisMarcarStatusData }) {
@@ -876,6 +877,26 @@ function MarcarStatusCard({ data }: { data: JarvisMarcarStatusData }) {
         <span className="jarvis-hit-company">{data.empresa}</span>
       </div>
       <p className="jarvis-hit-resumo jarvis-hit-resumo--icon"><SuccessIcon /> {antes} → <strong>{depois}</strong></p>
+    </div>
+  );
+}
+
+function AtualizarNotaCard({ data }: { data: JarvisAtualizarNotaData }) {
+  if (!data.sucesso) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui atualizar a nota dessa vaga.'}</p>;
+  }
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        <span className="jarvis-hit-company">{data.empresa}</span>
+      </div>
+      <p className="jarvis-hit-resumo jarvis-hit-resumo--icon"><SuccessIcon /> Nota atualizada</p>
+      {data.notaNova && (
+        <p className="jarvis-hit-resumo" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <NoteIcon /> {data.notaNova}
+        </p>
+      )}
     </div>
   );
 }
@@ -1087,6 +1108,8 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <VagasParadasCard data={result.data as JarvisVagasParadasData} />;
     case 'marcarStatusDeVaga':
       return <MarcarStatusCard data={result.data as JarvisMarcarStatusData} />;
+    case 'atualizarNotaDeVaga':
+      return <AtualizarNotaCard data={result.data as JarvisAtualizarNotaData} />;
     default:
       return null;
   }
@@ -1373,12 +1396,13 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
         pendingQuestion: data.pendingQuestion,
       } as Omit<Message, 'id'>);
 
-      // marcarStatusDeVaga muda dado de verdade no banco — avisa o App.tsx
-      // pra recarregar a lista, senão o card só refletiria após um F5.
-      const mudouStatus = data.toolResults?.some(
-        tr => tr.tool === 'marcarStatusDeVaga' && (tr.data as { sucesso?: boolean })?.sucesso
+      // marcarStatusDeVaga/atualizarNotaDeVaga mudam dado de verdade no banco
+      // — avisa o App.tsx pra recarregar a lista, senão o card só refletiria
+      // após um F5.
+      const mudouAlgo = data.toolResults?.some(
+        tr => (tr.tool === 'marcarStatusDeVaga' || tr.tool === 'atualizarNotaDeVaga') && (tr.data as { sucesso?: boolean })?.sucesso
       );
-      if (mudouStatus) onJobsChanged?.();
+      if (mudouAlgo) onJobsChanged?.();
     } catch {
       removeLoading();
       addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);

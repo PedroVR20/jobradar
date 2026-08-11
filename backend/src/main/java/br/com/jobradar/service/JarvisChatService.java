@@ -138,15 +138,21 @@ public class JarvisChatService {
             eu apliquei" — compara tags salvas, sem IA. Mesma regra: precisa do
             id, ache com listarVagas primeiro se só tiver título/empresa.
 
-            marcarStatusDeVaga: a ÚNICA ferramenta que MUDA dado de verdade (todas
-            as outras só leem). Só chame quando o usuário pedir claramente pra
-            mudar o status de UMA vaga específica já identificada (id, ou título/
-            empresa que você confirmou antes com listarVagas). Se a busca por
-            título/empresa achar mais de uma vaga batendo, PERGUNTE qual antes de
-            chamar — nunca escolha sozinho nem chame em lote pra várias vagas de
-            uma vez. Depois de mudar, confirme em texto o que mudou (vaga e
-            status novo) — a interface já recarrega a lista sozinha, mas
-            confirmar por escrito evita dúvida sobre o que exatamente mudou.
+            marcarStatusDeVaga e atualizarNotaDeVaga são as ÚNICAS ferramentas
+            que MUDAM dado de verdade (todas as outras só leem) — a primeira
+            move o status no funil, a segunda escreve/substitui a anotação
+            pessoal da vaga. As duas seguem a mesma regra: só chame quando o
+            usuário pedir claramente sobre UMA vaga específica já identificada
+            (id, ou título/empresa que você confirmou antes com listarVagas).
+            Se a busca por título/empresa achar mais de uma vaga batendo,
+            PERGUNTE qual antes de chamar — nunca escolha sozinho nem chame em
+            lote pra várias vagas de uma vez. atualizarNotaDeVaga SUBSTITUI a
+            nota inteira (não anexa sozinha) — se o pedido for "adicionar" a
+            uma nota que já existe, confira o texto atual (campo 'notes' de
+            listarVagas) e mande o texto final já combinado. Depois de
+            qualquer uma das duas, confirme em texto o que mudou — a
+            interface já recarrega a lista sozinha, mas confirmar por escrito
+            evita dúvida sobre o que exatamente mudou.
 
             Se o usuário anexar uma imagem (print de tela) na mensagem: descreva
             objetivamente o que reconhece nela (título da vaga, empresa, status/aba
@@ -397,6 +403,21 @@ public class JarvisChatService {
                 "required", List.of("vagaId", "status")
         );
 
+        Map<String, Object> atualizarNotaParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "vagaId", Map.of("type", "INTEGER", "description", "ID da vaga (peça pra listarVagas primeiro se só tiver título/empresa)."),
+                        "nota", Map.of(
+                                "type", "STRING",
+                                "description", "Texto FINAL e completo da nota, não só o trecho novo — se a vaga já tinha " +
+                                        "uma nota (veja o campo 'notes' de listarVagas) e o usuário pediu pra " +
+                                        "'adicionar' algo, combine o texto antigo com o novo você mesmo antes de " +
+                                        "chamar, porque essa ferramenta SUBSTITUI a nota inteira, não anexa sozinha."
+                        )
+                ),
+                "required", List.of("vagaId", "nota")
+        );
+
         Map<String, Object> vagasParadasParams = Map.of(
                 "type", "OBJECT",
                 "properties", Map.of(
@@ -476,13 +497,22 @@ public class JarvisChatService {
                         vagasParadasParams),
                 new GeminiService.FunctionDeclaration("marcarStatusDeVaga",
                         "Move uma vaga específica pra outro status do funil (ex: marcar como aplicada, interessado, " +
-                                "recusada) — é a ÚNICA ferramenta que MUDA dado de verdade, as outras só leem. Use " +
+                                "recusada) — muda dado de verdade (junto com atualizarNotaDeVaga, as únicas duas que " +
+                                "escrevem — as outras só leem). Use " +
                                 "SÓ quando o usuário pedir isso de forma clara e específica sobre UMA vaga identificada " +
                                 "(por id, ou por título/empresa já confirmado via listarVagas antes) — nunca chame " +
                                 "isso 'no escuro' ou em lote sem o usuário ter apontado exatamente qual vaga. Se " +
                                 "houver ambiguidade sobre qual vaga (mais de uma batendo com a busca), pergunte antes " +
                                 "de chamar, não escolha sozinho.",
                         marcarStatusParams),
+                new GeminiService.FunctionDeclaration("atualizarNotaDeVaga",
+                        "Escreve/atualiza a anotação pessoal (campo 'notes') de uma vaga específica — a MESMA ferramenta " +
+                                "que o botão '📝 Adicionar nota' de cada card. Segunda ferramenta que MUDA dado de " +
+                                "verdade (a primeira é marcarStatusDeVaga) — mesma regra: só numa vaga claramente " +
+                                "identificada, nunca 'no escuro'. SUBSTITUI a nota inteira — se o usuário pedir pra " +
+                                "'adicionar' algo a uma nota que já existe, primeiro confira o texto atual (campo " +
+                                "'notes' de listarVagas) e mande o texto final já combinado, não só o trecho novo.",
+                        atualizarNotaParams),
                 new GeminiService.FunctionDeclaration("perguntarUsuario",
                         "Faz uma pergunta de múltipla escolha pro usuário quando você tem uma dúvida real que só ele " +
                                 "resolve (ex: qual entre duas vagas parecidas, ou confirmar algo antes de mudar status " +
@@ -514,6 +544,7 @@ public class JarvisChatService {
             case "vagasParecidas" -> executarVagasParecidas(chamada.args());
             case "vagasParadas" -> executarVagasParadas(chamada.args());
             case "marcarStatusDeVaga" -> executarMarcarStatus(chamada.args());
+            case "atualizarNotaDeVaga" -> executarAtualizarNota(chamada.args());
             default -> Map.of("erro", "Ferramenta desconhecida: " + chamada.name());
         };
     }
@@ -937,6 +968,39 @@ public class JarvisChatService {
         m.put("empresa", empresaAntes);
         m.put("statusAntes", statusAntes);
         m.put("statusNovo", status);
+        return m;
+    }
+
+    // Segunda ferramenta que escreve (ver marcarStatusDeVaga) — mesmo campo
+    // que o botão "📝 Adicionar nota" de cada card mexe. SUBSTITUI o texto
+    // inteiro (é só um campo de texto simples no banco, não uma lista de
+    // itens) — a SYSTEM_INSTRUCTION já orienta o modelo a compor o texto
+    // final antes de chamar quando o pedido for "adicionar" a uma nota
+    // que já existe.
+    private Object executarAtualizarNota(Map<String, Object> args) {
+        Long vagaId = args.get("vagaId") instanceof Number n ? n.longValue() : null;
+        String nota = args.get("nota") instanceof String s ? s : null;
+        if (vagaId == null || nota == null) {
+            return Map.of("erro", "Preciso do id da vaga e o texto da nota.");
+        }
+        Optional<Job> jobOpt = jobRepository.findById(vagaId);
+        if (jobOpt.isEmpty()) {
+            return Map.of("erro", "Não achei a vaga de id " + vagaId + " — pode ter sido apagada.");
+        }
+        Job job = jobOpt.get();
+        String notaAntes = job.getNotes();
+        String tituloAntes = job.getTitle();
+        String empresaAntes = job.getCompany();
+        job.setNotes(nota.isBlank() ? null : nota);
+        jobRepository.save(job);
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("sucesso", true);
+        m.put("vagaId", vagaId);
+        m.put("titulo", tituloAntes);
+        m.put("empresa", empresaAntes);
+        m.put("notaAntes", notaAntes);
+        m.put("notaNova", job.getNotes());
         return m;
     }
 }

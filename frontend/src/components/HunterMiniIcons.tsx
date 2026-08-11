@@ -112,6 +112,15 @@ export function CompactIcon({ size = 14 }: IconProps) {
   );
 }
 
+export function NoteIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M13.5 3.5L16.5 6.5L7 16L3.5 16.5L4 13L13.5 3.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <line x1="11.5" y1="5.5" x2="14.5" y2="8.5" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
 export function MicIcon({ size = 14 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">

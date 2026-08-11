@@ -203,7 +203,7 @@ export interface JarvisVagasParecidasData {
 }
 
 // POST /api/jobs/assistant/chat — resultado da ferramenta marcarStatusDeVaga
-// (única ferramenta do Hunter que escreve, todas as outras só leem)
+// (junto com atualizarNotaDeVaga, as únicas duas que o Hunter escreve)
 export interface JarvisMarcarStatusData {
   sucesso?: boolean;
   vagaId?: number;
@@ -211,6 +211,17 @@ export interface JarvisMarcarStatusData {
   empresa?: string;
   statusAntes?: string;
   statusNovo?: string;
+  erro?: string;
+}
+
+// POST /api/jobs/assistant/chat — resultado da ferramenta atualizarNotaDeVaga
+export interface JarvisAtualizarNotaData {
+  sucesso?: boolean;
+  vagaId?: number;
+  titulo?: string;
+  empresa?: string;
+  notaAntes?: string | null;
+  notaNova?: string | null;
   erro?: string;
 }
 
@@ -231,9 +242,9 @@ export interface JarvisVagasParadasData {
 
 export interface JarvisToolResult {
   tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil'
-    | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga';
+    | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga' | 'atualizarNotaDeVaga';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
-    | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData;
+    | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData | JarvisAtualizarNotaData;
 }
 
 // Pergunta interativa que o Hunter decidiu fazer (ferramenta perguntarUsuario)
