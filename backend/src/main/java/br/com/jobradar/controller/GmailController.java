@@ -73,10 +73,10 @@ public class GmailController {
     // Mesmo dado que a ferramenta do Hunter usa — exposto direto também pra
     // Configurações poder oferecer um botão "verificar agora" sem precisar
     // passar pelo chat.
-    @GetMapping("/vagas-linkedin")
-    public ResponseEntity<Map<String, Object>> vagasLinkedIn(
+    @GetMapping("/vagas-email")
+    public ResponseEntity<Map<String, Object>> vagasEmail(
             @RequestParam(required = false, defaultValue = "7") int dias) {
-        GmailService.BuscaResultado resultado = gmailService.buscarVagasLinkedInNosEmails(dias);
+        GmailService.BuscaResultado resultado = gmailService.buscarVagasNosEmails(dias);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("conectado", resultado.conectado());
         body.put("vagas", resultado.vagas());

@@ -428,8 +428,8 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
             <>
               <p className="agenda-hint">
                 Conecta o Hunter ao seu Gmail (só-leitura) pra ele achar vagas nos emails de alerta
-                da LinkedIn e sugerir importar pro Job Radar — você sempre confirma cada uma antes de
-                qualquer coisa entrar no banco, nada é adicionado sozinho.
+                (LinkedIn, Glassdoor) e sugerir importar pro Job Radar — você sempre confirma cada
+                uma antes de qualquer coisa entrar no banco, nada é adicionado sozinho.
               </p>
               <button type="button" className="btn btn-ghost" onClick={gmail.connect} disabled={gmail.connecting}>
                 {gmail.connecting ? 'Abrindo o Google...' : '📧 Conectar Gmail'}

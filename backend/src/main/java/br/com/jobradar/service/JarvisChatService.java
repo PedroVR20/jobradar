@@ -707,7 +707,7 @@ public class JarvisChatService {
                 "required", List.of("consulta")
         );
 
-        Map<String, Object> verificarEmailsLinkedInParams = Map.of(
+        Map<String, Object> verificarEmailsDeVagasParams = Map.of(
                 "type", "OBJECT",
                 "properties", Map.of(
                         "dias", Map.of("type", "INTEGER", "description",
@@ -912,14 +912,17 @@ public class JarvisChatService {
                                 "que ainda não foi processada por essa feature (recente/backfill pendente) não aparece no " +
                                 "resultado — se vier vazio, tente listarVagas com busca por palavra-chave como alternativa.",
                         buscaSemanticaParams),
-                new GeminiService.FunctionDeclaration("verificarEmailsDeVagasLinkedIn",
-                        "Vasculha os emails de ALERTA DE VAGA da LinkedIn na caixa de entrada do usuário (só-leitura, " +
-                                "nunca escreve/apaga nada no email) e devolve as vagas achadas pra ele escolher quais " +
-                                "importar pro Job Radar — NADA é adicionado automaticamente, é sempre uma lista pra " +
-                                "revisão. Use quando o usuário pedir algo tipo 'vê se tem vaga nova no meu email', " +
-                                "'puxa as vagas da LinkedIn que chegaram por email'. Exige o Gmail conectado em " +
-                                "Configurações antes — se não estiver, a ferramenta já avisa isso na resposta.",
-                        verificarEmailsLinkedInParams),
+                new GeminiService.FunctionDeclaration("verificarEmailsDeVagas",
+                        "Vasculha os emails de ALERTA DE VAGA (LinkedIn, Glassdoor) na caixa de entrada do usuário " +
+                                "(só-leitura, nunca escreve/apaga nada no email) e devolve as vagas achadas pra ele " +
+                                "escolher quais importar pro Job Radar — NADA é adicionado automaticamente, é sempre " +
+                                "uma lista pra revisão. Use quando o usuário pedir algo tipo 'vê se tem vaga nova no " +
+                                "meu email', 'puxa as vagas que chegaram por email', 'analisa esse email de vaga que " +
+                                "recebi'. Exige o Gmail conectado em Configurações antes — se não estiver, a " +
+                                "ferramenta já avisa isso na resposta. NÃO cobre todo site de vaga que existe — só " +
+                                "os domínios que o Job Radar reconhece hoje (avise o usuário se ele mencionar um site " +
+                                "diferente que a ferramenta claramente não suporta).",
+                        verificarEmailsDeVagasParams),
                 new GeminiService.FunctionDeclaration("criarLembreteNaAgenda",
                         "Monta a PROPOSTA de um lembrete/tarefa pra Agenda Pessoal (app separado) — NÃO cria nada " +
                                 "de verdade, o backend do Job Radar nunca fala com a Agenda diretamente. A interface " +
@@ -993,7 +996,7 @@ public class JarvisChatService {
             case "fixarVaga" -> executarFixarVaga(chamada.args());
             case "adicionarVagaManual" -> executarAdicionarVagaManual(chamada.args());
             case "buscarVagasPorSignificado" -> executarBuscaSemantica(chamada.args());
-            case "verificarEmailsDeVagasLinkedIn" -> executarVerificarEmailsLinkedIn(chamada.args());
+            case "verificarEmailsDeVagas" -> executarVerificarEmailsDeVagas(chamada.args());
             case "criarLembreteNaAgenda" -> executarCriarLembreteNaAgenda(chamada.args());
             case "apagarVaga" -> executarApagarVaga(chamada.args());
             case "lembrarPreferencia" -> executarLembrarPreferencia(chamada.args());
@@ -1770,9 +1773,9 @@ public class JarvisChatService {
         return m;
     }
 
-    private Object executarVerificarEmailsLinkedIn(Map<String, Object> args) {
+    private Object executarVerificarEmailsDeVagas(Map<String, Object> args) {
         int dias = args.get("dias") instanceof Number n ? n.intValue() : 7;
-        GmailService.BuscaResultado resultado = gmailService.buscarVagasLinkedInNosEmails(dias);
+        GmailService.BuscaResultado resultado = gmailService.buscarVagasNosEmails(dias);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("conectado", resultado.conectado());
         m.put("vagas", resultado.vagas());

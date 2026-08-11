@@ -140,7 +140,7 @@ const SLASH_COMMANDS: { cmd: string; label: string; phrase: string }[] = [
   { cmd: '/fontes', label: 'Desempenho por fonte', phrase: 'Qual fonte de vaga tá me dando mais retorno?' },
   { cmd: '/duplicatas', label: 'Vagas duplicadas', phrase: 'Tem alguma vaga duplicada no meu feed?' },
   { cmd: '/mercado', label: 'Perfil vs. mercado', phrase: 'Compara meu perfil com o que o mercado mais pede' },
-  { cmd: '/emails', label: 'Vagas nos emails da LinkedIn', phrase: 'Vê se tem vaga nova nos meus emails da LinkedIn' },
+  { cmd: '/emails', label: 'Vagas nos emails de vaga', phrase: 'Vê se tem vaga nova nos meus emails de vaga (LinkedIn, Glassdoor)' },
 ];
 
 // Estilo de resposta — presets de tom (Normal/Conciso/Formal), inspirado nos
@@ -1262,7 +1262,7 @@ function BuscaSemanticaCard({ data }: { data: JarvisBuscaSemanticaData }) {
   );
 }
 
-// Vagas achadas em emails de alerta da LinkedIn (Gmail só-leitura, ver
+// Vagas achadas em emails de alerta de vaga (LinkedIn, Glassdoor — ver
 // GmailService) — NADA entra no banco sozinho, o usuário marca quais quer
 // e clica em adicionar. Reaproveita o mesmo POST /api/jobs/manual que o
 // botão "➕ Adicionar vaga" da tela principal usa, então cai no mesmo dedupe
@@ -1283,7 +1283,7 @@ function EmailVagasCard({ data, onJobsChanged }: { data: JarvisEmailVagasData; o
     return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro}</p>;
   }
   if (data.vagas.length === 0) {
-    return <p className="jarvis-scan-intro">Nenhuma vaga da LinkedIn achada nos emails desse período.</p>;
+    return <p className="jarvis-scan-intro">Nenhuma vaga achada nos emails desse período.</p>;
   }
 
   const toggle = (idx: number) => {
@@ -1305,9 +1305,9 @@ function EmailVagasCard({ data, onJobsChanged }: { data: JarvisEmailVagasData; o
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: v.titulo,
-            company: v.empresa && v.empresa.trim() ? v.empresa : 'LinkedIn (empresa não identificada)',
+            company: v.empresa && v.empresa.trim() ? v.empresa : `${v.fonte} (empresa não identificada)`,
             url: v.url,
-            source: 'LINKEDIN_EMAIL',
+            source: `${v.fonte.toUpperCase()}_EMAIL`,
             status: 'NOVA',
           }),
         });
@@ -1336,7 +1336,7 @@ function EmailVagasCard({ data, onJobsChanged }: { data: JarvisEmailVagasData; o
               />
               <span className="jarvis-email-vaga-info">
                 <a href={v.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{v.titulo}</a>
-                <span className="jarvis-hit-company">{v.empresa ?? '—'}</span>
+                <span className="jarvis-hit-company">{v.empresa ?? '—'} · {v.fonte}</span>
               </span>
             </label>
           </li>
@@ -1544,7 +1544,7 @@ const TOOL_PHRASES: Record<string, string> = {
   compararStackComMercado: 'Comparando seu perfil com o mercado...',
   criarLembreteNaAgenda: 'Montando a proposta de lembrete...',
   buscarVagasPorSignificado: 'Buscando por significado...',
-  verificarEmailsDeVagasLinkedIn: 'Vasculhando emails da LinkedIn...',
+  verificarEmailsDeVagas: 'Vasculhando emails de vaga...',
   perguntarUsuario: 'Preparando uma pergunta...',
 };
 
@@ -1867,7 +1867,7 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext, onJobsC
       return <LembreteAgendaCard data={result.data as JarvisLembreteAgendaData} />;
     case 'buscarVagasPorSignificado':
       return <BuscaSemanticaCard data={result.data as JarvisBuscaSemanticaData} />;
-    case 'verificarEmailsDeVagasLinkedIn':
+    case 'verificarEmailsDeVagas':
       return <EmailVagasCard data={result.data as JarvisEmailVagasData} onJobsChanged={onJobsChanged} />;
     default:
       return null;

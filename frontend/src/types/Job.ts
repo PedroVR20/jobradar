@@ -406,12 +406,13 @@ export interface JarvisBuscaSemanticaData {
 }
 
 // POST /api/jobs/assistant/chat — resultado da ferramenta
-// verificarEmailsDeVagasLinkedIn (Gmail só-leitura, ver GmailService)
+// verificarEmailsDeVagas (Gmail só-leitura, ver GmailService)
 export interface JarvisEmailVaga {
   titulo: string;
   empresa: string | null;
   url: string;
   dataEmail: string | null;
+  fonte: string;
 }
 export interface JarvisEmailVagasData {
   conectado: boolean;
@@ -442,7 +443,7 @@ export interface JarvisToolResult {
     | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga' | 'atualizarNotaDeVaga'
     | 'gerarCartaDeApresentacao' | 'metricasDeDesempenho' | 'vagasComPrazoProximo' | 'detectarDuplicatas' | 'desempenhoPorFonte' | 'historicoDaEmpresa'
     | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga' | 'lembrarPreferencia' | 'oQueFazerAgora' | 'compararStackComMercado'
-    | 'criarLembreteNaAgenda' | 'buscarVagasPorSignificado' | 'verificarEmailsDeVagasLinkedIn';
+    | 'criarLembreteNaAgenda' | 'buscarVagasPorSignificado' | 'verificarEmailsDeVagas';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
     | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData | JarvisAtualizarNotaData
     | JarvisCartaData | JarvisMetricasData | JarvisPrazoData | JarvisDuplicatasData | JarvisFontesData | JarvisHistoricoEmpresaData

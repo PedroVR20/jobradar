@@ -29,10 +29,11 @@ import java.util.regex.Pattern;
 
 /**
  * Integração com o Gmail — só-leitura (escopo {@code gmail.readonly}), pra
- * achar vagas nos emails de alerta da LinkedIn e sugerir importar pro Job
- * Radar (o usuário confirma cada uma antes de qualquer coisa entrar no
- * banco, ver EmailVagasCard no frontend). O Hunter NUNCA escreve, apaga ou
- * marca nada no Gmail — só lê.
+ * achar vagas nos emails de alerta de sites de vaga (LinkedIn, Glassdoor —
+ * ver {@link #DOMINIOS_VAGA}) e sugerir importar pro Job Radar (o usuário
+ * confirma cada uma antes de qualquer coisa entrar no banco, ver
+ * EmailVagasCard no frontend). O Hunter NUNCA escreve, apaga ou marca nada
+ * no Gmail — só lê.
  *
  * <p>Sem SDK oficial da Google (mesma filosofia do {@link GeminiService}):
  * chamadas REST cruas via RestTemplate, pra não trazer uma dependência
@@ -213,7 +214,7 @@ public class GmailService {
         }
     }
 
-    public record EmailJobCandidate(String titulo, String empresa, String url, String dataEmail) {}
+    public record EmailJobCandidate(String titulo, String empresa, String url, String dataEmail, String fonte) {}
 
     public record BuscaResultado(boolean conectado, List<EmailJobCandidate> vagas, String erro) {
         public static BuscaResultado desconectado() {
@@ -227,21 +228,38 @@ public class GmailService {
         }
     }
 
-    // Não vasculha a caixa toda — só emails de alerta de vaga da LinkedIn
-    // (remetentes conhecidos), dos últimos N dias. Limita a 15 emails por
-    // chamada (cada um custa uma chamada extra pra buscar o corpo completo)
-    // pra não demorar demais numa pergunta de chat.
+    // Não vasculha a caixa toda — só emails de vaga de um punhado de sites
+    // conhecidos (LinkedIn, Glassdoor), dos últimos N dias. Limita a 15
+    // emails por chamada (cada um custa uma chamada extra pra buscar o
+    // corpo completo) pra não demorar demais numa pergunta de chat.
     private static final int MAX_EMAILS_POR_BUSCA = 15;
 
-    public BuscaResultado buscarVagasLinkedInNosEmails(int diasAtras) {
+    // Bug real reportado: um allowlist fixo de remetentes exatos (só
+    // jobalerts-noreply@/jobs-noreply@linkedin.com) deixou passar batido um
+    // email de "vagas similares" mandado de outro endereço — sites de vaga
+    // usam vários remetentes noreply@ diferentes pra tipos diferentes de
+    // notificação, impossível prever todos. Trocado por "from:<domínio>"
+    // (qualquer remetente do domínio inteiro) + filtro por ASSUNTO com
+    // palavras que só aparecem em email de vaga de verdade — mais amplo,
+    // mas ainda não pega notificação de conexão/mensagem/aniversário etc.
+    // Domínios cobertos hoje: LinkedIn e Glassdoor (BR e .com). Pedido pra
+    // adicionar mais (Indeed, Catho, etc.) — é só somar aqui.
+    private static final List<String> DOMINIOS_VAGA = List.of(
+            "linkedin.com", "glassdoor.com", "glassdoor.com.br");
+    private static final String FILTRO_ASSUNTO =
+            "(subject:job OR subject:jobs OR subject:vaga OR subject:vagas OR subject:emprego OR subject:opportunity)";
+
+    public BuscaResultado buscarVagasNosEmails(int diasAtras) {
         if (!isConfigured()) return BuscaResultado.erro("Integração com Gmail não configurada.");
         String accessToken = getValidAccessToken();
         if (accessToken == null) return BuscaResultado.desconectado();
 
         int dias = diasAtras > 0 ? Math.min(diasAtras, 30) : 7;
         try {
+            String fromClause = "(" + DOMINIOS_VAGA.stream().map(d -> "from:" + d)
+                    .reduce((a, b) -> a + " OR " + b).orElse("") + ")";
             String query = URLEncoder.encode(
-                    "(from:jobalerts-noreply@linkedin.com OR from:jobs-noreply@linkedin.com) newer_than:" + dias + "d",
+                    fromClause + " " + FILTRO_ASSUNTO + " newer_than:" + dias + "d",
                     StandardCharsets.UTF_8);
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(accessToken);
@@ -262,10 +280,11 @@ public class GmailService {
                             "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + id + "?format=full",
                             org.springframework.http.HttpMethod.GET, new HttpEntity<>(headers), String.class).getBody();
                     JsonNode msgJson = mapper.readTree(msgResponse);
+                    String remetente = extrairRemetente(msgJson);
                     String dataEmail = extrairData(msgJson);
                     String corpo = extrairCorpo(msgJson);
                     if (corpo == null) continue;
-                    for (EmailJobCandidate c : extrairVagas(corpo, dataEmail)) {
+                    for (EmailJobCandidate c : extrairVagas(corpo, dataEmail, remetente)) {
                         if (urlsVistas.add(c.url())) candidatas.add(c);
                     }
                 } catch (Exception e) {
@@ -286,9 +305,26 @@ public class GmailService {
     }
 
     private String extrairData(JsonNode msgJson) {
+        return extrairHeader(msgJson, "Date");
+    }
+
+    // Usado só pra rotular a fonte no card (ver EmailVagasCard) — "LinkedIn"
+    // ou "Glassdoor" a partir do domínio do remetente real do email, mais
+    // confiável que tentar adivinhar pelo link (Glassdoor às vezes embrulha
+    // o link de vaga num redirecionador de outro domínio).
+    private String extrairRemetente(JsonNode msgJson) {
+        String from = extrairHeader(msgJson, "From");
+        if (from == null) return "Email";
+        String lower = from.toLowerCase();
+        if (lower.contains("linkedin.com")) return "LinkedIn";
+        if (lower.contains("glassdoor")) return "Glassdoor";
+        return "Email";
+    }
+
+    private String extrairHeader(JsonNode msgJson, String nome) {
         JsonNode headers = msgJson.at("/payload/headers");
         for (JsonNode h : headers) {
-            if ("Date".equalsIgnoreCase(h.path("name").asText())) {
+            if (nome.equalsIgnoreCase(h.path("name").asText())) {
                 return h.path("value").asText(null);
             }
         }
@@ -330,30 +366,41 @@ public class GmailService {
         }
     }
 
-    // Padrão dos links de vaga nos emails de alerta da LinkedIn — todo link
-    // pra uma vaga individual passa por /jobs/view/<id numérico>, seja no
-    // domínio normal ou no encurtador de rastreamento (/comm/jobs/view/...).
-    // Melhor esforço: junto do link, tenta pegar o texto do próprio <a> (que
-    // normalmente é o título da vaga) — quando não dá pra achar um texto
-    // limpo, cai num título genérico e deixa o usuário identificar pela URL
-    // antes de importar (ver EmailVagasCard, sempre pede confirmação).
-    private static final Pattern LINK_VAGA = Pattern.compile(
-            "<a[^>]+href=\"(https://[a-z0-9.]*linkedin\\.com/[^\"]*jobs/view/(\\d+)[^\"]*)\"[^>]*>(.*?)</a>",
+    // Padrão dos links de vaga por site — cada um tem um jeito diferente de
+    // montar a URL de uma vaga individual, então é uma lista de regex (não
+    // dá uma genérica só, um link "linkedin.com/jobs/" sozinho pega até o
+    // item de menu "Vagas" do cabeçalho de QUALQUER email da LinkedIn, gera
+    // lixo). Melhor esforço pra cada um — nunca testado contra o formato
+    // real (não dá sem o inbox de verdade do usuário), pode precisar de
+    // ajuste; por isso o card sempre pede confirmação antes de importar.
+    // LinkedIn: alerta direto (/jobs/view/<id>) e "vagas similares"
+    // (/jobs/collections/.../?currentJobId=<id>) são links diferentes, mas
+    // os dois têm "jobs/view" ou "jobs/collections" no caminho.
+    private static final Pattern LINK_VAGA_LINKEDIN = Pattern.compile(
+            "<a[^>]+href=\"(https://[a-z0-9.]*linkedin\\.com/[^\"]*(?:jobs/view|jobs/collections)[^\"]*)\"[^>]*>(.*?)</a>",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    // Glassdoor: página de vaga individual passa por /job-listing/ ou pelo
+    // link "partner" com jobListingId= na query string.
+    private static final Pattern LINK_VAGA_GLASSDOOR = Pattern.compile(
+            "<a[^>]+href=\"(https://[a-z0-9.]*glassdoor\\.com(?:\\.br)?/[^\"]*(?:job-listing|jobListingId=)[^\"]*)\"[^>]*>(.*?)</a>",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern TAG_HTML = Pattern.compile("<[^>]+>");
 
-    List<EmailJobCandidate> extrairVagas(String corpoHtml, String dataEmail) {
+    List<EmailJobCandidate> extrairVagas(String corpoHtml, String dataEmail, String fonte) {
         List<EmailJobCandidate> resultado = new ArrayList<>();
-        Matcher m = LINK_VAGA.matcher(corpoHtml);
-        while (m.find()) {
-            String url = m.group(1).replace("&amp;", "&");
-            String tituloBruto = TAG_HTML.matcher(m.group(3)).replaceAll(" ").trim().replaceAll("\\s+", " ");
-            String titulo = tituloBruto.isBlank() ? "Vaga do LinkedIn (confira o link)" : tituloBruto;
-            // Não dá pra extrair o nome da empresa com confiança do HTML sem
-            // testar contra o formato real do email — fica em branco de
-            // propósito (o card no frontend mostra "—") em vez de arriscar um
-            // valor errado que o usuário poderia importar sem reparar.
-            resultado.add(new EmailJobCandidate(titulo, null, url, dataEmail));
+        for (Pattern padrao : List.of(LINK_VAGA_LINKEDIN, LINK_VAGA_GLASSDOOR)) {
+            Matcher m = padrao.matcher(corpoHtml);
+            while (m.find()) {
+                String url = m.group(1).replace("&amp;", "&");
+                String tituloBruto = TAG_HTML.matcher(m.group(2)).replaceAll(" ").trim().replaceAll("\\s+", " ");
+                String titulo = tituloBruto.isBlank() ? "Vaga (confira o link)" : tituloBruto;
+                // Não dá pra extrair o nome da empresa com confiança do HTML
+                // sem testar contra o formato real do email — fica em branco
+                // de propósito (o card no frontend mostra "—") em vez de
+                // arriscar um valor errado que o usuário poderia importar
+                // sem reparar.
+                resultado.add(new EmailJobCandidate(titulo, null, url, dataEmail, fonte));
+            }
         }
         return resultado;
     }
