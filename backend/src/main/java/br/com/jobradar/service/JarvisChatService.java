@@ -397,6 +397,13 @@ public class JarvisChatService {
                 "required", List.of("vagaId", "status")
         );
 
+        Map<String, Object> vagasParadasParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "diasMinimo", Map.of("type", "INTEGER", "description", "Quantos dias sem mudança de status pra considerar 'parada'. Padrão 10.")
+                )
+        );
+
         Map<String, Object> perguntarUsuarioParams = Map.of(
                 "type", "OBJECT",
                 "properties", Map.of(
@@ -461,6 +468,12 @@ public class JarvisChatService {
                                 "de tags salvas, não gasta cota. Precisa do id da vaga de referência — se só tiver " +
                                 "título/empresa, chame listarVagas primeiro com busca pra achar o id certo.",
                         vagasParecidasParams),
+                new GeminiService.FunctionDeclaration("vagasParadas",
+                        "Acha candidaturas ATIVAS (aplicadas ou em andamento) que estão sem mudança de status há muito " +
+                                "tempo — use pra 'quais vagas estão paradas', 'o que está sem retorno há mais tempo', " +
+                                "'quais candidaturas esfriaram'. Não usa IA, é só data de status × hoje. NÃO confundir " +
+                                "com resumoFunil (que só conta quantas tem em cada bucket, sem falar de tempo parado).",
+                        vagasParadasParams),
                 new GeminiService.FunctionDeclaration("marcarStatusDeVaga",
                         "Move uma vaga específica pra outro status do funil (ex: marcar como aplicada, interessado, " +
                                 "recusada) — é a ÚNICA ferramenta que MUDA dado de verdade, as outras só leem. Use " +
@@ -499,6 +512,7 @@ public class JarvisChatService {
             case "estimativaSalarialDeVagas" -> executarEstimativaSalarial(chamada.args());
             case "detalharVagas" -> executarDetalharVagas(chamada.args());
             case "vagasParecidas" -> executarVagasParecidas(chamada.args());
+            case "vagasParadas" -> executarVagasParadas(chamada.args());
             case "marcarStatusDeVaga" -> executarMarcarStatus(chamada.args());
             default -> Map.of("erro", "Ferramenta desconhecida: " + chamada.name());
         };
@@ -853,6 +867,48 @@ public class JarvisChatService {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    // Não usa IA — só compara appliedAt/inProgressAt com hoje. Só olha vaga
+    // ATIVA (aplicada ou em andamento, nunca recusada): "parada" só faz
+    // sentido pra candidatura que ainda tá em jogo, não pra uma que já
+    // terminou de um jeito ou de outro. INTERESSADO fica de fora de
+    // propósito — não tem timestamp próprio (Job não guarda "interestedAt"),
+    // e "interessado há muito tempo" não é bem o mesmo problema de "apliquei
+    // e não veio resposta".
+    private Object executarVagasParadas(Map<String, Object> args) {
+        int diasMinimo = args.get("diasMinimo") instanceof Number n ? Math.max(1, n.intValue()) : 10;
+        LocalDateTime limite = LocalDateTime.now().minusDays(diasMinimo);
+
+        record Parada(Job job, LocalDateTime referencia, String status) {}
+
+        List<Parada> paradas = new ArrayList<>();
+        for (Job j : jobRepository.findAll()) {
+            if (j.isRejected()) continue;
+            if (j.isApplied() && !j.isInProgress() && j.getAppliedAt() != null && j.getAppliedAt().isBefore(limite)) {
+                paradas.add(new Parada(j, j.getAppliedAt(), "APLICADA"));
+            } else if (j.isInProgress() && j.getInProgressAt() != null && j.getInProgressAt().isBefore(limite)) {
+                paradas.add(new Parada(j, j.getInProgressAt(), "ANDAMENTO"));
+            }
+        }
+        paradas.sort(Comparator.comparing(Parada::referencia));
+
+        List<Map<String, Object>> vagas = paradas.stream().map(p -> {
+            long dias = java.time.temporal.ChronoUnit.DAYS.between(p.referencia(), LocalDateTime.now());
+            Map<String, Object> v = new LinkedHashMap<>();
+            v.put("id", p.job().getId());
+            v.put("titulo", p.job().getTitle());
+            v.put("empresa", p.job().getCompany());
+            v.put("url", p.job().getUrl());
+            v.put("status", p.status());
+            v.put("diasParada", dias);
+            return (Map<String, Object>) v;
+        }).toList();
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("diasMinimo", diasMinimo);
+        m.put("vagas", vagas);
+        return m;
     }
 
     // ÚNICA ferramenta que escreve — todas as outras só leem. Ver guidance

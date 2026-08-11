@@ -12,13 +12,19 @@ import {
   JarvisSalarioData,
   JarvisSalarioVaga,
   JarvisToolResult,
+  JarvisVagasParadasData,
   JarvisVagasParecidasData,
   LearningPlan,
 } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { HunterIcon } from './HunterIcon';
-import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CopyIcon, MicIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
+import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon, MicIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
+
+// Preferência de "modo compacto" (esconde os cards visuais, só texto) —
+// persistida à parte do resto do estado do chat, é uma preferência de
+// exibição, não algo específico de uma conversa.
+const COMPACT_MODE_KEY = 'jobradar:jarvis-compact-mode';
 
 // Ditado por voz (Web Speech API) — só Chrome/Edge/derivados suportam hoje
 // (window.SpeechRecognition ainda não existe no lib.dom.d.ts do TypeScript
@@ -59,8 +65,12 @@ interface Props {
 
 type Message =
   | { id: number; role: 'user'; text: string; imageDataUrl?: string }
-  | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[]; thinking?: string | null; pendingQuestion?: JarvisPendingQuestion | null }
-  | { id: number; role: 'assistant-loading' };
+  | { id: number; role: 'assistant'; text: string; toolResults?: JarvisToolResult[]; thinking?: string | null; pendingQuestion?: JarvisPendingQuestion | null; isGreeting?: boolean }
+  | { id: number; role: 'assistant-loading' }
+  // Marcador que substitui as mensagens mais antigas cortadas quando uma
+  // conversa passa do teto salvo (ver MAX_STORED_PER_CONVO) — em vez de só
+  // sumir sem deixar rastro, fica esse aviso de quantas ficaram de fora.
+  | { id: number; role: 'condensed'; count: number };
 
 // Imagem anexada/colada no chat, já convertida — dataUrl é só pra pré-visualizar
 // e reexibir na bolha enviada; base64/mimeType é o que de fato vai pro backend.
@@ -262,6 +272,9 @@ function greeting(): Message {
     id: nextId++,
     role: 'assistant',
     text: 'Oi! Eu sou o Hunter — pode falar comigo do jeito que quiser, tipo "dê uma olhada nas minhas vagas em andamento" ou "quantas vagas eu tenho hoje". Eu entendo a pergunta e busco o dado real pra responder.',
+    // Mensagem fixa de apresentação, não uma resposta gerada — não faz
+    // sentido copiar ou dar 👍/👎 nela, então a barra de ações fica de fora.
+    isGreeting: true,
   };
 }
 
@@ -820,6 +833,33 @@ function VagasParecidasCard({ data }: { data: JarvisVagasParecidasData }) {
   );
 }
 
+function VagasParadasCard({ data }: { data: JarvisVagasParadasData }) {
+  if (data.vagas.length === 0) {
+    return <p className="jarvis-scan-intro">Nenhuma candidatura parada há mais de {data.diasMinimo} dias — tudo em dia.</p>;
+  }
+  return (
+    <div className="jarvis-hits">
+      {data.vagas.map(v => {
+        const meta = STATUS_META[v.status] ?? { label: v.status, color: 'var(--text-muted)' };
+        return (
+          <div key={v.id} className="jarvis-hit">
+            <div className="jarvis-hit-head">
+              <span className="jarvis-hit-score" style={{ color: 'var(--yellow)', borderColor: 'var(--yellow)' }}>
+                {v.diasParada}d parada
+              </span>
+              <div className="jarvis-hit-title">
+                <a href={v.url} target="_blank" rel="noopener noreferrer">{v.titulo}</a>
+                <span className="jarvis-hit-company">{v.empresa}</span>
+              </div>
+            </div>
+            <p className="jarvis-hit-resumo" style={{ color: meta.color }}>{meta.label}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Confirmação visual da ÚNICA ferramenta que escreve — mostra o "antes/depois"
 // pra deixar claro o que mudou de verdade no banco (a lista de vagas por
 // trás do chat já recarrega sozinha, ver onJobsChanged em handleSend).
@@ -1043,6 +1083,8 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <DetalharVagasCard data={result.data as JarvisDetalharVagasData} />;
     case 'vagasParecidas':
       return <VagasParecidasCard data={result.data as JarvisVagasParecidasData} />;
+    case 'vagasParadas':
+      return <VagasParadasCard data={result.data as JarvisVagasParadasData} />;
     case 'marcarStatusDeVaga':
       return <MarcarStatusCard data={result.data as JarvisMarcarStatusData} />;
     default:
@@ -1118,11 +1160,18 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
   const [attachError, setAttachError] = useState('');
   const [listening, setListening] = useState(false);
+  const [compactMode, setCompactMode] = useState(() => {
+    try { return localStorage.getItem(COMPACT_MODE_KEY) === '1'; } catch { return false; }
+  });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const micSupported = typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  useEffect(() => {
+    try { localStorage.setItem(COMPACT_MODE_KEY, compactMode ? '1' : '0'); } catch { /* ignore */ }
+  }, [compactMode]);
 
   // loadConversations() e loadActiveId() são inicializadores independentes
   // do useState (cada um roda separado) — quando o localStorage começa
@@ -1195,7 +1244,18 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
     const capped = [...conversations]
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, MAX_CONVERSATIONS)
-      .map(c => ({ ...c, messages: c.messages.slice(-MAX_STORED_PER_CONVO) }));
+      .map(c => {
+        if (c.messages.length <= MAX_STORED_PER_CONVO) return c;
+        // Reserva 1 vaga pro marcador — em vez de só cortar as mais antigas
+        // sem deixar rastro, avisa quantas ficaram de fora. Recalcula do
+        // zero a cada troca (não acumula marcador antigo), então o número
+        // reflete certinho o que está sendo cortado AGORA a partir do que
+        // ainda está em memória nessa sessão.
+        const restantes = c.messages.slice(-(MAX_STORED_PER_CONVO - 1));
+        const cortadas = c.messages.length - restantes.length;
+        const marcador: Message = { id: -1, role: 'condensed', count: cortadas };
+        return { ...c, messages: [marcador, ...restantes] };
+      });
     localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(capped));
   }, [conversations]);
 
@@ -1477,6 +1537,14 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           >
             {view === 'history' ? '💬' : '🕘'}
           </button>
+          <button
+            className={`jarvis-header-icon-btn ${compactMode ? 'jarvis-header-icon-btn--active' : ''}`}
+            onClick={() => setCompactMode(c => !c)}
+            title={compactMode ? 'Mostrar cards visuais' : 'Modo compacto (só texto)'}
+            aria-label="Alternar modo compacto"
+          >
+            <CompactIcon />
+          </button>
           <button className="jarvis-header-icon-btn" onClick={handleNewConversation} title="Nova conversa">➕</button>
           <button className="jarvis-header-icon-btn" onClick={handleRequestClose} aria-label="Fechar"><CloseIcon size={13} /></button>
         </div>
@@ -1493,9 +1561,29 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
         <>
           <div className="jarvis-messages" ref={scrollRef}>
             {messages.map((m, idx) => {
+              // "Novo turno" = mudou quem está falando (ou é a primeira
+              // mensagem) — só nesse caso soma o respiro extra entre bolhas.
+              // 'assistant-loading' conta como 'assistant' pra essa
+              // comparação (é uma resposta ainda chegando, mesmo remetente).
+              // Hoje a conversa sempre alterna user/assistant estritamente,
+              // então isso quase sempre dá "novo turno" — mas fica pronto
+              // pra qualquer sequência do mesmo remetente ficar mais colada
+              // visualmente, sem repetir o respiro de sempre.
+              const roleAnterior = idx > 0 ? messages[idx - 1].role : null;
+              const efetivo = (r: Message['role']) => (r === 'assistant-loading' ? 'assistant' : r);
+              const novoTurno = roleAnterior === null || efetivo(roleAnterior) !== efetivo(m.role);
+              const turnoClass = novoTurno ? 'jarvis-msg-turn-gap' : '';
+
+              if (m.role === 'condensed') {
+                return (
+                  <div key={m.id} className={`jarvis-condensed ${turnoClass}`}>
+                    — {m.count} mensagem{m.count === 1 ? '' : 's'} mais antiga{m.count === 1 ? '' : 's'} omitida{m.count === 1 ? '' : 's'} —
+                  </div>
+                );
+              }
               if (m.role === 'user') {
                 return (
-                  <div key={m.id} className="jarvis-bubble jarvis-bubble--user">
+                  <div key={m.id} className={`jarvis-bubble jarvis-bubble--user ${turnoClass}`}>
                     {m.imageDataUrl && <img src={m.imageDataUrl} alt="Print anexado" className="jarvis-msg-image" />}
                     {m.text}
                   </div>
@@ -1508,7 +1596,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                 // de um ciclo genérico sempre igual.
                 const gatilho = messages[idx - 1];
                 return (
-                  <div key={m.id} className="jarvis-msg-row">
+                  <div key={m.id} className={`jarvis-msg-row ${turnoClass}`}>
                     <span className="jarvis-avatar"><HunterIcon size={22} alive /></span>
                     <div className="jarvis-bubble jarvis-bubble--assistant jarvis-bubble--loading">
                       <ElapsedTimer />
@@ -1530,11 +1618,15 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
               const perguntaAoVivo = !!m.pendingQuestion && isLastMsg;
 
               return (
-                <div key={m.id} className="jarvis-msg-row">
+                <div key={m.id} className={`jarvis-msg-row ${turnoClass}`}>
                   <span className="jarvis-avatar"><HunterIcon size={22} alive questioning={perguntaAoVivo} /></span>
                   <div className="jarvis-bubble jarvis-bubble--assistant">
                     {m.thinking && <ThinkingBlock thinking={m.thinking} />}
-                    {m.toolResults && m.toolResults.length > 0 && (
+                    {/* Modo compacto esconde os cards visuais de ferramenta
+                        (listas, dashboards, comparações) — a pergunta
+                        interativa NUNCA soma nessa regra, ela é a própria
+                        interface de resposta, não um "extra" decorativo. */}
+                    {!compactMode && m.toolResults && m.toolResults.length > 0 && (
                       <div className="jarvis-tool-results">
                         {m.toolResults.map((tr, i) => (
                           <ToolResultCard
@@ -1556,7 +1648,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                     ) : (
                       <>
                         {renderMarkdownLite(m.text)}
-                        <ChatMessageActions text={m.text} featureKey="jarvis-chat" />
+                        {!m.isGreeting && <ChatMessageActions text={m.text} featureKey="jarvis-chat" />}
                       </>
                     )}
                   </div>

@@ -214,11 +214,26 @@ export interface JarvisMarcarStatusData {
   erro?: string;
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta vagasParadas
+export interface JarvisVagaParada {
+  id: number;
+  titulo: string;
+  empresa: string;
+  url: string;
+  status: string;
+  diasParada: number;
+}
+
+export interface JarvisVagasParadasData {
+  diasMinimo: number;
+  vagas: JarvisVagaParada[];
+}
+
 export interface JarvisToolResult {
   tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil'
-    | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'marcarStatusDeVaga';
+    | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
-    | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisMarcarStatusData;
+    | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData;
 }
 
 // Pergunta interativa que o Hunter decidiu fazer (ferramenta perguntarUsuario)

@@ -100,6 +100,18 @@ export function SparkleIcon({ size = 15 }: IconProps) {
   );
 }
 
+// Modo compacto (esconde os cards visuais de ferramenta, só texto) — três
+// linhas de tamanhos diferentes, sugerindo "texto corrido" em vez de blocos.
+export function CompactIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <line x1="3" y1="5.5" x2="17" y2="5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="3" y1="10" x2="13" y2="10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="3" y1="14.5" x2="15.5" y2="14.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function MicIcon({ size = 14 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
