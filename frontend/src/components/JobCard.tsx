@@ -168,6 +168,57 @@ function interviewInfo(dueAt: string | null): { label: string; className: string
   return { label: `🎤 Entrevista em ${days}d`, className: 'badge-deadline--urgent' };
 }
 
+// Checklist dentro da nota — sintaxe Markdown padrão ("- [ ] item" / "- [x]
+// item", o traço é opcional). A nota continua sendo texto livre por baixo
+// (nada muda no backend/model) — só a exibição reconhece essas linhas e
+// vira caixinha clicável em vez de texto solto. O Hunter já lê o campo
+// 'notes' cru, então ele também "vê" o [ ]/[x] sem precisar de nada novo.
+const CHECKLIST_RE = /^(\s*[-*]?\s*)\[([ xX])\]\s?(.*)$/;
+
+function toggleChecklistLine(notes: string, lineIndex: number): string {
+  const linhas = notes.split('\n');
+  const m = linhas[lineIndex]?.match(CHECKLIST_RE);
+  if (!m) return notes;
+  const novoMarcador = m[2].toLowerCase() === 'x' ? ' ' : 'x';
+  linhas[lineIndex] = `${m[1]}[${novoMarcador}] ${m[3]}`;
+  return linhas.join('\n');
+}
+
+function NotesPreview({ notes, onToggle, onOpenEditor }: {
+  notes: string;
+  onToggle: (lineIndex: number) => void;
+  onOpenEditor: () => void;
+}) {
+  const linhas = notes.split('\n');
+  return (
+    <div className="notes-preview-block">
+      <div className="notes-preview-lines">
+        {linhas.map((linha, i) => {
+          const m = linha.match(CHECKLIST_RE);
+          if (!m) {
+            return linha.trim() ? <p key={i} className="notes-preview-text">{linha}</p> : null;
+          }
+          const marcado = m[2].toLowerCase() === 'x';
+          return (
+            <button
+              key={i}
+              type="button"
+              className={`notes-checklist-item ${marcado ? 'notes-checklist-item--done' : ''}`}
+              onClick={() => onToggle(i)}
+            >
+              <span className="notes-checklist-box">{marcado ? '✓' : ''}</span>
+              <span className="notes-checklist-label">{m[3] || '(item vazio)'}</span>
+            </button>
+          );
+        })}
+      </div>
+      <button className="notes-preview-edit" onClick={onOpenEditor} title="Editar notas">
+        📝 editar
+      </button>
+    </div>
+  );
+}
+
 // Gera iniciais da empresa para o avatar fallback
 function companyInitials(name: string): string {
   return name
@@ -468,7 +519,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             </div>
             <textarea
               className="notes-textarea"
-              placeholder="Salário negociado, contato do recrutador, impressões da entrevista..."
+              placeholder="Salário negociado, contato do recrutador, impressões da entrevista... Linhas '- [ ] item' viram checklist clicável."
               value={notesText}
               onChange={e => handleNotesChange(e.target.value)}
               rows={3}
@@ -476,11 +527,11 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             />
           </div>
         ) : job.notes ? (
-          <button className="notes-preview" onClick={() => setNotesOpen(true)} title="Editar notas">
-            <span className="notes-preview-icon">📝</span>
-            <span className="notes-preview-text">{job.notes}</span>
-            <span className="notes-preview-edit">editar</span>
-          </button>
+          <NotesPreview
+            notes={job.notes}
+            onToggle={lineIndex => onUpdateNotes(job.id, toggleChecklistLine(job.notes ?? '', lineIndex))}
+            onOpenEditor={() => setNotesOpen(true)}
+          />
         ) : (
           <button className="notes-toggle" onClick={() => setNotesOpen(true)}>
             📝 Adicionar nota

@@ -1175,44 +1175,69 @@ a:hover { text-decoration: underline; }
 .notes-toggle:hover { border-color: var(--accent); color: var(--text); }
 
 /* Chip de preview — vaga já tem nota, card fechado */
-.notes-preview {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+.notes-preview-block {
   background: #f59e0b14;
   border: 1px solid #f59e0b3d;
   border-radius: 6px;
   padding: 8px 10px;
-  cursor: pointer;
-  text-align: left;
   width: 100%;
   transition: border-color 0.15s, background 0.15s;
 }
-.notes-preview:hover { border-color: #f59e0b77; background: #f59e0b22; }
+.notes-preview-block:hover { border-color: #f59e0b77; background: #f59e0b22; }
 .notes-preview-icon { flex-shrink: 0; font-size: 0.85rem; margin-top: 1px; }
+.notes-preview-lines { display: flex; flex-direction: column; gap: 3px; }
 .notes-preview-text {
-  flex: 1;
-  min-width: 0;
+  margin: 0;
   font-size: 0.8rem;
   color: var(--text);
   line-height: 1.4;
   white-space: pre-line;
   word-break: break-word;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 .notes-preview-edit {
   flex-shrink: 0;
   font-size: 0.7rem;
   color: var(--yellow);
-  margin-top: 1px;
+  margin-top: 6px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s;
 }
-.notes-preview:hover .notes-preview-edit { opacity: 1; }
+.notes-preview-block:hover .notes-preview-edit { opacity: 1; }
+
+/* Checklist dentro da nota — "- [ ] item" vira caixinha clicável */
+.notes-checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  padding: 1px 0;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+.notes-checklist-box {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border-radius: 4px;
+  border: 1px solid var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  color: var(--green);
+}
+.notes-checklist-item--done .notes-checklist-box { border-color: var(--green); background: #10b98122; }
+.notes-checklist-item--done .notes-checklist-label { color: var(--text-muted); text-decoration: line-through; }
+.notes-checklist-label { line-height: 1.4; word-break: break-word; }
 
 /* Editor — card aberto pra escrever/editar */
 .notes-editor {
