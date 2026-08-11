@@ -2,6 +2,7 @@ package br.com.jobradar.controller;
 
 import br.com.jobradar.model.Job;
 import br.com.jobradar.repository.JobRepository;
+import br.com.jobradar.repository.JobSpecifications;
 import br.com.jobradar.service.AiDuplicateVerifierService;
 import br.com.jobradar.service.CoverLetterService;
 import br.com.jobradar.service.GeminiService;
@@ -19,6 +20,7 @@ import br.com.jobradar.service.SeniorityClassifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -106,32 +108,38 @@ public class JobController {
             @RequestParam(required = false, defaultValue = "false") boolean onlyInProgress,
             @RequestParam(required = false, defaultValue = "false") boolean onlyRejected
     ) {
-        List<Job> jobs = jobRepository.findAll();
         LocalDateTime postedAfter = days != null && days > 0
                 ? LocalDateTime.now().minusDays(days)
                 : null;
+
+        // Filtros de comparação direta (fonte, senioridade, modalidade, data,
+        // status do funil) viram WHERE de SQL — cortam a imensa maioria das
+        // ~4800 vagas ANTES de qualquer coisa rodar em memória Java. Busca
+        // textual (multi-termo, insensível a acento) e comparação de estado
+        // continuam em Java de propósito — ver comentário em
+        // JobSpecifications sobre por que (precisaria da extensão unaccent
+        // do Postgres pra fazer certo em SQL).
+        Specification<Job> spec = JobSpecifications.combine(
+                JobSpecifications.bySource(source),
+                JobSpecifications.bySeniorityIn(seniority),
+                JobSpecifications.byWorkplaceType(workplaceType),
+                JobSpecifications.postedAfter(postedAfter),
+                onlyNew ? JobSpecifications.onlyNew() : null,
+                onlySeen ? JobSpecifications.onlySeen() : null,
+                onlyInteressado ? JobSpecifications.onlyInteressado() : null,
+                onlyApplied ? JobSpecifications.onlyApplied() : null,
+                onlyInProgress ? JobSpecifications.onlyInProgress() : null,
+                onlyRejected ? JobSpecifications.onlyRejected() : null
+        );
+        List<Job> jobs = jobRepository.findAll(spec);
 
         // vagas pinadas sempre sobem ao topo, independente da aba ou filtro
         Comparator<Job> pinnedFirst = Comparator.comparing(
                 (Job j) -> !Boolean.TRUE.equals(j.getFavorited()));
 
         return jobs.stream()
-                .filter(j -> source == null || j.getSource().equalsIgnoreCase(source))
-                .filter(j -> seniority == null || seniority.isBlank()
-                        || Arrays.stream(seniority.split(","))
-                            .anyMatch(s -> s.trim().equalsIgnoreCase(j.getSeniority())))
-                .filter(j -> workplaceType == null || workplaceType.isBlank()
-                        || workplaceType.equalsIgnoreCase(j.getWorkplaceType()))
                 .filter(j -> state == null || state.isBlank()
                         || (j.getState() != null && normalize(state).equals(normalize(j.getState()))))
-                .filter(j -> !onlyNew || (!j.isSeen() && !j.isRejected()))
-                .filter(j -> !onlySeen || (j.isSeen() && !j.isInterested() && !j.isApplied() && !j.isRejected()))
-                .filter(j -> !onlyInteressado || (j.isInterested() && !j.isApplied() && !j.isRejected()))
-                .filter(j -> !onlyApplied || (j.isApplied() && !j.isInProgress() && !j.isRejected()))
-                .filter(j -> !onlyInProgress || (j.isApplied() && j.isInProgress() && !j.isRejected()))
-                .filter(j -> !onlyRejected || j.isRejected())
-                .filter(j -> postedAfter == null || (j.getPostedAt() != null
-                        && j.getPostedAt().isAfter(postedAfter)))
                 .filter(j -> matchesSearch(j, search))
                 .sorted(pinnedFirst.thenComparing(comparatorFor(sort)))
                 .map(this::toDto)
