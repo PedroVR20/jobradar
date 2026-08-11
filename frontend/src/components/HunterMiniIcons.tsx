@@ -86,6 +86,20 @@ export function ClipIcon({ size = 14 }: IconProps) {
   );
 }
 
+// Estrelinha girando — indicador de "trabalhando" enquanto espera resposta,
+// no lugar dos 3 pontinhos. Não é uma cópia do ícone de nenhuma marca
+// específica, só a mesma ideia geral (um símbolo girando = "processando").
+export function SparkleIcon({ size = 15 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path
+        d="M10 1.5L11.6 8.4L18.5 10L11.6 11.6L10 18.5L8.4 11.6L1.5 10L8.4 8.4L10 1.5Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 export function MicIcon({ size = 14 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">

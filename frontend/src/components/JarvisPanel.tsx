@@ -18,7 +18,7 @@ import {
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { HunterIcon } from './HunterIcon';
-import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CopyIcon, MicIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
+import { BookIcon, CheckIcon, ClipIcon, CloseIcon, CopyIcon, MicIcon, SparkleIcon, SuccessIcon, ThinkingIcon, ThumbDownIcon, ThumbUpIcon, WarningIcon } from './HunterMiniIcons';
 
 // Ditado por voz (Web Speech API) — só Chrome/Edge/derivados suportam hoje
 // (window.SpeechRecognition ainda não existe no lib.dom.d.ts do TypeScript
@@ -885,13 +885,40 @@ function LoadingPhrase({ userText, hasImage }: { userText: string; hasImage: boo
   const frases = escolherFrases({ userText, hasImage });
   const [index, setIndex] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setIndex(i => (i + 1) % frases.length), 1800);
+    // Avança uma vez por frase e PARA na última ("Escrevendo resposta...")
+    // em vez de voltar pro início — antes o ciclo era infinito (% frases.
+    // length), então numa espera mais longa "Escrevendo resposta..." podia
+    // aparecer, sumir e voltar 2-3 vezes antes da resposta chegar de
+    // verdade, o que é enganoso (parecia que já tinha começado a escrever
+    // e não tinha). Agora ela aparece uma vez só e fica ali até acabar.
+    const id = setInterval(() => {
+      setIndex(i => (i < frases.length - 1 ? i + 1 : i));
+    }, 1800);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userText, hasImage]);
   // key={index} força remontar o <span> a cada troca, pra animação de fade
   // rodar de novo em cada frase (senão só o texto trocaria sem transição).
   return <span key={index} className="jarvis-typing-phrase">{frases[index]}</span>;
+}
+
+// Cronômetro tipo o do Claude Code — conta quanto tempo a espera está
+// levando, começando do zero quando a mensagem de loading aparece. Só serve
+// pra dar noção do tempo real, não afeta nada da lógica de espera em si.
+function ElapsedTimer() {
+  const [segundos, setSegundos] = useState(0);
+  useEffect(() => {
+    const inicio = Date.now();
+    const id = setInterval(() => setSegundos(Math.floor((Date.now() - inicio) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const min = Math.floor(segundos / 60);
+  const seg = segundos % 60;
+  return (
+    <span className="jarvis-elapsed-timer">
+      {min > 0 ? `${min}m ${seg}s` : `${seg}s`}
+    </span>
+  );
 }
 
 // Raciocínio real do Gemini antes da resposta — recolhido por padrão (é
@@ -1477,11 +1504,12 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                   <div key={m.id} className="jarvis-msg-row">
                     <span className="jarvis-avatar"><HunterIcon size={22} alive /></span>
                     <div className="jarvis-bubble jarvis-bubble--assistant jarvis-bubble--loading">
-                      <span className="jarvis-typing"><span></span><span></span><span></span></span>
+                      <span className="jarvis-typing-sparkle"><SparkleIcon /></span>
                       <LoadingPhrase
                         userText={gatilho?.role === 'user' ? gatilho.text : ''}
                         hasImage={gatilho?.role === 'user' && !!gatilho.imageDataUrl}
                       />
+                      <ElapsedTimer />
                     </div>
                   </div>
                 );
@@ -1569,6 +1597,17 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
             >
               <ClipIcon />
             </button>
+            <textarea
+              ref={textareaRef}
+              className="jarvis-input"
+              rows={1}
+              value={input}
+              onChange={e => { setInput(e.target.value); setHistoryNav(null); }}
+              onKeyDown={handleInputKeyDown}
+              onPaste={handlePaste}
+              placeholder="Pergunte algo pro Hunter..."
+              disabled={busy}
+            />
             {micSupported && (
               <button
                 type="button"
@@ -1581,17 +1620,6 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                 <MicIcon />
               </button>
             )}
-            <textarea
-              ref={textareaRef}
-              className="jarvis-input"
-              rows={1}
-              value={input}
-              onChange={e => { setInput(e.target.value); setHistoryNav(null); }}
-              onKeyDown={handleInputKeyDown}
-              onPaste={handlePaste}
-              placeholder="Pergunte algo pro Hunter... (Shift+Enter quebra linha, ↑ recupera mensagens, cole um print com Ctrl+V)"
-              disabled={busy}
-            />
             <button type="submit" className="jarvis-send-btn" disabled={busy || (!input.trim() && !attachedImage)} aria-label="Enviar">➤</button>
           </form>
         </>
