@@ -2,6 +2,7 @@ import { ChangeEvent, DragEvent, FormEvent, useEffect, useRef, useState } from '
 import { AiStatus } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { GitHubFetchError, useGitHubProfile } from '../hooks/useGitHubProfile';
+import { useGmail } from '../hooks/useGmail';
 import { RetrainModal } from './RetrainModal';
 
 interface Props {
@@ -41,6 +42,7 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
 
   const { profile, fileName, setProfile } = useCandidateProfile();
   const github = useGitHubProfile();
+  const gmail = useGmail();
   const [githubInput, setGithubInput] = useState('');
   const [githubLoading, setGithubLoading] = useState(false);
   const [githubError, setGithubError] = useState('');
@@ -413,6 +415,40 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
             )}
           </div>
         )}
+
+        <div className="settings-section">
+          <h3 className="settings-section-title">📧 Gmail</h3>
+          {!gmail.loading && !gmail.configured && (
+            <p className="agenda-hint">
+              Integração não configurada — precisa de um client OAuth do Google Cloud Console
+              (variáveis <code>GOOGLE_OAUTH_CLIENT_ID</code>/<code>GOOGLE_OAUTH_CLIENT_SECRET</code> no <code>.env</code>).
+            </p>
+          )}
+          {!gmail.loading && gmail.configured && !gmail.connected && (
+            <>
+              <p className="agenda-hint">
+                Conecta o Hunter ao seu Gmail (só-leitura) pra ele achar vagas nos emails de alerta
+                da LinkedIn e sugerir importar pro Job Radar — você sempre confirma cada uma antes de
+                qualquer coisa entrar no banco, nada é adicionado sozinho.
+              </p>
+              <button type="button" className="btn btn-ghost" onClick={gmail.connect} disabled={gmail.connecting}>
+                {gmail.connecting ? 'Abrindo o Google...' : '📧 Conectar Gmail'}
+              </button>
+            </>
+          )}
+          {!gmail.loading && gmail.connected && (
+            <>
+              <p className="agenda-hint">
+                ✅ Conectado{gmail.email ? ` como ${gmail.email}` : ''}. Peça pro Hunter no chat, ex:
+                "vê se tem vaga nova no meu email" (ou <code>/emails</code>).
+              </p>
+              <button type="button" className="btn btn-ghost" onClick={gmail.disconnect}>
+                Desconectar Gmail
+              </button>
+            </>
+          )}
+          {gmail.error && <p className="agenda-error">{gmail.error}</p>}
+        </div>
 
         <div className="settings-section">
           <h3 className="settings-section-title">🔒 Área avançada</h3>

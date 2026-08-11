@@ -39,6 +39,24 @@ gemini:
   # quanto novos (resolveu pra gemini-3.6-flash nos dois em ago/2026).
   model: ${GEMINI_MODEL:gemini-flash-latest}
 
+google:
+  oauth:
+    # Vazio por padrão — a integração com Gmail fica desativada (Configurações
+    # mostra "não configurado") sem essas duas. Geradas em
+    # console.cloud.google.com (Credenciais > Criar credenciais > ID do
+    # cliente OAuth, tipo "Aplicativo da Web"). Não são as mesmas keys do
+    # Gemini — projeto separado ou o mesmo, tanto faz, só precisa a Gmail API
+    # ativada nele.
+    client-id: ${GOOGLE_OAUTH_CLIENT_ID:}
+    client-secret: ${GOOGLE_OAUTH_CLIENT_SECRET:}
+    # Precisa bater EXATAMENTE (incluindo protocolo/porta) com um dos "URIs de
+    # redirecionamento autorizados" cadastrados no client OAuth no Google
+    # Cloud Console, senão a Google recusa o callback com redirect_uri_mismatch.
+    redirect-uri: ${GOOGLE_OAUTH_REDIRECT_URI:http://localhost:8080/api/gmail/oauth/callback}
+    # Pra onde o navegador volta depois do callback processar o código —
+    # a origem do frontend, não do backend.
+    frontend-origin: ${FRONTEND_ORIGIN:http://localhost:3000}
+
 logging:
   level:
     br.com.jobradar: INFO

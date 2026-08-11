@@ -13,6 +13,7 @@ import {
   JarvisCompatibilidadeHit,
   JarvisDetalharVagasData,
   JarvisDuplicatasData,
+  JarvisEmailVagasData,
   JarvisFixarVagaData,
   JarvisFontesData,
   JarvisLembrarData,
@@ -139,6 +140,7 @@ const SLASH_COMMANDS: { cmd: string; label: string; phrase: string }[] = [
   { cmd: '/fontes', label: 'Desempenho por fonte', phrase: 'Qual fonte de vaga tá me dando mais retorno?' },
   { cmd: '/duplicatas', label: 'Vagas duplicadas', phrase: 'Tem alguma vaga duplicada no meu feed?' },
   { cmd: '/mercado', label: 'Perfil vs. mercado', phrase: 'Compara meu perfil com o que o mercado mais pede' },
+  { cmd: '/emails', label: 'Vagas nos emails da LinkedIn', phrase: 'Vê se tem vaga nova nos meus emails da LinkedIn' },
 ];
 
 // Estilo de resposta — presets de tom (Normal/Conciso/Formal), inspirado nos
@@ -1260,6 +1262,106 @@ function BuscaSemanticaCard({ data }: { data: JarvisBuscaSemanticaData }) {
   );
 }
 
+// Vagas achadas em emails de alerta da LinkedIn (Gmail só-leitura, ver
+// GmailService) — NADA entra no banco sozinho, o usuário marca quais quer
+// e clica em adicionar. Reaproveita o mesmo POST /api/jobs/manual que o
+// botão "➕ Adicionar vaga" da tela principal usa, então cai no mesmo dedupe
+// por URL (mandar a mesma vaga duas vezes não duplica).
+function EmailVagasCard({ data, onJobsChanged }: { data: JarvisEmailVagasData; onJobsChanged?: (vagaId?: number) => void }) {
+  const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
+  const [status, setStatus] = useState<'idle' | 'adicionando' | 'feito'>('idle');
+  const [resultado, setResultado] = useState<{ ok: number; falhas: number } | null>(null);
+
+  if (!data.conectado) {
+    return (
+      <p className="jarvis-scan-warning">
+        <WarningIcon /> Gmail não conectado — abra ⚙️ Configurações e clique em "Conectar Gmail" primeiro.
+      </p>
+    );
+  }
+  if (data.erro) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro}</p>;
+  }
+  if (data.vagas.length === 0) {
+    return <p className="jarvis-scan-intro">Nenhuma vaga da LinkedIn achada nos emails desse período.</p>;
+  }
+
+  const toggle = (idx: number) => {
+    setSelecionadas(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
+
+  const handleAdicionar = async () => {
+    setStatus('adicionando');
+    let ok = 0, falhas = 0;
+    for (const idx of selecionadas) {
+      const v = data.vagas[idx];
+      try {
+        const res = await fetch('/api/jobs/manual', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: v.titulo,
+            company: v.empresa && v.empresa.trim() ? v.empresa : 'LinkedIn (empresa não identificada)',
+            url: v.url,
+            source: 'LINKEDIN_EMAIL',
+            status: 'NOVA',
+          }),
+        });
+        if (res.ok) ok++; else falhas++;
+      } catch {
+        falhas++;
+      }
+    }
+    setResultado({ ok, falhas });
+    setStatus('feito');
+    setSelecionadas(new Set());
+    if (ok > 0) onJobsChanged?.();
+  };
+
+  return (
+    <div className="jarvis-email-vagas">
+      <ul className="jarvis-email-vagas-list">
+        {data.vagas.map((v, idx) => (
+          <li key={v.url}>
+            <label className="jarvis-email-vaga-item">
+              <input
+                type="checkbox"
+                checked={selecionadas.has(idx)}
+                onChange={() => toggle(idx)}
+                disabled={status === 'adicionando'}
+              />
+              <span className="jarvis-email-vaga-info">
+                <a href={v.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{v.titulo}</a>
+                <span className="jarvis-hit-company">{v.empresa ?? '—'}</span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      {status !== 'feito' && (
+        <button
+          type="button"
+          className="jarvis-retry-btn"
+          onClick={handleAdicionar}
+          disabled={selecionadas.size === 0 || status === 'adicionando'}
+        >
+          {status === 'adicionando' ? 'Adicionando...' : `Adicionar selecionadas (${selecionadas.size})`}
+        </button>
+      )}
+      {resultado && (
+        <p className="jarvis-hit-resumo jarvis-hit-resumo--icon">
+          <SuccessIcon /> {resultado.ok} adicionada{resultado.ok === 1 ? '' : 's'}
+          {resultado.falhas > 0 ? `, ${resultado.falhas} falharam` : ''}.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function LembreteAgendaCard({ data }: { data: JarvisLembreteAgendaData }) {
   const { isConnected, savedEmail, login, createTask, linkTask } = useAgenda();
   const [step, setStep] = useState<'proposta' | 'connect' | 'criado'>('proposta');
@@ -1442,6 +1544,7 @@ const TOOL_PHRASES: Record<string, string> = {
   compararStackComMercado: 'Comparando seu perfil com o mercado...',
   criarLembreteNaAgenda: 'Montando a proposta de lembrete...',
   buscarVagasPorSignificado: 'Buscando por significado...',
+  verificarEmailsDeVagasLinkedIn: 'Vasculhando emails da LinkedIn...',
   perguntarUsuario: 'Preparando uma pergunta...',
 };
 
@@ -1707,8 +1810,8 @@ function ChatMessageActions({ text, featureKey }: { text: string; featureKey: st
   );
 }
 
-function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
-  result: JarvisToolResult; candidateProfile: string; planFeedbackContext: string;
+function ToolResultCard({ result, candidateProfile, planFeedbackContext, onJobsChanged }: {
+  result: JarvisToolResult; candidateProfile: string; planFeedbackContext: string; onJobsChanged?: (vagaId?: number) => void;
 }) {
   switch (result.tool) {
     case 'listarVagas':
@@ -1764,6 +1867,8 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <LembreteAgendaCard data={result.data as JarvisLembreteAgendaData} />;
     case 'buscarVagasPorSignificado':
       return <BuscaSemanticaCard data={result.data as JarvisBuscaSemanticaData} />;
+    case 'verificarEmailsDeVagasLinkedIn':
+      return <EmailVagasCard data={result.data as JarvisEmailVagasData} onJobsChanged={onJobsChanged} />;
     default:
       return null;
   }
@@ -2775,6 +2880,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
                                 result={tr}
                                 candidateProfile={profile}
                                 planFeedbackContext={buildPlanFeedbackContext()}
+                                onJobsChanged={onJobsChanged}
                               />
                             </div>
                           );

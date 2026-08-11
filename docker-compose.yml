@@ -40,6 +40,15 @@ services:
       # Opcional — só o botão "🔒 Retreinar modelo de salário" nas Configurações
       # funciona com isso preenchido (gate simples, não é segurança de verdade).
       RETRAIN_SECRET_CODE: ${RETRAIN_SECRET_CODE:-}
+      # Opcional — integração Gmail (Configurações > "📧 Gmail") fica
+      # desativada sem essas duas. Geradas em console.cloud.google.com,
+      # credenciais OAuth tipo "Aplicativo da Web" com a Gmail API ativada.
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      # Precisa bater com um dos "URIs de redirecionamento autorizados" do
+      # client OAuth no Google Cloud Console.
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8080/api/gmail/oauth/callback}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
     volumes:
       # Persiste o modelo de salário retreinado fora da imagem — sem isso,
       # um "docker compose up --build" voltaria pro modelo empacotado no jar

@@ -2196,6 +2196,23 @@ a:hover { text-decoration: underline; }
 .jarvis-hit-resumo--flex svg { flex-shrink: 0; margin-top: 0.15rem; }
 .jarvis-hit-resumo--icon { display: flex; align-items: center; gap: 0.35rem; color: var(--green); }
 
+/* Card de vagas achadas nos emails da LinkedIn (verificarEmailsDeVagasLinkedIn)
+   — lista com checkbox, nada é adicionado sem o usuário marcar e confirmar. */
+.jarvis-email-vagas { display: flex; flex-direction: column; gap: 0.6rem; }
+.jarvis-email-vagas-list { display: flex; flex-direction: column; gap: 0.3rem; }
+.jarvis-email-vaga-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.jarvis-email-vaga-item:hover { background: var(--bg-card2); }
+.jarvis-email-vaga-item input[type="checkbox"] { flex-shrink: 0; accent-color: var(--accent); width: 15px; height: 15px; }
+.jarvis-email-vaga-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.jarvis-email-vaga-info a { font-size: 0.82rem; }
+
 .jarvis-compare {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
