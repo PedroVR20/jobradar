@@ -2029,6 +2029,32 @@ a:hover { text-decoration: underline; }
   border-bottom-right-radius: 4px;
   margin-left: auto;
 }
+.jarvis-user-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  align-self: flex-end;
+  max-width: 88%;
+}
+.jarvis-user-row .jarvis-bubble--user { align-self: unset; margin-left: 0; max-width: 100%; }
+.jarvis-edit-msg-btn {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s;
+  cursor: pointer;
+  margin-bottom: 3px;
+}
+.jarvis-user-row:hover .jarvis-edit-msg-btn { opacity: 1; }
+.jarvis-edit-msg-btn:hover { color: var(--accent); }
 .jarvis-bubble--assistant {
   flex: 1;
   min-width: 0;

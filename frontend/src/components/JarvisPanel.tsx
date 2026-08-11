@@ -2181,6 +2181,23 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
     abortControllerRef.current?.abort();
   };
 
+  // Editar e reenviar — diferente de "regenerar" (que gastaria cota de IA
+  // pra talvez repetir a mesma resposta): isso corrige o pedido mal
+  // formulado, que é o caso real mais comum. Trunca a conversa a partir
+  // dessa mensagem (ela e tudo que veio depois somem) e joga o texto de
+  // volta no campo pra reenviar já editado.
+  const handleEditMessage = (messageId: number) => {
+    if (busy) return;
+    const msg = messages.find(m => m.id === messageId);
+    if (!msg || msg.role !== 'user') return;
+    patchActive(msgs => {
+      const idx = msgs.findIndex(m => m.id === messageId);
+      return idx === -1 ? msgs : msgs.slice(0, idx);
+    });
+    setInput(msg.text);
+    textareaRef.current?.focus();
+  };
+
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter manda a mensagem (como todo chat) — Shift+Enter quebra linha
     // normalmente. Precisa checar isComposing pra não disparar envio no meio
@@ -2427,9 +2444,22 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
               }
               if (m.role === 'user') {
                 return (
-                  <div key={m.id} className={`jarvis-bubble jarvis-bubble--user ${turnoClass}`}>
-                    {m.imageDataUrl && <img src={m.imageDataUrl} alt="Print anexado" className="jarvis-msg-image" />}
-                    {m.text}
+                  <div key={m.id} className={`jarvis-user-row ${turnoClass}`}>
+                    <div className="jarvis-bubble jarvis-bubble--user">
+                      {m.imageDataUrl && <img src={m.imageDataUrl} alt="Print anexado" className="jarvis-msg-image" />}
+                      {m.text}
+                    </div>
+                    {!busy && (
+                      <button
+                        type="button"
+                        className="jarvis-edit-msg-btn"
+                        onClick={() => handleEditMessage(m.id)}
+                        title="Editar e reenviar"
+                        aria-label="Editar e reenviar essa mensagem"
+                      >
+                        <PencilIcon size={11} />
+                      </button>
+                    )}
                   </div>
                 );
               }
