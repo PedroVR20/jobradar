@@ -28,6 +28,7 @@ import {
 } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
+import { useAiStatus } from '../hooks/useAiStatus';
 import { HunterIcon } from './HunterIcon';
 import {
   BookIcon, ChartIcon, ChatBubbleIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon,
@@ -1479,6 +1480,11 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   const { buildContext: buildChatFeedbackContext } = useAiFeedback('jarvis-chat');
   const combinedFeedbackContext = () =>
     [buildMatchFeedbackContext(), buildChatFeedbackContext()].filter(s => s.trim()).join('\n');
+  // Aviso de cota baixa — mesmo endpoint que ⚙️ Configurações usa, refresh()
+  // chamado de novo depois de cada resposta do Hunter pra refletir o consumo
+  // em tempo real (não é só um número estático do momento em que abriu).
+  const { keyPool, refresh: refreshAiStatus } = useAiStatus();
+  const quotaBaixa = keyPool != null && keyPool.total > 0 && keyPool.availableToday <= Math.max(1, Math.ceil(keyPool.total * 0.15));
   const [conversations, setConversations] = useState<Conversation[]>(loadConversations);
   const [activeId, setActiveId] = useState<string>(loadActiveId);
   const [view, setView] = useState<'chat' | 'history'>('chat');
@@ -1763,6 +1769,7 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           && (tr.data as { sucesso?: boolean })?.sucesso
       );
       if (escritaOk) onJobsChanged?.((escritaOk.data as { vagaId?: number }).vagaId);
+      refreshAiStatus();
     } catch {
       removeLoading();
       addMessage({ role: 'assistant', text: 'Deu erro de conexão com o backend. Tenta de novo?' } as Omit<Message, 'id'>);
@@ -1933,6 +1940,13 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           <button className="jarvis-header-icon-btn" onClick={handleRequestClose} aria-label="Fechar"><CloseIcon size={13} /></button>
         </div>
       </div>
+
+      {quotaBaixa && view === 'chat' && (
+        <p className="jarvis-quota-warning">
+          <WarningIcon /> Cota da IA quase no fim hoje ({keyPool!.availableToday} de {keyPool!.total} keys
+          disponíveis) — respostas podem parar de funcionar até amanhã.
+        </p>
+      )}
 
       {view === 'history' ? (
         <HistoryView

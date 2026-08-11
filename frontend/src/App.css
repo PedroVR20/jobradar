@@ -2011,6 +2011,18 @@ a:hover { text-decoration: underline; }
 
 .jarvis-scan-intro { margin-bottom: 0.6rem; }
 .jarvis-scan-warning { margin-top: 0.6rem; color: var(--yellow); font-size: 0.78rem; display: flex; align-items: center; gap: 0.35rem; }
+.jarvis-quota-warning {
+  margin: 0.5rem 0.75rem 0;
+  padding: 0.5rem 0.7rem;
+  background: #f59e0b18;
+  border: 1px solid #f59e0b44;
+  border-radius: 8px;
+  color: var(--yellow);
+  font-size: 0.76rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
 
 .jarvis-hits { display: flex; flex-direction: column; gap: 0.6rem; }
 .jarvis-hit {

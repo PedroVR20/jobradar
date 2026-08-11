@@ -92,9 +92,19 @@ public class GeminiService {
     // bruto (`candidates/0/content`) quando dá certo, e a classificação do
     // erro (diário vs por minuto) que o rodízio usa pra decidir se marca a
     // key como esgotada ou só pula pra próxima. Nunca sai do GeminiService.
-    private record Attempt(JsonNode content, String message, boolean dailyLimit, boolean minuteLimit) {
+    // keyRejected: 401/403 — a KEY em si foi recusada (inválida, revogada,
+    // sem permissão), não é limite de cota. Antes isso abortava o rodízio
+    // inteiro na primeira key ruim, mesmo com outras keys saudáveis no pool
+    // logo depois — agora pula pra próxima key igual faz com rate limit,
+    // bem mais persistente (uma key com problema não devia derrubar o chat
+    // inteiro se há outras funcionando).
+    private record Attempt(JsonNode content, String message, boolean dailyLimit, boolean minuteLimit, boolean keyRejected) {
+        Attempt(JsonNode content, String message, boolean dailyLimit, boolean minuteLimit) {
+            this(content, message, dailyLimit, minuteLimit, false);
+        }
         boolean ok() { return content != null; }
         boolean isRateLimit() { return dailyLimit || minuteLimit; }
+        boolean skipToNextKey() { return dailyLimit || minuteLimit || keyRejected; }
     }
 
     // Resultado do rodízio completo — sucesso com o content bruto, ou falha
@@ -387,8 +397,12 @@ public class GeminiService {
             if (attempt.minuteLimit()) {
                 continue; // rate limit por minuto — tenta a próxima key na mesma passada
             }
-            // erro que não é de rate limit (rede, resposta inesperada) — não
-            // adianta insistir com outra key, devolve na hora
+            if (attempt.keyRejected()) {
+                continue; // key específica recusada (401/403) — outras do pool podem estar ok
+            }
+            // erro que não é de rate limit nem de key específica (rede,
+            // resposta inesperada) — esse tipo tende a repetir em qualquer
+            // key, não adianta insistir, devolve na hora
             return new PoolResult(null, attempt.message(), false);
         }
 
@@ -398,6 +412,11 @@ public class GeminiService {
         }
         if (last != null && last.dailyLimit() && size > 1) {
             return new PoolResult(null, dailyLimitMessage(size), true);
+        }
+        if (last != null && last.keyRejected() && size > 1) {
+            return new PoolResult(null,
+                    "Nenhuma das " + size + " keys do Gemini configuradas foi aceita (erro de autenticação/permissão). "
+                            + "Confira se GEMINI_API_KEYS ainda tem chaves válidas.", false);
         }
         return new PoolResult(null,
                 last != null ? last.message() : "Não foi possível falar com o Gemini agora. Tente de novo em instantes.",
@@ -456,6 +475,13 @@ public class GeminiService {
             return new Attempt(null,
                     "Limite de requisições por minuto do Gemini atingido. Espere cerca de 20-30 segundos e tente de novo.",
                     false, true);
+        }
+
+        if (status.value() == 401 || status.value() == 403) {
+            log.warn("Gemini: key ...{} recusada (erro {}): {}", slot.tail, status.value(), bodyText);
+            return new Attempt(null,
+                    "Uma das keys do Gemini foi recusada (erro " + status.value() + " — inválida ou sem permissão).",
+                    false, false, true);
         }
 
         log.warn("Gemini respondeu {} : {}", status, bodyText);
