@@ -12,6 +12,7 @@ import {
   JarvisDuplicatasData,
   JarvisFixarVagaData,
   JarvisFontesData,
+  JarvisLembrarData,
   JarvisHistoricoEmpresaData,
   JarvisListarVagasData,
   JarvisMarcarStatusData,
@@ -29,6 +30,7 @@ import {
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { useAiStatus } from '../hooks/useAiStatus';
+import { useHunterMemory } from '../hooks/useHunterMemory';
 import { HunterIcon } from './HunterIcon';
 import {
   BookIcon, ChartIcon, ChatBubbleIcon, CheckIcon, ClipIcon, CloseIcon, CompactIcon, CopyIcon,
@@ -1068,6 +1070,17 @@ function AtualizarNotaCard({ data }: { data: JarvisAtualizarNotaData }) {
   );
 }
 
+function LembrarCard({ data }: { data: JarvisLembrarData }) {
+  if (!data.sucesso) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui guardar essa preferência.'}</p>;
+  }
+  return (
+    <p className="jarvis-hit-resumo jarvis-hit-resumo--icon">
+      <ThinkingIcon /> Vou lembrar: <strong>{data.texto}</strong>
+    </p>
+  );
+}
+
 function FixarVagaCard({ data }: { data: JarvisFixarVagaData }) {
   if (!data.sucesso) {
     return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui fixar/desafixar essa vaga.'}</p>;
@@ -1344,6 +1357,8 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <AdicionarVagaCard data={result.data as JarvisAdicionarVagaData} />;
     case 'apagarVaga':
       return <ApagarVagaCard data={result.data as JarvisApagarVagaData} />;
+    case 'lembrarPreferencia':
+      return <LembrarCard data={result.data as JarvisLembrarData} />;
     default:
       return null;
   }
@@ -1485,6 +1500,8 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
   // em tempo real (não é só um número estático do momento em que abriu).
   const { keyPool, refresh: refreshAiStatus } = useAiStatus();
   const quotaBaixa = keyPool != null && keyPool.total > 0 && keyPool.availableToday <= Math.max(1, Math.ceil(keyPool.total * 0.15));
+  const hunterMemory = useHunterMemory();
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>(loadConversations);
   const [activeId, setActiveId] = useState<string>(loadActiveId);
   const [view, setView] = useState<'chat' | 'history'>('chat');
@@ -1728,7 +1745,10 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       const res = await fetch('/api/jobs/assistant/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ history, candidateProfile: profile, feedbackContext: combinedFeedbackContext() }),
+        body: JSON.stringify({
+          history, candidateProfile: profile, feedbackContext: combinedFeedbackContext(),
+          memoryContext: hunterMemory.buildContext(),
+        }),
       });
       removeLoading();
 
@@ -1769,6 +1789,14 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           && (tr.data as { sucesso?: boolean })?.sucesso
       );
       if (escritaOk) onJobsChanged?.((escritaOk.data as { vagaId?: number }).vagaId);
+
+      // lembrarPreferencia não muda nada no banco — quem persiste é o
+      // frontend mesmo (ver useHunterMemory), o backend só devolve o texto.
+      const lembrou = data.toolResults?.find(
+        tr => tr.tool === 'lembrarPreferencia' && (tr.data as { sucesso?: boolean })?.sucesso
+      );
+      if (lembrou) hunterMemory.add((lembrou.data as { texto: string }).texto);
+
       refreshAiStatus();
     } catch {
       removeLoading();
@@ -1936,6 +1964,47 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
           >
             <CompactIcon />
           </button>
+          {hunterMemory.items.length > 0 && (
+            <div className="jarvis-memory-wrap">
+              <button
+                className={`jarvis-header-icon-btn ${memoryOpen ? 'jarvis-header-icon-btn--active' : ''}`}
+                onClick={() => setMemoryOpen(o => !o)}
+                title="Preferências que o Hunter lembra entre conversas"
+                aria-label="Ver preferências lembradas"
+              >
+                <ThinkingIcon />
+              </button>
+              {memoryOpen && (
+                <div className="jarvis-memory-popover">
+                  <div className="jarvis-memory-popover-head">
+                    <span>O que o Hunter lembra</span>
+                    <button
+                      className="jarvis-history-item-delete"
+                      onClick={hunterMemory.clear}
+                      title="Esquecer tudo"
+                      aria-label="Esquecer tudo"
+                    >
+                      <TrashIcon />
+                    </button>
+                  </div>
+                  <ul className="jarvis-memory-list">
+                    {hunterMemory.items.map(item => (
+                      <li key={item.texto}>
+                        <span>{item.texto}</span>
+                        <button
+                          className="jarvis-memory-remove"
+                          onClick={() => hunterMemory.remove(item.texto)}
+                          aria-label={`Esquecer "${item.texto}"`}
+                        >
+                          <CloseIcon size={10} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
           <button className="jarvis-header-icon-btn" onClick={handleNewConversation} title="Nova conversa"><PlusIcon /></button>
           <button className="jarvis-header-icon-btn" onClick={handleRequestClose} aria-label="Fechar"><CloseIcon size={13} /></button>
         </div>

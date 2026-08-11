@@ -272,7 +272,11 @@ public class JarvisChatService {
     }
 
     public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile) {
-        return conversar(historico, candidateProfile, null);
+        return conversar(historico, candidateProfile, null, null);
+    }
+
+    public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext) {
+        return conversar(historico, candidateProfile, feedbackContext, null);
     }
 
     // feedbackContext: 👍/👎 salvos em ⚙️/nos cards de vaga (useAiFeedback no
@@ -280,7 +284,14 @@ public class JarvisChatService {
     // endpoints diretos (match-score, learning-plan), nunca no chat. Agora o
     // Hunter usa o MESMO histórico de feedback, então o que o usuário avalia
     // ali também refina o que o Hunter mostra na conversa.
-    public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext) {
+    //
+    // memoryContext: diferente de feedbackContext (que é sobre ESTILO das
+    // respostas) — são fatos/preferências que o próprio usuário pediu
+    // explicitamente pra lembrar (ferramenta lembrarPreferencia), tipo "só
+    // me mostra vaga remota" ou "não quero nada de SP". Vive inteiramente no
+    // localStorage do navegador (useHunterMemory) — o backend não persiste
+    // nada, só recebe a lista pronta a cada requisição e injeta na instrução.
+    public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext, String memoryContext) {
         if (historico == null || historico.isEmpty()) {
             return new ChatOutcome(null, null, List.of(), "Mensagem vazia.", false);
         }
@@ -317,9 +328,17 @@ public class JarvisChatService {
                         "(curtiu/não curtiu + comentário) — leve em conta pra ajustar tom, formato ou nível " +
                         "de detalhe das próximas respostas:\n" + feedbackContext
                 : SYSTEM_INSTRUCTION;
+        // Preferências que o usuário pediu EXPLICITAMENTE pra lembrar (não é
+        // feedback de estilo, são fatos/regras reais pra aplicar sempre que
+        // relevante — ex: filtro implícito de local/modalidade em listarVagas).
+        String systemInstructionFinal = memoryContext != null && !memoryContext.isBlank()
+                ? systemInstructionComFeedback + "\n\nPreferências que o usuário já pediu pra você lembrar entre " +
+                        "conversas (aplique sempre que fizer sentido pro pedido atual, sem precisar que ele repita):\n" +
+                        memoryContext
+                : systemInstructionComFeedback;
 
         for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
-            GeminiService.ChatResult resultado = geminiService.chat(systemInstructionComFeedback, contents, tools, true);
+            GeminiService.ChatResult resultado = geminiService.chat(systemInstructionFinal, contents, tools, true);
             if (!resultado.ok()) {
                 return new ChatOutcome(null, null, toolResults, resultado.errorMessage(), resultado.rateLimited());
             }
@@ -489,6 +508,16 @@ public class JarvisChatService {
                 "required", List.of("titulo", "empresa", "url")
         );
 
+        Map<String, Object> lembrarPreferenciaParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "texto", Map.of("type", "STRING", "description",
+                                "A preferência/fato em si, escrito de forma clara e reutilizável (ex: 'só mostrar " +
+                                        "vagas remotas', 'não gosta de vagas de recrutamento/RH', 'salário mínimo aceitável é R$ 6000').")
+                ),
+                "required", List.of("texto")
+        );
+
         Map<String, Object> apagarVagaParams = Map.of(
                 "type", "OBJECT",
                 "properties", Map.of(
@@ -638,6 +667,15 @@ public class JarvisChatService {
                                 "existir uma com a mesma URL). Peça título, empresa e link antes de chamar se o " +
                                 "usuário não tiver dado os três.",
                         adicionarVagaParams),
+                new GeminiService.FunctionDeclaration("lembrarPreferencia",
+                        "Guarda uma preferência/fato que o usuário disse explicitamente (ou deu a entender com " +
+                                "clareza) que quer que você lembre nas PRÓXIMAS conversas, não só nessa — ex: 'só me " +
+                                "mostra vaga remota', 'não gosto de vaga com processo muito longo', 'meu salário " +
+                                "mínimo é X'. Não usa isso pra fatos triviais de uma mensagem só. Fica salvo no " +
+                                "navegador do usuário (não é banco de dados) e volta pra você automaticamente em " +
+                                "toda conversa futura — não precisa (nem pode) 'listar' o que já foi salvo, isso " +
+                                "já aparece sozinho na sua instrução quando relevante.",
+                        lembrarPreferenciaParams),
                 new GeminiService.FunctionDeclaration("apagarVaga",
                         "APAGA a vaga do banco de dados PRA SEMPRE, sem volta — não é mudar status pra Recusada, é " +
                                 "remover o registro inteiro. SEMPRE chame perguntarUsuario pra confirmar antes de " +
@@ -700,6 +738,7 @@ public class JarvisChatService {
             case "fixarVaga" -> executarFixarVaga(chamada.args());
             case "adicionarVagaManual" -> executarAdicionarVagaManual(chamada.args());
             case "apagarVaga" -> executarApagarVaga(chamada.args());
+            case "lembrarPreferencia" -> executarLembrarPreferencia(chamada.args());
             case "marcarStatusDeVaga" -> executarMarcarStatus(chamada.args());
             case "atualizarNotaDeVaga" -> executarAtualizarNota(chamada.args());
             default -> Map.of("erro", "Ferramenta desconhecida: " + chamada.name());
@@ -1397,6 +1436,21 @@ public class JarvisChatService {
         m.put("titulo", job.getTitle());
         m.put("empresa", job.getCompany());
         m.put("status", status);
+        return m;
+    }
+
+    // Não persiste nada aqui de verdade — quem guarda é o frontend
+    // (localStorage, ver useHunterMemory), o backend só devolve o texto pro
+    // JarvisPanel saber o que salvar. Ver comentário no parâmetro
+    // memoryContext de conversar() sobre por que é assim.
+    private Object executarLembrarPreferencia(Map<String, Object> args) {
+        String texto = args.get("texto") instanceof String s && !s.isBlank() ? s.trim() : null;
+        if (texto == null) {
+            return Map.of("erro", "Preciso do texto da preferência a lembrar.");
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("sucesso", true);
+        m.put("texto", texto);
         return m;
     }
 

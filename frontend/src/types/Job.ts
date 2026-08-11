@@ -354,15 +354,23 @@ export interface JarvisApagarVagaData {
   erro?: string;
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta lembrarPreferencia
+// (não muda nada no banco — quem persiste é o frontend, ver useHunterMemory)
+export interface JarvisLembrarData {
+  sucesso?: boolean;
+  texto?: string;
+  erro?: string;
+}
+
 export interface JarvisToolResult {
   tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil'
     | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga' | 'atualizarNotaDeVaga'
     | 'gerarCartaDeApresentacao' | 'metricasDeDesempenho' | 'vagasComPrazoProximo' | 'detectarDuplicatas' | 'desempenhoPorFonte' | 'historicoDaEmpresa'
-    | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga';
+    | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga' | 'lembrarPreferencia';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
     | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData | JarvisAtualizarNotaData
     | JarvisCartaData | JarvisMetricasData | JarvisPrazoData | JarvisDuplicatasData | JarvisFontesData | JarvisHistoricoEmpresaData
-    | JarvisFixarVagaData | JarvisAdicionarVagaData | JarvisApagarVagaData;
+    | JarvisFixarVagaData | JarvisAdicionarVagaData | JarvisApagarVagaData | JarvisLembrarData;
 }
 
 // Pergunta interativa que o Hunter decidiu fazer (ferramenta perguntarUsuario)

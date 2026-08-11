@@ -1105,7 +1105,7 @@ public class JobController {
     // feedbackContext: 👍/👎 salvos pelo usuário nos cards de compatibilidade/
     // plano de ação (useAiFeedback no frontend) — mesmo texto que já
     // alimenta match-score e learning-plan, agora também chega no chat.
-    public record ChatRequest(List<ChatMessageDto> history, String candidateProfile, String feedbackContext) {}
+    public record ChatRequest(List<ChatMessageDto> history, String candidateProfile, String feedbackContext, String memoryContext) {}
 
     /**
      * Chat livre do Jarvis — diferente do compatibility-scan (ação fixa),
@@ -1129,8 +1129,9 @@ public class JobController {
                 : List.of();
         String perfil = req != null ? req.candidateProfile() : null;
         String feedbackContext = req != null ? req.feedbackContext() : null;
+        String memoryContext = req != null ? req.memoryContext() : null;
 
-        JarvisChatService.ChatOutcome resultado = jarvisChatService.conversar(historico, perfil, feedbackContext);
+        JarvisChatService.ChatOutcome resultado = jarvisChatService.conversar(historico, perfil, feedbackContext, memoryContext);
         if (!resultado.ok()) {
             return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
                     .body(Map.<String, Object>of("error", resultado.errorMessage()));
