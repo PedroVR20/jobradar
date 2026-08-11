@@ -1905,13 +1905,27 @@ a:hover { text-decoration: underline; }
      acompanham juntos em tempo real durante o arrasto, mesmo estando em
      partes bem separadas do DOM (o painel é portal pro body). */
   width: min(var(--jarvis-panel-width, 400px), 100vw);
-  background: var(--bg-card);
+  /* Antes era 100% opaco (var(--bg-card) sólido) — a leve translucidez +
+     blur dá a sensação de "camada flutuante" por cima do app (Claude
+     Desktop/ChatGPT fazem isso), em vez de painel colado sem profundidade.
+     Sem @supports: navegador sem backdrop-filter simplesmente ignora a regra
+     e o painel volta a ficar opaco (bg-card2, levemente mais escuro que
+     antes, ainda 100% legível). */
+  background: var(--bg-card2);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
   border-left: 1px solid var(--border);
-  box-shadow: -8px 0 32px rgba(0,0,0,0.5);
+  /* Sombra de profundidade original + um fio de brilho na borda esquerda na
+     cor de destaque do app — separa visualmente o painel do resto sem
+     precisar de uma borda grossa. */
+  box-shadow: -8px 0 32px rgba(0,0,0,0.5), inset 1px 0 0 #6366f133;
   z-index: 3000;
   display: flex;
   flex-direction: column;
-  animation: jarvis-slide-in 0.2s ease-out;
+  animation: jarvis-slide-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .jarvis-panel { background: var(--bg-card); }
 }
 .jarvis-resize-handle {
   position: absolute;
@@ -1931,12 +1945,16 @@ a:hover { text-decoration: underline; }
   animation: jarvis-slide-out 0.18s ease-in forwards;
 }
 @keyframes jarvis-slide-in {
-  from { transform: translateX(100%); opacity: 0.6; }
-  to   { transform: translateX(0); opacity: 1; }
+  /* Combina o slide horizontal com um leve scale-up (0.97 → 1) — o scale
+     sozinho é sutil demais pra notar, mas junto com o slide dá mais sensação
+     de profundidade/chegada do que só deslizar reto (o que o Claude Desktop
+     faz na abertura de painéis). */
+  from { transform: translateX(60px) scale(0.97); opacity: 0.6; }
+  to   { transform: translateX(0) scale(1); opacity: 1; }
 }
 @keyframes jarvis-slide-out {
-  from { transform: translateX(0); opacity: 1; }
-  to   { transform: translateX(100%); opacity: 0.6; }
+  from { transform: translateX(0) scale(1); opacity: 1; }
+  to   { transform: translateX(60px) scale(0.97); opacity: 0.6; }
 }
 
 .jarvis-header {
@@ -1964,7 +1982,49 @@ a:hover { text-decoration: underline; }
   transition: background 0.15s, color 0.15s;
 }
 .jarvis-header-icon-btn:hover { background: var(--bg-card2); color: var(--text); }
-.jarvis-header-icon-btn--active { background: #6366f122; color: var(--accent); }
+/* Preenchido sólido — o contorno roxo bem fraco de antes (#6366f122) quase
+   não aparecia contra o fundo escuro, especialmente pro ícone de pin na
+   lista de conversas (feedback direto do usuário). */
+.jarvis-header-icon-btn--active { background: var(--accent); color: #fff; }
+
+/* Menu "mais opções" — agrupa compacto/rápido/memória num dropdown em vez de
+   3 botões-ícone a mais na fileira do header (ver comentário no JSX). */
+.jarvis-more-wrap { position: relative; }
+.jarvis-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  padding: 0.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 200px;
+  z-index: 3010;
+  animation: jarvis-msg-in 0.15s ease-out;
+}
+.jarvis-more-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.jarvis-more-item span { flex: 1; }
+.jarvis-more-item:hover { background: var(--bg-card); }
+.jarvis-more-item--active { background: var(--accent); color: #fff; }
+.jarvis-more-item--active:hover { background: var(--accent); opacity: 0.9; }
+.jarvis-more-item--active svg { color: #fff; }
 
 .jarvis-messages {
   flex: 1;
@@ -2231,7 +2291,30 @@ a:hover { text-decoration: underline; }
   transition: color 0.15s, background 0.15s;
 }
 .jarvis-msg-action-btn:hover { color: var(--text); background: var(--bg-card2); }
-.jarvis-msg-action-btn--active { color: var(--accent); }
+.jarvis-msg-action-btn--active { background: var(--accent); color: #fff; border-radius: 999px; }
+
+/* Agrupa a barra de ações (copiar/ouvir/feedback) + o botão de fork numa
+   mesma linha — o fork fica fora de ChatMessageActions porque ele age sobre
+   a CONVERSA (cria uma nova), não sobre o texto dessa mensagem em si. */
+.jarvis-msg-actions-row { display: flex; align-items: center; gap: 0.3rem; }
+.jarvis-msg-actions-row .jarvis-msg-actions { margin-top: 0; }
+
+/* Botão de retry — só aparece embaixo de um aviso de erro real (ver
+   Message.isError), reenvia a última pergunta sem precisar redigitar. */
+.jarvis-retry-btn {
+  margin-top: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.jarvis-retry-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 .jarvis-compact-feedback { display: flex; align-items: center; gap: 0.3rem; }
 .jarvis-compact-feedback-btn {
@@ -2401,6 +2484,61 @@ a:hover { text-decoration: underline; }
 }
 .jarvis-followup-chip:hover { border-color: var(--accent); color: var(--text); }
 
+/* Menu de atalhos "/" — abre acima do campo assim que digita "/" sem espaço
+   ainda, filtra por prefixo (ver SLASH_COMMANDS no JarvisPanel.tsx). */
+.jarvis-slash-menu {
+  margin: 0 0.75rem;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: jarvis-msg-in 0.15s ease-out;
+}
+.jarvis-slash-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  background: transparent;
+  border: none;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  text-align: left;
+}
+.jarvis-slash-item:hover { background: var(--bg-card); }
+.jarvis-slash-item + .jarvis-slash-item { border-top: 1px solid var(--border); }
+.jarvis-slash-cmd { font-size: 0.8rem; color: var(--accent); font-family: monospace; flex-shrink: 0; }
+.jarvis-slash-label { font-size: 0.78rem; color: var(--text-muted); }
+
+/* Presets de estilo de resposta — vivem dentro do menu "⋯" do cabeçalho
+   (ver .jarvis-more-menu), não mais grudados no campo de texto. */
+.jarvis-more-style-row {
+  display: flex;
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem 0.45rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.2rem;
+}
+.jarvis-style-chip {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.68rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.jarvis-style-chip:hover { color: var(--text); }
+.jarvis-style-chip--active { border-color: var(--accent); color: #fff; background: var(--accent); }
+
+/* Categoria visual dos cards de ferramenta — âmbar pra escrita (mudou dado
+   no banco), roxo pra chamadas extras de IA, sem destaque = leitura simples
+   (ver TOOL_CATEGORY no JarvisPanel.tsx). */
+.jarvis-tool-card--escrita { border-left: 2px solid var(--yellow); padding-left: 0.6rem; }
+.jarvis-tool-card--ia { border-left: 2px solid #a855f7; padding-left: 0.6rem; }
+
 .jarvis-input-row {
   display: flex;
   align-items: flex-end; /* textarea cresce pra cima — botões ficam ancorados embaixo */
@@ -2561,6 +2699,7 @@ a:hover { text-decoration: underline; }
 }
 .jarvis-history-item:hover { background: var(--bg-card2); }
 .jarvis-history-item--active { background: var(--bg-card2); border-color: var(--border); }
+.jarvis-history-item--pinned { border-color: #6366f144; }
 .jarvis-history-item-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .jarvis-history-item-title {
   font-size: 0.82rem;
@@ -2593,6 +2732,21 @@ a:hover { text-decoration: underline; }
   color: var(--text-muted);
 }
 .jarvis-history-item-export:hover { background: var(--bg-card); color: var(--accent); }
+.jarvis-history-item-pin {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+.jarvis-history-item-pin:hover { background: var(--bg-card); color: var(--accent); }
+/* Preenchido sólido (não só contorno fraco) — precisa dar pra ver "isso tá
+   fixado" num relance na lista, sem precisar reparar de perto. */
+.jarvis-history-item-pin--active { background: var(--accent); color: #fff; }
+.jarvis-history-item-pin--active:hover { background: var(--accent); color: #fff; opacity: 0.85; }
 
 .jarvis-history-wrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .jarvis-history-search {

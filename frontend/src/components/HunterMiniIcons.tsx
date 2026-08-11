@@ -291,3 +291,51 @@ export function SpeakerMuteIcon({ size = 14 }: IconProps) {
     </svg>
   );
 }
+
+// Três pontinhos verticais — gatilho do menu "mais opções" que agrupa os
+// controles menos usados do cabeçalho do chat (compacto/rápido/memória),
+// pra não empilhar botão atrás de botão numa fileira só.
+export function MoreIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="10" cy="4.5" r="1.3" fill="currentColor" />
+      <circle cx="10" cy="10" r="1.3" fill="currentColor" />
+      <circle cx="10" cy="15.5" r="1.3" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function PinIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M8 3.5H12.5L11.7 8.5L14.5 11V12.3H5.5V11L8.3 8.5L8 3.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <line x1="10" y1="12.3" x2="10" y2="16.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// Retry — seta circular apontando pra trás, "tenta de novo" numa mensagem
+// que deu erro.
+export function RetryIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M16 10C16 6.7 13.3 4 10 4C7.3 4 5 5.8 4.3 8.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M4 10C4 13.3 6.7 16 10 16C12.7 16 15 14.2 15.7 11.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M4.3 4.8V8.2H7.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Fork de conversa — um ramo se dividindo em dois, clonar a conversa a
+// partir de um ponto e seguir em duas direções sem perder a original.
+export function ForkIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="5.5" cy="5" r="1.8" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="5.5" cy="15" r="1.8" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="14.5" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M5.5 6.8V10C5.5 10 5.5 10 5.5 10C7.5 10 12.5 10 12.8 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M5.5 13.2V10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}

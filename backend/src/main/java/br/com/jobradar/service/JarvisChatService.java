@@ -335,6 +335,11 @@ public class JarvisChatService {
         return conversar(historico, candidateProfile, feedbackContext, memoryContext, listener, false);
     }
 
+    public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext, String memoryContext,
+                                  ChatProgressListener listener, boolean fastMode) {
+        return conversar(historico, candidateProfile, feedbackContext, memoryContext, listener, fastMode, null);
+    }
+
     // feedbackContext: 👍/👎 salvos em ⚙️/nos cards de vaga (useAiFeedback no
     // frontend) pras análises de compatibilidade — antes só chegava nos
     // endpoints diretos (match-score, learning-plan), nunca no chat. Agora o
@@ -352,8 +357,13 @@ public class JarvisChatService {
     // controlar gasto de cota — desliga includeThoughts (raciocínio custa
     // tokens de saída extras) e pede pro modelo evitar ferramentas caras
     // (compatibilidade, carta) a menos que seja exatamente o pedido.
+    //
+    // replyStyle: preset de TOM da resposta escolhido pelo usuário (chips
+    // Normal/Conciso/Formal no rodapé do chat) — "conciso"/"formal", ou
+    // null/qualquer outro valor pro comportamento padrão de sempre. Não
+    // mexe em NENHUMA ferramenta chamada, só na instrução de como escrever.
     public ChatOutcome conversar(List<ChatMessage> historico, String candidateProfile, String feedbackContext, String memoryContext,
-                                  ChatProgressListener listener, boolean fastMode) {
+                                  ChatProgressListener listener, boolean fastMode, String replyStyle) {
         if (listener == null) listener = NOOP_LISTENER;
         if (historico == null || historico.isEmpty()) {
             return new ChatOutcome(null, null, List.of(), "Mensagem vazia.", false);
@@ -423,11 +433,24 @@ public class JarvisChatService {
         // controle direto de gasto de cota: desliga o raciocínio (includeThoughts
         // custa tokens de saída extras em toda resposta) e pede economia nas
         // ferramentas que gastam IA de verdade.
-        String systemInstructionFinal = fastMode
+        String systemInstructionComFastMode = fastMode
                 ? systemInstructionComMemoria + "\n\nModo rápido ativado pelo usuário: seja econômico. Evite chamar " +
                         "compatibilidadeComVagasRecentes, compatibilidadeComVagasDoFunil ou gerarCartaDeApresentacao " +
                         "a menos que seja exatamente o que foi pedido, prefira respostas mais curtas e diretas."
                 : systemInstructionComMemoria;
+        // Preset de tom — chips Normal/Conciso/Formal no rodapé do chat (ver
+        // comentário do parâmetro replyStyle acima). "normal"/null não muda
+        // nada (comportamento padrão de sempre).
+        String systemInstructionFinal;
+        if ("conciso".equals(replyStyle)) {
+            systemInstructionFinal = systemInstructionComFastMode + "\n\nEstilo de resposta pedido pelo usuário: CONCISO. " +
+                    "Vá direto ao ponto, frases curtas, sem rodeios nem contexto extra que não foi pedido.";
+        } else if ("formal".equals(replyStyle)) {
+            systemInstructionFinal = systemInstructionComFastMode + "\n\nEstilo de resposta pedido pelo usuário: FORMAL. " +
+                    "Tom mais profissional/institucional, evite gírias e informalidade, mas continue claro e objetivo.";
+        } else {
+            systemInstructionFinal = systemInstructionComFastMode;
+        }
 
         for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
             if (listener.isCancelled()) {
