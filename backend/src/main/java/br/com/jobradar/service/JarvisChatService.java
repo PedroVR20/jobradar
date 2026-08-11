@@ -156,6 +156,29 @@ public class JarvisChatService {
             interface já recarrega a lista sozinha, mas confirmar por escrito
             evita dúvida sobre o que exatamente mudou.
 
+            apagarVaga APAGA A VAGA PRA SEMPRE, sem volta — antes de chamar,
+            SEMPRE use perguntarUsuario pra confirmar com o usuário (algo como
+            "Confirma que quer apagar 'Título — Empresa'? Isso não pode ser
+            desfeito.", opções ["Sim, apagar", "Não, cancelar"], sem permitir
+            outro). Só chame apagarVaga de verdade depois que a resposta
+            confirmar. Nunca apague sem essa confirmação, mesmo que o pedido
+            pareça claro.
+
+            fixarVaga (fixar/desafixar no topo) e adicionarVagaManual (achou
+            uma vaga fora do Job Radar e já aplicou, quer registrar) seguem a
+            mesma regra de identificação clara das outras ferramentas que
+            escrevem — sem confirmação extra, essas são reversíveis.
+
+            "Desfazer"/"desfaz isso"/"volta atrás": se o usuário pedir logo
+            depois de uma ferramenta que escreveu algo, procure no histórico
+            recente o resultado dessa ferramenta (statusAntes/notaAntes/fixada
+            já vêm nele) e chame a MESMA ferramenta de novo com o valor
+            anterior pra reverter — não existe uma ferramenta "desfazer"
+            separada. Se a última ação foi adicionarVagaManual, "desfazer"
+            significa chamar apagarVaga na vaga que acabou de criar (ainda
+            assim confirme antes, é irreversível). Se não achar nenhuma ação
+            recente no histórico pra desfazer, diga isso claramente.
+
             Se o usuário anexar uma imagem (print de tela) na mensagem: descreva
             objetivamente o que reconhece nela (título da vaga, empresa, status/aba
             aparente, badges visíveis) e, se conseguir ler título e/ou empresa com
@@ -455,6 +478,14 @@ public class JarvisChatService {
                 "required", List.of("titulo", "empresa", "url")
         );
 
+        Map<String, Object> apagarVagaParams = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "vagaId", Map.of("type", "INTEGER", "description", "ID da vaga (peça pra listarVagas primeiro se só tiver título/empresa).")
+                ),
+                "required", List.of("vagaId")
+        );
+
         Map<String, Object> historicoEmpresaParams = Map.of(
                 "type", "OBJECT",
                 "properties", Map.of(
@@ -596,6 +627,11 @@ public class JarvisChatService {
                                 "existir uma com a mesma URL). Peça título, empresa e link antes de chamar se o " +
                                 "usuário não tiver dado os três.",
                         adicionarVagaParams),
+                new GeminiService.FunctionDeclaration("apagarVaga",
+                        "APAGA a vaga do banco de dados PRA SEMPRE, sem volta — não é mudar status pra Recusada, é " +
+                                "remover o registro inteiro. SEMPRE chame perguntarUsuario pra confirmar antes de " +
+                                "chamar essa (ver guidance na SYSTEM_INSTRUCTION). Só numa vaga claramente identificada.",
+                        apagarVagaParams),
                 new GeminiService.FunctionDeclaration("marcarStatusDeVaga",
                         "Move uma vaga específica pra outro status do funil (ex: marcar como aplicada, interessado, " +
                                 "recusada) — muda dado de verdade (junto com atualizarNotaDeVaga, as únicas duas que " +
@@ -652,6 +688,7 @@ public class JarvisChatService {
             case "vagasParadas" -> executarVagasParadas(chamada.args());
             case "fixarVaga" -> executarFixarVaga(chamada.args());
             case "adicionarVagaManual" -> executarAdicionarVagaManual(chamada.args());
+            case "apagarVaga" -> executarApagarVaga(chamada.args());
             case "marcarStatusDeVaga" -> executarMarcarStatus(chamada.args());
             case "atualizarNotaDeVaga" -> executarAtualizarNota(chamada.args());
             default -> Map.of("erro", "Ferramenta desconhecida: " + chamada.name());
@@ -1329,6 +1366,32 @@ public class JarvisChatService {
         m.put("titulo", job.getTitle());
         m.put("empresa", job.getCompany());
         m.put("status", status);
+        return m;
+    }
+
+    // Irreversível — a SYSTEM_INSTRUCTION obriga o modelo a confirmar com
+    // perguntarUsuario antes de chamar essa (não dá pra impor isso aqui no
+    // backend sem estado de sessão entre chamadas, ver comentário no record
+    // PendingQuestion sobre por que o histórico já basta pra tudo mais).
+    private Object executarApagarVaga(Map<String, Object> args) {
+        Long vagaId = args.get("vagaId") instanceof Number n ? n.longValue() : null;
+        if (vagaId == null) {
+            return Map.of("erro", "Preciso do id da vaga.");
+        }
+        Optional<Job> jobOpt = jobRepository.findById(vagaId);
+        if (jobOpt.isEmpty()) {
+            return Map.of("erro", "Não achei a vaga de id " + vagaId + " — pode já ter sido apagada.");
+        }
+        Job job = jobOpt.get();
+        String titulo = job.getTitle();
+        String empresa = job.getCompany();
+        jobRepository.delete(job);
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("sucesso", true);
+        m.put("vagaId", vagaId);
+        m.put("titulo", titulo);
+        m.put("empresa", empresa);
         return m;
     }
 

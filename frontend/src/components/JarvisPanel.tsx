@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   JarvisAdicionarVagaData,
+  JarvisApagarVagaData,
   JarvisAtualizarNotaData,
   JarvisCartaData,
   JarvisChatResponse,
@@ -1087,6 +1088,21 @@ function AdicionarVagaCard({ data }: { data: JarvisAdicionarVagaData }) {
   );
 }
 
+function ApagarVagaCard({ data }: { data: JarvisApagarVagaData }) {
+  if (!data.sucesso) {
+    return <p className="jarvis-scan-warning"><WarningIcon /> {data.erro ?? 'Não consegui apagar essa vaga.'}</p>;
+  }
+  return (
+    <div className="jarvis-hit">
+      <div className="jarvis-hit-title">
+        <span>{data.titulo}</span>
+        <span className="jarvis-hit-company">{data.empresa}</span>
+      </div>
+      <p className="jarvis-hit-resumo jarvis-hit-resumo--icon"><SuccessIcon /> Apagada permanentemente</p>
+    </div>
+  );
+}
+
 // Frases que revezam enquanto espera a resposta — mesma ideia do texto de
 // status que o Claude Code mostra enquanto trabalha. Não dá pra narrar o
 // passo REAL em tempo real (as chamadas de ferramenta acontecem todas no
@@ -1312,6 +1328,8 @@ function ToolResultCard({ result, candidateProfile, planFeedbackContext }: {
       return <FixarVagaCard data={result.data as JarvisFixarVagaData} />;
     case 'adicionarVagaManual':
       return <AdicionarVagaCard data={result.data as JarvisAdicionarVagaData} />;
+    case 'apagarVaga':
+      return <ApagarVagaCard data={result.data as JarvisApagarVagaData} />;
     default:
       return null;
   }
@@ -1603,7 +1621,8 @@ export function JarvisPanel({ onClose, onJobsChanged }: Props) {
       // vagaId (quando a ferramenta devolveu) pra ligar o pulso visual
       // naquele card específico.
       const escritaOk = data.toolResults?.find(
-        tr => (tr.tool === 'marcarStatusDeVaga' || tr.tool === 'atualizarNotaDeVaga' || tr.tool === 'fixarVaga' || tr.tool === 'adicionarVagaManual')
+        tr => (tr.tool === 'marcarStatusDeVaga' || tr.tool === 'atualizarNotaDeVaga' || tr.tool === 'fixarVaga'
+          || tr.tool === 'adicionarVagaManual' || tr.tool === 'apagarVaga')
           && (tr.data as { sucesso?: boolean })?.sucesso
       );
       if (escritaOk) onJobsChanged?.((escritaOk.data as { vagaId?: number }).vagaId);

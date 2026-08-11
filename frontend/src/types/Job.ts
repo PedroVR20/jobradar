@@ -340,15 +340,24 @@ export interface JarvisAdicionarVagaData {
   erro?: string;
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta apagarVaga
+export interface JarvisApagarVagaData {
+  sucesso?: boolean;
+  vagaId?: number;
+  titulo?: string;
+  empresa?: string;
+  erro?: string;
+}
+
 export interface JarvisToolResult {
   tool: 'listarVagas' | 'resumoFunil' | 'compatibilidadeComVagasRecentes' | 'compatibilidadeComVagasDoFunil'
     | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga' | 'atualizarNotaDeVaga'
     | 'gerarCartaDeApresentacao' | 'metricasDeDesempenho' | 'vagasComPrazoProximo' | 'detectarDuplicatas' | 'desempenhoPorFonte' | 'historicoDaEmpresa'
-    | 'fixarVaga' | 'adicionarVagaManual';
+    | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
     | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData | JarvisAtualizarNotaData
     | JarvisCartaData | JarvisMetricasData | JarvisPrazoData | JarvisDuplicatasData | JarvisFontesData | JarvisHistoricoEmpresaData
-    | JarvisFixarVagaData | JarvisAdicionarVagaData;
+    | JarvisFixarVagaData | JarvisAdicionarVagaData | JarvisApagarVagaData;
 }
 
 // Pergunta interativa que o Hunter decidiu fazer (ferramenta perguntarUsuario)
