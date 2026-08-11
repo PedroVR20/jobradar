@@ -11,7 +11,10 @@ import { AgendaStatusBar } from './components/AgendaStatusBar';
 import { MetricsModal } from './components/MetricsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { JarvisPanel } from './components/JarvisPanel';
+import { TriageModal } from './components/TriageModal';
 import { HunterIcon } from './components/HunterIcon';
+import { useCandidateProfile } from './hooks/useCandidateProfile';
+import { useQuickMatchScores } from './hooks/useQuickMatchScores';
 import { Filters, JobStatus, ManualJobPayload, statusMeta, ViewMode } from './types/Job';
 import './App.css';
 
@@ -64,6 +67,7 @@ export default function App() {
   const [showMetrics, setShowMetrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showJarvis, setShowJarvis] = useState(false);
+  const [showTriage, setShowTriage] = useState(false);
   // Pulso temporário no card real da vaga que o Hunter acabou de mudar
   // (marcarStatusDeVaga/atualizarNotaDeVaga) — ver job-card--highlighted no
   // App.css. Desliga sozinho depois de alguns segundos.
@@ -73,6 +77,15 @@ export default function App() {
     useJobs(filters);
   const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
   const aiStatus = useAiStatus();
+  const { profile: candidateProfile } = useCandidateProfile();
+  // Badge "🎯 X% match" nos cards de vagas NOVAS — só busca quando há perfil
+  // salvo e a aba atual é a de novas (não faz sentido gastar a chamada pras
+  // outras abas, que já foram vistas/decididas).
+  const { scores: matchScores, refresh: refreshMatchScores } = useQuickMatchScores();
+  useEffect(() => {
+    if (candidateProfile.trim() && filters.viewMode === 'novas') refreshMatchScores(candidateProfile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidateProfile, filters.viewMode]);
   const [syncingAgenda, setSyncingAgenda] = useState(false);
   const reconciledRef = useRef(false);
 
@@ -251,6 +264,9 @@ export default function App() {
             <button className="btn btn-ghost" onClick={() => setShowSettings(true)}>
               ⚙️ Configurações
             </button>
+            <button className="btn btn-ghost" onClick={() => setShowTriage(true)} title="Revisa as vagas novas uma por uma, rapidinho">
+              ⚡ Triagem rápida
+            </button>
             {aiStatus.enabled && (
               <button className="btn jarvis-toggle-btn" onClick={() => setShowJarvis(o => !o)} title="Abrir o Hunter (Ctrl+K)">
                 <HunterIcon size={17} alive /> Hunter
@@ -278,6 +294,14 @@ export default function App() {
               }, 200);
             }
           }}
+        />
+      )}
+
+      {showTriage && (
+        <TriageModal
+          onClose={() => { setShowTriage(false); reload(true); }}
+          onSeen={markSeen}
+          onSetStatus={handleSetStatus}
         />
       )}
 
@@ -364,6 +388,7 @@ export default function App() {
                   aiEnabled={aiStatus.enabled}
                   sortMode={filters.sort}
                   highlighted={job.id === highlightedJobId}
+                  matchPercent={filters.viewMode === 'novas' ? matchScores[String(job.id)] : undefined}
                 />
               ))}
             </div>

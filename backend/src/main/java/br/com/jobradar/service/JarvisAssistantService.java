@@ -94,6 +94,34 @@ public class JarvisAssistantService {
         return new CompatibilityResult(true, candidatos.size(), topN.size(), hits, hits.isEmpty() ? ultimoErro : null);
     }
 
+    /**
+     * Versão em % (0-100) do mesmo score heurístico usado no pré-filtro de
+     * compatibilidade — pra modo triagem rápida e o badge "provável match"
+     * nos cards, onde não faz sentido rodar IA (seria uma chamada por vaga
+     * só pra ordenar/badge, não pra decisão final de verdade). 100% = todas
+     * as tags técnicas do perfil aparecem na vaga; 0% = nenhuma em comum.
+     * Sem perfil ou sem tags reconhecidas no perfil, devolve mapa vazio (não
+     * dá pra pontuar contra nada).
+     */
+    public Map<Long, Integer> heuristicMatchPercents(List<Job> jobs, String candidateProfile) {
+        if (candidateProfile == null || candidateProfile.isBlank()) return Map.of();
+        Set<String> perfilTags = salaryPredictionService.extractTagsFromText(candidateProfile);
+        if (perfilTags.isEmpty()) return Map.of();
+        String perfilSenioridade = seniorityClassifier.classify(candidateProfile, String.join(",", perfilTags));
+
+        Map<Long, Integer> out = new HashMap<>();
+        for (Job job : jobs) {
+            Set<String> jobTags = tagSet(job.getTags());
+            long overlap = jobTags.stream().filter(perfilTags::contains).count();
+            int percent = (int) Math.round(100.0 * overlap / perfilTags.size());
+            if (perfilSenioridade != null && perfilSenioridade.equals(job.getSeniority())) {
+                percent = Math.min(100, percent + 10);
+            }
+            out.put(job.getId(), percent);
+        }
+        return out;
+    }
+
     private double scoreHeuristico(Job job, Set<String> perfilTags, String perfilSenioridade) {
         Set<String> jobTags = tagSet(job.getTags());
         long overlap = jobTags.stream().filter(perfilTags::contains).count();

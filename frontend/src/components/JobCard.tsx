@@ -25,6 +25,11 @@ interface Props {
   // (marcarStatusDeVaga/atualizarNotaDeVaga) — ajuda a notar a mudança sem
   // precisar procurar o card na lista depois de mexer pelo chat.
   highlighted?: boolean;
+  // Pré-filtro heurístico (sem IA, sobreposição de tags do perfil) — ver
+  // POST /api/jobs/quick-match-scores. Só passado pra vagas não vistas,
+  // onde faz sentido triar; badge só aparece a partir de um mínimo de
+  // sobreposição, senão viraria ruído em quase toda vaga.
+  matchPercent?: number;
 }
 
 const techTags = [
@@ -172,7 +177,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode, highlighted }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode, highlighted, matchPercent }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -288,6 +293,14 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
           <div className="card-badges-left">
             {isNew && <span className="badge-new">NOVA</span>}
+            {matchPercent != null && matchPercent >= 50 && (
+              <span
+                className="badge-match"
+                title="Sobreposição de tags técnicas com seu perfil — pré-filtro sem IA, não é uma nota final de compatibilidade"
+              >
+                🎯 {matchPercent}% match
+              </span>
+            )}
             {job.rejected && <span className="badge-rejected">❌ RECUSADA</span>}
             {job.inProgress && !job.rejected && <span className="badge-in-progress">EM ANDAMENTO 🔄</span>}
             {isPlainApplied && <span className="badge-applied">APLICADA ✅</span>}

@@ -677,6 +677,27 @@ public class JobController {
     }
 
     /**
+     * Pontuação heurística (sem IA, sobreposição de tags do perfil) de todas
+     * as vagas NÃO VISTAS — poder pro modo "Triagem rápida" (ordena as mais
+     * prováveis primeiro) e pro badge "provável match" nos cards. Não é
+     * IA de verdade, é o mesmo pré-filtro barato que já existia em
+     * JarvisAssistantService#scanCompatibilidade, só que devolvido cru em
+     * vez de gastar chamada de IA em cima.
+     * POST /api/jobs/quick-match-scores  body: {"profile": "..."}
+     */
+    @PostMapping("/quick-match-scores")
+    public Map<String, Object> quickMatchScores(@RequestBody Map<String, String> body) {
+        String profile = body.get("profile");
+        List<Job> naoVistas = jobRepository.findBySeenFalse();
+        Map<Long, Integer> percentPorId = jarvisAssistantService.heuristicMatchPercents(naoVistas, profile);
+        Map<String, Object> out = new HashMap<>();
+        Map<String, Integer> scores = new HashMap<>();
+        percentPorId.forEach((id, pct) -> scores.put(String.valueOf(id), pct));
+        out.put("scores", scores);
+        return out;
+    }
+
+    /**
      * Status da integração com IA (Gemini) — o frontend usa isso pra mostrar
      * se os recursos de IA (carta de apresentação, duplicatas, classificação)
      * estão ativos, sem nunca expor a key.
