@@ -23,14 +23,17 @@ import java.util.stream.Collectors;
  * jeito de retreinar.
  *
  * <p>Port fiel da lógica de feature engineering (allowlist de tags, bucket
- * dos 8 estados mais frequentes, vocabulário de tags com frequência mínima
- * 3) e do algoritmo (RidgeCV: 30 valores de alpha em log-espaço [-2, 3],
- * validação cruzada 5-fold escolhendo o alpha que maximiza R² médio nos
- * folds — mesmo critério que RidgeCV usa por padrão quando cv é um inteiro,
- * já que Ridge.score() é R² — ajuste final no conjunto de treino inteiro,
- * avaliação honesta no conjunto de teste separado). Não precisa bater
- * bit-a-bit com uma rodada anterior do Python — só precisa ser um split
- * aleatório válido e reprodutível (seed fixa).</p>
+ * dos 8 estados mais frequentes) e do algoritmo (RidgeCV: 30 valores de
+ * alpha em log-espaço [-2, 3], escolhendo o que maximiza R² médio numa
+ * validação cruzada — mesmo critério que RidgeCV usa por padrão quando cv é
+ * um inteiro, já que Ridge.score() é R²). Diferente da ideia original de
+ * "guardar 20% pra teste": com um catálogo pequeno (algumas centenas de
+ * vagas com salário), um único split de teste é ruidoso demais pra confiar
+ * (visto na prática — retreino real oscilando 33%→69% de erro sem o modelo
+ * ter piorado de verdade). Em vez disso, a métrica reportada vem de
+ * validação cruzada OUT-OF-FOLD sobre o catálogo INTEIRO (ver
+ * {@link #foldIndicesEstavel}), e o modelo final é treinado com 100% do
+ * dado disponível.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -39,9 +42,17 @@ public class SalaryModelTrainerService {
 
     private static final long SALARY_FLOOR = 300;
     private static final long SALARY_CEIL = 60000;
-    private static final int MIN_TAG_FREQ = 3;
+    // Era 3 — uma tag que aparece só 3 vezes em centenas de linhas (bem
+    // menos de 1% dos dados) ainda ganhava sua própria coluna one-hot, com
+    // coeficiente livre pra se ajustar só a essas 3 amostras. Testado na
+    // prática (subiu de 3 pra 8): não foi a causa principal da instabilidade
+    // de métrica entre retreinos — só ~42 features pra ~485 linhas já era
+    // uma proporção saudável mesmo com MIN_TAG_FREQ=3. A causa de verdade
+    // era o tamanho do conjunto de teste (ver comentário grande no início de
+    // treinar()); mantido em 8 mesmo assim, é mais conservador sem custar
+    // nada.
+    private static final int MIN_TAG_FREQ = 8;
     private static final int TOP_STATES_COUNT = 8;
-    private static final long RANDOM_SEED = 42;
     private static final int CV_FOLDS = 5;
     private static final int MIN_ROWS_PARA_TREINAR = 30;
 
@@ -114,62 +125,51 @@ public class SalaryModelTrainerService {
         double[] y = new double[n];
         for (int i = 0; i < n; i++) y[i] = Math.log1p(yRaw[i]);
 
-        // --- split treino/teste 80/20 ---
-        // ANTES: embaralhava um array de tamanho n com seed fixa — parece
-        // reprodutível, mas não é ESTÁVEL entre retreinos: a cada vaga nova
-        // que entra no catálogo, n muda, e embaralhar um array de tamanho
-        // diferente com a MESMA seed produz uma permutação totalmente
-        // diferente (não um superconjunto). Resultado real visto pelo
-        // usuário: comparar "R² de antes" com "R² de depois" (ver
-        // JobController.retreinarModeloSalario) estava comparando o modelo
-        // em conjuntos de TESTE diferentes, com vagas diferentes dentro —
-        // "piorou" podia ser só "esse lote de teste calhou mais difícil",
-        // não o modelo genuinamente regredindo.
+        // --- avaliação: validação cruzada 5-fold OUT-OF-FOLD, não mais um único split 80/20 ---
+        // ANTES (v1): embaralhava um array de tamanho n com seed fixa — não
+        // era ESTÁVEL entre retreinos (n muda a cada vaga nova, mesma seed
+        // sobre array de tamanho diferente = permutação totalmente
+        // diferente). ANTES (v2, correção anterior): trocado por split
+        // treino/teste determinístico por hash do id da vaga — resolvia a
+        // instabilidade, mas ainda tinha um problema de fundo: com só
+        // ~500 vagas, o conjunto de teste (20%) é ~100 linhas — pequeno
+        // demais pra uma métrica confiável, ela balança bastante só pela
+        // sorte de QUAIS vagas calharam no teste dessa vez (visto na
+        // prática: retreino real oscilando de erro 33%→69% sem o modelo
+        // ter piorado de verdade).
         //
-        // AGORA: cada vaga cai em treino ou teste por uma função HASH
-        // determinística do próprio id da vaga (ver isTestRow) — não
-        // depende de n nem de posição no array. Uma vaga que já estava no
-        // teste continua no teste pra sempre (a menos que seja apagada),
-        // então retreinos sucessivos comparam metricamente maçã com maçã na
-        // enorme maioria das vagas em comum, só as vagas NOVAS desde o
-        // último retreino é que entram frescas num dos dois lados.
-        List<Integer> trainList = new ArrayList<>();
-        List<Integer> testList = new ArrayList<>();
-        for (int i = 0; i < n; i++) {
-            (isTestRow(rows.get(i).jobId()) ? testList : trainList).add(i);
-        }
-        // Salvaguarda: com poucas linhas (perto do mínimo de 30) a divisão
-        // por hash pode calhar de não separar teste nenhum — sem isso,
-        // r2Score/mae dividiriam por um array vazio.
-        if (testList.isEmpty() && !trainList.isEmpty()) {
-            testList.add(trainList.remove(trainList.size() - 1));
-        }
-        // A ORDEM do treino não precisa ser estável entre retreinos (só
-        // afeta em qual fold de validação cruzada cada linha cai na escolha
-        // do alpha, não as métricas finais reportadas) — continua
-        // embaralhada com seed fixa, só que agora só dentro do lado treino.
-        int[] trainIdx = shuffleArray(toIntArray(trainList), RANDOM_SEED);
-        int[] testIdx = toIntArray(testList);
+        // AGORA: cada vaga cai numa de 5 "dobras" por hash determinístico do
+        // seu id (ver foldIndicesEstavel) — mesma ideia de estabilidade de
+        // antes, mas agora usada pra VALIDAÇÃO CRUZADA de verdade. Cada
+        // linha é prevista exatamente UMA vez, na rodada em que a dobra
+        // dela ficou de fora do treino ("out-of-fold") — ou seja, a métrica
+        // reportada usa as ~500 linhas INTEIRAS pra avaliar (não só ~100),
+        // muito mais estável. E como nenhuma linha nunca é avaliada pelo
+        // mesmo ajuste que a treinou, não tem vazamento de dado mesmo
+        // treinando o modelo final com 100% do catálogo (ver mais abaixo).
+        int[][] folds = foldIndicesEstavel(rows, CV_FOLDS);
 
-        double[][] xTrain = select(X, trainIdx);
-        double[] yTrain = select(y, trainIdx);
-        double[][] xTest = select(X, testIdx);
-        double[] yTest = select(y, testIdx);
-        double[] yTestRaw = select(yRaw, testIdx);
-
-        double bestAlpha = escolherMelhorAlpha(xTrain, yTrain);
+        double bestAlpha = escolherMelhorAlpha(X, y, folds);
         log.info("Retreino: melhor alpha (regularização) = {}", bestAlpha);
 
-        RidgeFit finalFit = fitRidge(xTrain, yTrain, bestAlpha);
+        double[] oofPredLog = crossValPredictions(X, y, bestAlpha, folds);
+        double r2 = r2Score(y, oofPredLog);
+        double[] oofPredBrl = new double[oofPredLog.length];
+        for (int i = 0; i < oofPredLog.length; i++) oofPredBrl[i] = Math.expm1(oofPredLog[i]);
+        double maeBrl = mae(yRaw, oofPredBrl);
+        double maePercent = maePercent(yRaw, oofPredBrl);
 
-        double[] predLogTest = predictAll(finalFit, xTest);
-        double r2 = r2Score(yTest, predLogTest);
-        double[] predBrlTest = new double[predLogTest.length];
-        for (int i = 0; i < predLogTest.length; i++) predBrlTest[i] = Math.expm1(predLogTest[i]);
-        double maeBrl = mae(yTestRaw, predBrlTest);
-        double maePercent = maePercent(yTestRaw, predBrlTest);
+        log.info("Retreino: R²(log, CV out-of-fold, {} dobras)={} MAE=R${} erro%={}",
+                CV_FOLDS, round(r2, 3), round(maeBrl, 0), round(maePercent, 1));
 
-        log.info("Retreino: R²(log)={} MAE=R${} erro%={}", round(r2, 3), round(maeBrl, 0), round(maePercent, 1));
+        // Modelo de produção treinado com TODO o catálogo disponível —
+        // diferente de antes (só 80%, guardando 20% só pra medir). Como a
+        // métrica reportada já vem inteira de validação cruzada (nunca
+        // avalia uma linha com o modelo que a treinou), não tem mais motivo
+        // pra deixar uma fatia do catálogo de fora do modelo que entra em
+        // produção — principalmente com um catálogo pequeno, onde cada vaga
+        // a mais ajuda de verdade.
+        RidgeFit finalFit = fitRidge(X, y, bestAlpha);
 
         ObjectNode model = mapper.createObjectNode();
         model.put("trainedAt", LocalDate.now().toString());
@@ -194,7 +194,10 @@ public class SalaryModelTrainerService {
         metrics.put("r2LogScale", round(r2, 4));
         metrics.put("maeBrl", round(maeBrl, 2));
         metrics.put("maePercent", round(maePercent, 1));
-        metrics.put("testSamples", testIdx.length);
+        // Não é mais um split fixo — é validação cruzada out-of-fold sobre
+        // as n linhas inteiras (ver comentário no início do treino).
+        metrics.put("avaliacao", "cv-out-of-fold-" + CV_FOLDS + "-dobras");
+        metrics.put("cvSamples", n);
 
         return new TrainResult(model, n, round(r2, 4), round(maeBrl, 2), round(maePercent, 1));
     }
@@ -267,26 +270,65 @@ public class SalaryModelTrainerService {
 
     // ===================== regularização (RidgeCV) =====================
 
-    private double escolherMelhorAlpha(double[][] xTrain, double[] yTrain) {
+    private double escolherMelhorAlpha(double[][] X, double[] y, int[][] folds) {
         double[] alphas = logspace(-2, 3, 30);
-        int[][] folds = kFoldIndices(xTrain.length, CV_FOLDS);
         double bestAlpha = alphas[0];
         double bestScore = Double.NEGATIVE_INFINITY;
         for (double alpha : alphas) {
             double scoreSum = 0;
+            int dobrasValidas = 0;
             for (int[] foldTest : folds) {
-                int[] foldTrain = complement(foldTest, xTrain.length);
-                RidgeFit fit = fitRidge(select(xTrain, foldTrain), select(yTrain, foldTrain), alpha);
-                double[] pred = predictAll(fit, select(xTrain, foldTest));
-                scoreSum += r2Score(select(yTrain, foldTest), pred);
+                if (foldTest.length == 0) continue; // salvaguarda, ver foldIndicesEstavel
+                int[] foldTrain = complement(foldTest, X.length);
+                RidgeFit fit = fitRidge(select(X, foldTrain), select(y, foldTrain), alpha);
+                double[] pred = predictAll(fit, select(X, foldTest));
+                scoreSum += r2Score(select(y, foldTest), pred);
+                dobrasValidas++;
             }
-            double avgScore = scoreSum / folds.length;
+            double avgScore = dobrasValidas > 0 ? scoreSum / dobrasValidas : Double.NEGATIVE_INFINITY;
             if (avgScore > bestScore) {
                 bestScore = avgScore;
                 bestAlpha = alpha;
             }
         }
         return bestAlpha;
+    }
+
+    // Previsão OUT-OF-FOLD: pra cada dobra, treina só com o resto e prevê a
+    // dobra que ficou de fora — cada linha do dataset acaba prevista
+    // exatamente uma vez, sempre por um ajuste que NUNCA a viu. É assim que
+    // dá pra reportar uma métrica sobre o dataset inteiro (não só uma fatia
+    // de teste) sem vazamento de dado.
+    private double[] crossValPredictions(double[][] X, double[] y, double alpha, int[][] folds) {
+        double[] oof = new double[y.length];
+        for (int[] foldTest : folds) {
+            if (foldTest.length == 0) continue;
+            int[] foldTrain = complement(foldTest, X.length);
+            RidgeFit fit = fitRidge(select(X, foldTrain), select(y, foldTrain), alpha);
+            double[] pred = predictAll(fit, select(X, foldTest));
+            for (int i = 0; i < foldTest.length; i++) oof[foldTest[i]] = pred[i];
+        }
+        return oof;
+    }
+
+    // Fibonacci hashing (multiplicar por uma constante ímpar grande e olhar
+    // os bits resultantes) — cada vaga cai numa das CV_FOLDS dobras de forma
+    // determinística e sem estado nenhum pra guardar: o id de uma vaga
+    // sempre cai na mesma dobra, hoje ou daqui a um ano, não importa quantas
+    // outras vagas existam ou em que ordem vieram do banco.
+    private static final long FOLD_HASH_MULT = 2654435761L;
+
+    private int[][] foldIndicesEstavel(List<SalaryEstimateService.TrainingRow> rows, int k) {
+        List<List<Integer>> baldes = new ArrayList<>();
+        for (int f = 0; f < k; f++) baldes.add(new ArrayList<>());
+        for (int i = 0; i < rows.size(); i++) {
+            long jobId = rows.get(i).jobId() != null ? rows.get(i).jobId() : i;
+            int fold = (int) Math.floorMod(jobId * FOLD_HASH_MULT, (long) k);
+            baldes.get(fold).add(i);
+        }
+        int[][] out = new int[k][];
+        for (int f = 0; f < k; f++) out[f] = toIntArray(baldes.get(f));
+        return out;
     }
 
     // ===================== ridge regression =====================
@@ -381,33 +423,9 @@ public class SalaryModelTrainerService {
 
     // ===================== utilitários numéricos =====================
 
-    // Fibonacci hashing (multiplicar por uma constante ímpar grande e olhar
-    // os bits resultantes) — determinístico e sem estado nenhum pra guardar:
-    // qualquer id de vaga sempre cai no mesmo balde, hoje ou daqui a um ano,
-    // não importa quantas outras vagas existam. 20% dos ids caem em teste,
-    // mantendo a proporção 80/20 de antes.
-    private static final long TEST_SPLIT_HASH_MULT = 2654435761L;
-    private static final int TEST_SPLIT_PERCENT = 20;
-
-    private boolean isTestRow(long jobId) {
-        return Math.floorMod(jobId * TEST_SPLIT_HASH_MULT, 100L) < TEST_SPLIT_PERCENT;
-    }
-
     private int[] toIntArray(List<Integer> list) {
         int[] out = new int[list.size()];
         for (int i = 0; i < out.length; i++) out[i] = list.get(i);
-        return out;
-    }
-
-    private int[] shuffleArray(int[] arr, long seed) {
-        int[] out = arr.clone();
-        Random rnd = new Random(seed);
-        for (int i = out.length - 1; i > 0; i--) {
-            int j = rnd.nextInt(i + 1);
-            int tmp = out[i];
-            out[i] = out[j];
-            out[j] = tmp;
-        }
         return out;
     }
 
@@ -420,21 +438,6 @@ public class SalaryModelTrainerService {
     private double[] select(double[] a, int[] idx) {
         double[] out = new double[idx.length];
         for (int i = 0; i < idx.length; i++) out[i] = a[idx[i]];
-        return out;
-    }
-
-    private int[][] kFoldIndices(int n, int folds) {
-        int[][] out = new int[folds][];
-        int base = n / folds;
-        int extra = n % folds;
-        int pos = 0;
-        for (int f = 0; f < folds; f++) {
-            int size = base + (f < extra ? 1 : 0);
-            int[] fold = new int[size];
-            for (int i = 0; i < size; i++) fold[i] = pos + i;
-            out[f] = fold;
-            pos += size;
-        }
         return out;
     }
 
