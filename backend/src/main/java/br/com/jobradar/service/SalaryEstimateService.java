@@ -209,8 +209,11 @@ public class SalaryEstimateService {
 
     // Uma linha limpa (já com salário parseado — e convertido pra BRL quando
     // veio em €/$ — e tags filtradas de ruído) pra treinar um modelo real
-    // fora do backend — ver /admin/salary-training-data.
-    public record TrainingRow(String seniority, List<String> tags, String workplaceType, String state, long salaryMonthly) {}
+    // fora do backend — ver /admin/salary-training-data. jobId vai junto pra
+    // dar pra montar um split treino/teste ESTÁVEL entre retreinos (ver
+    // SalaryModelTrainerService) — sem isso, comparar métricas de "antes" e
+    // "depois" de um retreino não é justo (conjuntos de teste diferentes).
+    public record TrainingRow(Long jobId, String seniority, List<String> tags, String workplaceType, String state, long salaryMonthly) {}
 
     public List<TrainingRow> exportTrainingData() {
         return jobRepository.findAll().stream()
@@ -220,7 +223,7 @@ public class SalaryEstimateService {
                     if (salary == null) return null;
                     List<String> tags = new ArrayList<>(tagSet(j.getTags()));
                     if (tags.isEmpty()) return null;
-                    return new TrainingRow(j.getSeniority(), tags, j.getWorkplaceType(), j.getState(), salary);
+                    return new TrainingRow(j.getId(), j.getSeniority(), tags, j.getWorkplaceType(), j.getState(), salary);
                 })
                 .filter(Objects::nonNull)
                 .toList();

@@ -114,12 +114,42 @@ public class SalaryModelTrainerService {
         double[] y = new double[n];
         for (int i = 0; i < n; i++) y[i] = Math.log1p(yRaw[i]);
 
-        // --- split treino/teste 80/20 (embaralha com seed fixa, reprodutível) ---
-        int[] order = shuffledIndices(n, RANDOM_SEED);
-        int nTest = (int) Math.round(n * 0.2);
-        int nTrain = n - nTest;
-        int[] trainIdx = Arrays.copyOfRange(order, 0, nTrain);
-        int[] testIdx = Arrays.copyOfRange(order, nTrain, n);
+        // --- split treino/teste 80/20 ---
+        // ANTES: embaralhava um array de tamanho n com seed fixa — parece
+        // reprodutível, mas não é ESTÁVEL entre retreinos: a cada vaga nova
+        // que entra no catálogo, n muda, e embaralhar um array de tamanho
+        // diferente com a MESMA seed produz uma permutação totalmente
+        // diferente (não um superconjunto). Resultado real visto pelo
+        // usuário: comparar "R² de antes" com "R² de depois" (ver
+        // JobController.retreinarModeloSalario) estava comparando o modelo
+        // em conjuntos de TESTE diferentes, com vagas diferentes dentro —
+        // "piorou" podia ser só "esse lote de teste calhou mais difícil",
+        // não o modelo genuinamente regredindo.
+        //
+        // AGORA: cada vaga cai em treino ou teste por uma função HASH
+        // determinística do próprio id da vaga (ver isTestRow) — não
+        // depende de n nem de posição no array. Uma vaga que já estava no
+        // teste continua no teste pra sempre (a menos que seja apagada),
+        // então retreinos sucessivos comparam metricamente maçã com maçã na
+        // enorme maioria das vagas em comum, só as vagas NOVAS desde o
+        // último retreino é que entram frescas num dos dois lados.
+        List<Integer> trainList = new ArrayList<>();
+        List<Integer> testList = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            (isTestRow(rows.get(i).jobId()) ? testList : trainList).add(i);
+        }
+        // Salvaguarda: com poucas linhas (perto do mínimo de 30) a divisão
+        // por hash pode calhar de não separar teste nenhum — sem isso,
+        // r2Score/mae dividiriam por um array vazio.
+        if (testList.isEmpty() && !trainList.isEmpty()) {
+            testList.add(trainList.remove(trainList.size() - 1));
+        }
+        // A ORDEM do treino não precisa ser estável entre retreinos (só
+        // afeta em qual fold de validação cruzada cada linha cai na escolha
+        // do alpha, não as métricas finais reportadas) — continua
+        // embaralhada com seed fixa, só que agora só dentro do lado treino.
+        int[] trainIdx = shuffleArray(toIntArray(trainList), RANDOM_SEED);
+        int[] testIdx = toIntArray(testList);
 
         double[][] xTrain = select(X, trainIdx);
         double[] yTrain = select(y, trainIdx);
@@ -351,17 +381,34 @@ public class SalaryModelTrainerService {
 
     // ===================== utilitários numéricos =====================
 
-    private int[] shuffledIndices(int n, long seed) {
-        int[] idx = new int[n];
-        for (int i = 0; i < n; i++) idx[i] = i;
+    // Fibonacci hashing (multiplicar por uma constante ímpar grande e olhar
+    // os bits resultantes) — determinístico e sem estado nenhum pra guardar:
+    // qualquer id de vaga sempre cai no mesmo balde, hoje ou daqui a um ano,
+    // não importa quantas outras vagas existam. 20% dos ids caem em teste,
+    // mantendo a proporção 80/20 de antes.
+    private static final long TEST_SPLIT_HASH_MULT = 2654435761L;
+    private static final int TEST_SPLIT_PERCENT = 20;
+
+    private boolean isTestRow(long jobId) {
+        return Math.floorMod(jobId * TEST_SPLIT_HASH_MULT, 100L) < TEST_SPLIT_PERCENT;
+    }
+
+    private int[] toIntArray(List<Integer> list) {
+        int[] out = new int[list.size()];
+        for (int i = 0; i < out.length; i++) out[i] = list.get(i);
+        return out;
+    }
+
+    private int[] shuffleArray(int[] arr, long seed) {
+        int[] out = arr.clone();
         Random rnd = new Random(seed);
-        for (int i = n - 1; i > 0; i--) {
+        for (int i = out.length - 1; i > 0; i--) {
             int j = rnd.nextInt(i + 1);
-            int tmp = idx[i];
-            idx[i] = idx[j];
-            idx[j] = tmp;
+            int tmp = out[i];
+            out[i] = out[j];
+            out[j] = tmp;
         }
-        return idx;
+        return out;
     }
 
     private double[][] select(double[][] a, int[] idx) {
