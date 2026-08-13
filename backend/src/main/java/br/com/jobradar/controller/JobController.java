@@ -2,6 +2,7 @@ package br.com.jobradar.controller;
 
 import br.com.jobradar.model.Job;
 import br.com.jobradar.model.JobEvent;
+import br.com.jobradar.repository.FonteSaudeProjection;
 import br.com.jobradar.repository.JobEventRepository;
 import br.com.jobradar.repository.JobRepository;
 import br.com.jobradar.repository.JobSpecifications;
@@ -964,6 +965,45 @@ public class JobController {
     @GetMapping("/admin/salary-training-data")
     public List<SalaryEstimateService.TrainingRow> exportSalaryTrainingData() {
         return salaryEstimateService.exportTrainingData();
+    }
+
+    /**
+     * Fase 2.7 — painel de saúde das fontes (Configurações). Um por fonte,
+     * calculado dinamicamente via GROUP BY (ver
+     * {@link JobRepository#saudeDasFontes()}) — fonte nova aparece sozinha,
+     * sem precisar editar esse endpoint.
+     *
+     * <p>Não existe rastreio de "último fetch bem-sucedido" por fonte no
+     * banco (isso exigiria uma tabela nova, fora do escopo desta fase) —
+     * {@code diasSemVagaNova} é a métrica honesta disponível hoje: quantos
+     * dias desde a vaga mais recente daquela fonte. Um número alto é um
+     * SINAL de que a fonte pode ter parado de trazer vaga nova (scraping
+     * quebrado, API fora do ar), não uma confirmação — pode ser só uma
+     * fonte que realmente posta pouco. O frontend decide o que fazer com
+     * esse sinal (ex: badge de alerta acima de N dias).</p>
+     * GET /api/jobs/admin/fontes-saude
+     */
+    @GetMapping("/admin/fontes-saude")
+    public List<Map<String, Object>> getSaudeDasFontes() {
+        LocalDateTime agora = LocalDateTime.now();
+        List<Map<String, Object>> resultado = new ArrayList<>();
+        for (FonteSaudeProjection p : jobRepository.saudeDasFontes()) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("fonte", p.getSource());
+            long total = p.getTotal() != null ? p.getTotal() : 0;
+            long comSalario = p.getComSalario() != null ? p.getComSalario() : 0;
+            long comEstado = p.getComEstado() != null ? p.getComEstado() : 0;
+            item.put("total", total);
+            item.put("pctComSalario", total == 0 ? 0.0 : Math.round(comSalario * 1000.0 / total) / 10.0);
+            item.put("pctComEstado", total == 0 ? 0.0 : Math.round(comEstado * 1000.0 / total) / 10.0);
+            item.put("vagaMaisRecente", p.getVagaMaisRecente());
+            item.put("ultimoFetch", p.getUltimoFetch());
+            item.put("diasSemVagaNova", p.getVagaMaisRecente() == null
+                    ? null
+                    : Duration.between(p.getVagaMaisRecente(), agora).toDays());
+            resultado.add(item);
+        }
+        return resultado;
     }
 
     public record RetrainCodeRequest(String code, Boolean force) {}

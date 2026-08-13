@@ -90,4 +90,24 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
 
     @Query("SELECT DISTINCT j.source FROM Job j ORDER BY j.source")
     List<String> findDistinctSources();
+
+    /**
+     * Fase 2.7 — painel de saúde das fontes. Agregado por fonte, calculado
+     * dinamicamente (GROUP BY j.source) em vez de uma lista hardcoded de
+     * fontes conhecidas — assim uma fonte nova (Greenhouse, Adzuna, SINE...)
+     * aparece automaticamente no painel sem precisar editar essa query,
+     * diferente do Map.of(...) fixo em getStats()/porFonte.
+     */
+    @Query("""
+            SELECT j.source AS source, COUNT(j) AS total,
+                   SUM(CASE WHEN j.salary IS NOT NULL THEN 1 ELSE 0 END) AS comSalario,
+                   SUM(CASE WHEN j.state IS NOT NULL THEN 1 ELSE 0 END) AS comEstado,
+                   MAX(j.postedAt) AS vagaMaisRecente,
+                   MAX(j.fetchedAt) AS ultimoFetch
+            FROM Job j
+            WHERE j.rejected = false
+            GROUP BY j.source
+            ORDER BY j.source
+            """)
+    List<FonteSaudeProjection> saudeDasFontes();
 }

@@ -34,9 +34,32 @@ function relativeTime(ts: number): string {
   return d === 1 ? 'ontem' : `há ${d}d`;
 }
 
+// Fase 2.7 — formato devolvido por GET /api/jobs/admin/fontes-saude.
+interface FonteSaude {
+  fonte: string;
+  total: number;
+  pctComSalario: number;
+  pctComEstado: number;
+  vagaMaisRecente: string | null;
+  diasSemVagaNova: number | null;
+}
+
+// Acima disso, o badge de alerta acende — sinal de "pode ter parado", não
+// confirmação (algumas fontes genuinamente postam pouco, ver comentário
+// do endpoint no JobController).
+const DIAS_ALERTA_FONTE_PARADA = 10;
+
 export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose }: Props) {
+  const [fontesSaude, setFontesSaude] = useState<FonteSaude[]>([]);
+  const [fontesSaudeLoading, setFontesSaudeLoading] = useState(true);
+
   useEffect(() => {
     onRefreshAiStatus();
+    fetch('/api/jobs/admin/fontes-saude')
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((data: FonteSaude[]) => setFontesSaude(data))
+      .catch(() => setFontesSaude([]))
+      .finally(() => setFontesSaudeLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -448,6 +471,46 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
             </>
           )}
           {gmail.error && <p className="agenda-error">{gmail.error}</p>}
+        </div>
+
+        <div className="settings-section">
+          <h3 className="settings-section-title">📡 Saúde das fontes</h3>
+          <p className="agenda-hint">
+            Uma linha por fonte de vaga (Gupy, Nerdin, Greenhouse...). "Dias sem vaga nova" é a vaga
+            mais recente daquela fonte hoje — um número alto é um SINAL de que ela pode ter parado
+            (scraping quebrado, API fora do ar), não uma confirmação: algumas fontes genuinamente
+            postam pouco.
+          </p>
+          {fontesSaudeLoading ? (
+            <p className="agenda-hint">Carregando...</p>
+          ) : fontesSaude.length === 0 ? (
+            <p className="agenda-hint">Nenhuma vaga salva ainda.</p>
+          ) : (
+            <div className="fontes-saude-table">
+              <div className="fontes-saude-row fontes-saude-row--head">
+                <span>Fonte</span>
+                <span>Vagas</span>
+                <span>% c/ salário</span>
+                <span>% c/ estado</span>
+                <span>Dias s/ vaga nova</span>
+              </div>
+              {fontesSaude.map(f => {
+                const alerta = f.diasSemVagaNova !== null && f.diasSemVagaNova > DIAS_ALERTA_FONTE_PARADA;
+                return (
+                  <div key={f.fonte} className={`fontes-saude-row ${alerta ? 'fontes-saude-row--alerta' : ''}`}>
+                    <span className="fontes-saude-nome">{f.fonte}</span>
+                    <span>{f.total}</span>
+                    <span>{f.pctComSalario}%</span>
+                    <span>{f.pctComEstado}%</span>
+                    <span>
+                      {f.diasSemVagaNova === null ? '—' : `${f.diasSemVagaNova}d`}
+                      {alerta && ' ⚠️'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="settings-section">

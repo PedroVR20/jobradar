@@ -1602,6 +1602,38 @@ a:hover { text-decoration: underline; }
 }
 .key-pool-exhausted { opacity: 0.85; font-weight: 400; }
 
+/* Fase 2.7 — painel de saúde das fontes (Configurações) */
+.fontes-saude-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 0.6rem;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.fontes-saude-row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr 1fr 1fr 1.2fr;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  background: var(--bg-card);
+}
+.fontes-saude-row--head {
+  background: var(--bg-card2);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.fontes-saude-nome { font-weight: 600; }
+.fontes-saude-row--alerta {
+  background: #ef444414;
+}
+.fontes-saude-row--alerta .fontes-saude-nome { color: var(--red); }
+
 .settings-usage-hint { margin-top: 0.5rem; }
 .settings-usage-hint code {
   background: var(--bg-card2);
