@@ -23,17 +23,22 @@ import java.util.stream.Collectors;
  * jeito de retreinar.
  *
  * <p>Port fiel da lógica de feature engineering (allowlist de tags, bucket
- * dos 8 estados mais frequentes) e do algoritmo (RidgeCV: 30 valores de
- * alpha em log-espaço [-2, 3], escolhendo o que maximiza R² médio numa
- * validação cruzada — mesmo critério que RidgeCV usa por padrão quando cv é
- * um inteiro, já que Ridge.score() é R²). Diferente da ideia original de
- * "guardar 20% pra teste": com um catálogo pequeno (algumas centenas de
- * vagas com salário), um único split de teste é ruidoso demais pra confiar
- * (visto na prática — retreino real oscilando 33%→69% de erro sem o modelo
- * ter piorado de verdade). Em vez disso, a métrica reportada vem de
- * validação cruzada OUT-OF-FOLD sobre o catálogo INTEIRO (ver
- * {@link #foldIndicesEstavel}), e o modelo final é treinado com 100% do
- * dado disponível.</p>
+ * dos 8 estados mais frequentes). Algoritmo: Elastic Net (mistura de L1 +
+ * L2, resolvido por coordinate descent — ver {@link #fitElasticNet}), não
+ * Ridge puro como na primeira versão — Ridge só ENCOLHE coeficiente de tag
+ * rara/pouco informativa, nunca zera; com {@code MIN_TAG_FREQ} baixo o
+ * vocabulário ainda tem tag pouco útil sobrando, e o L1 do Elastic Net zera
+ * essas de vez (seleção de feature de verdade), deixando só o que
+ * realmente carrega sinal. alpha (força total) e l1Ratio (mistura L1/L2)
+ * escolhidos por validação cruzada, mesmo esquema de antes.</p>
+ *
+ * <p>Diferente da ideia original de "guardar 20% pra teste": com um
+ * catálogo pequeno (algumas centenas de vagas com salário), um único split
+ * de teste é ruidoso demais pra confiar (visto na prática — retreino real
+ * oscilando 33%→69% de erro sem o modelo ter piorado de verdade). Em vez
+ * disso, a métrica reportada vem de validação cruzada OUT-OF-FOLD sobre o
+ * catálogo INTEIRO (ver {@link #foldIndicesEstavel}), e o modelo final é
+ * treinado com 100% do dado disponível.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -175,10 +180,10 @@ public class SalaryModelTrainerService {
         // treinando o modelo final com 100% do catálogo (ver mais abaixo).
         int[][] folds = foldIndicesEstavel(rows, CV_FOLDS);
 
-        double bestAlpha = escolherMelhorAlpha(X, y, folds);
-        log.info("Retreino: melhor alpha (regularização) = {}", bestAlpha);
+        Hiperparametros melhores = escolherMelhorHiperparametros(X, y, folds);
+        log.info("Retreino: melhor alpha={} l1Ratio={}", round(melhores.alpha(), 4), melhores.l1Ratio());
 
-        double[] oofPredLog = crossValPredictions(X, y, bestAlpha, folds);
+        double[] oofPredLog = crossValPredictions(X, y, melhores.alpha(), melhores.l1Ratio(), folds);
         double r2 = r2Score(y, oofPredLog);
         double[] oofPredBrl = new double[oofPredLog.length];
         for (int i = 0; i < oofPredLog.length; i++) oofPredBrl[i] = Math.expm1(oofPredLog[i]);
@@ -195,7 +200,9 @@ public class SalaryModelTrainerService {
         // pra deixar uma fatia do catálogo de fora do modelo que entra em
         // produção — principalmente com um catálogo pequeno, onde cada vaga
         // a mais ajuda de verdade.
-        RidgeFit finalFit = fitRidge(X, y, bestAlpha);
+        ModelFit finalFit = fitElasticNet(X, y, melhores.alpha(), melhores.l1Ratio());
+        long zeradas = Arrays.stream(finalFit.weights()).filter(w -> w == 0.0).count();
+        log.info("Retreino: Elastic Net zerou {} de {} coeficientes (seleção de feature)", zeradas, p);
 
         ObjectNode model = mapper.createObjectNode();
         model.put("trainedAt", LocalDate.now().toString());
@@ -224,6 +231,10 @@ public class SalaryModelTrainerService {
         // as n linhas inteiras (ver comentário no início do treino).
         metrics.put("avaliacao", "cv-out-of-fold-" + CV_FOLDS + "-dobras");
         metrics.put("cvSamples", n);
+        metrics.put("algoritmo", "elastic-net");
+        metrics.put("alpha", round(melhores.alpha(), 4));
+        metrics.put("l1Ratio", melhores.l1Ratio());
+        metrics.put("coeficientesZerados", zeradas);
 
         return new TrainResult(model, n, round(r2, 4), round(maeBrl, 2), round(maePercent, 1));
     }
@@ -361,30 +372,43 @@ public class SalaryModelTrainerService {
         if (idx != null) vec[idx] = 1.0;
     }
 
-    // ===================== regularização (RidgeCV) =====================
+    // ===================== regularização (Elastic Net CV) =====================
 
-    private double escolherMelhorAlpha(double[][] X, double[] y, int[][] folds) {
-        double[] alphas = logspace(-2, 3, 30);
+    private record Hiperparametros(double alpha, double l1Ratio) {}
+
+    // l1Ratio fixo em 3 valores (não uma busca fina) — cada combinação
+    // alpha×l1Ratio×dobra é um ajuste de coordinate descent inteiro, bem
+    // mais caro que a solução fechada do Ridge; um grid completo (30
+    // alphas × 3 l1Ratios × 5 dobras = 450 ajustes) já cobre bem o espaço
+    // sem o retreino demorar demais numa chamada HTTP síncrona.
+    private static final double[] L1_RATIO_GRID = {0.2, 0.5, 0.8};
+
+    private Hiperparametros escolherMelhorHiperparametros(double[][] X, double[] y, int[][] folds) {
+        double[] alphas = logspace(-2, 2, 20);
         double bestAlpha = alphas[0];
+        double bestL1Ratio = L1_RATIO_GRID[0];
         double bestScore = Double.NEGATIVE_INFINITY;
-        for (double alpha : alphas) {
-            double scoreSum = 0;
-            int dobrasValidas = 0;
-            for (int[] foldTest : folds) {
-                if (foldTest.length == 0) continue; // salvaguarda, ver foldIndicesEstavel
-                int[] foldTrain = complement(foldTest, X.length);
-                RidgeFit fit = fitRidge(select(X, foldTrain), select(y, foldTrain), alpha);
-                double[] pred = predictAll(fit, select(X, foldTest));
-                scoreSum += r2Score(select(y, foldTest), pred);
-                dobrasValidas++;
-            }
-            double avgScore = dobrasValidas > 0 ? scoreSum / dobrasValidas : Double.NEGATIVE_INFINITY;
-            if (avgScore > bestScore) {
-                bestScore = avgScore;
-                bestAlpha = alpha;
+        for (double l1Ratio : L1_RATIO_GRID) {
+            for (double alpha : alphas) {
+                double scoreSum = 0;
+                int dobrasValidas = 0;
+                for (int[] foldTest : folds) {
+                    if (foldTest.length == 0) continue; // salvaguarda, ver foldIndicesEstavel
+                    int[] foldTrain = complement(foldTest, X.length);
+                    ModelFit fit = fitElasticNet(select(X, foldTrain), select(y, foldTrain), alpha, l1Ratio);
+                    double[] pred = predictAll(fit, select(X, foldTest));
+                    scoreSum += r2Score(select(y, foldTest), pred);
+                    dobrasValidas++;
+                }
+                double avgScore = dobrasValidas > 0 ? scoreSum / dobrasValidas : Double.NEGATIVE_INFINITY;
+                if (avgScore > bestScore) {
+                    bestScore = avgScore;
+                    bestAlpha = alpha;
+                    bestL1Ratio = l1Ratio;
+                }
             }
         }
-        return bestAlpha;
+        return new Hiperparametros(bestAlpha, bestL1Ratio);
     }
 
     // Previsão OUT-OF-FOLD: pra cada dobra, treina só com o resto e prevê a
@@ -392,12 +416,12 @@ public class SalaryModelTrainerService {
     // exatamente uma vez, sempre por um ajuste que NUNCA a viu. É assim que
     // dá pra reportar uma métrica sobre o dataset inteiro (não só uma fatia
     // de teste) sem vazamento de dado.
-    private double[] crossValPredictions(double[][] X, double[] y, double alpha, int[][] folds) {
+    private double[] crossValPredictions(double[][] X, double[] y, double alpha, double l1Ratio, int[][] folds) {
         double[] oof = new double[y.length];
         for (int[] foldTest : folds) {
             if (foldTest.length == 0) continue;
             int[] foldTrain = complement(foldTest, X.length);
-            RidgeFit fit = fitRidge(select(X, foldTrain), select(y, foldTrain), alpha);
+            ModelFit fit = fitElasticNet(select(X, foldTrain), select(y, foldTrain), alpha, l1Ratio);
             double[] pred = predictAll(fit, select(X, foldTest));
             for (int i = 0; i < foldTest.length; i++) oof[foldTest[i]] = pred[i];
         }
@@ -424,11 +448,22 @@ public class SalaryModelTrainerService {
         return out;
     }
 
-    // ===================== ridge regression =====================
+    // ===================== elastic net (coordinate descent) =====================
 
-    private record RidgeFit(double intercept, double[] weights) {}
+    private record ModelFit(double intercept, double[] weights) {}
 
-    private RidgeFit fitRidge(double[][] X, double[] y, double alpha) {
+    // Sem solução fechada (o L1 não é derivável em zero, diferente do Ridge
+    // puro) — coordinate descent é o algoritmo padrão pra Elastic Net
+    // (mesma ideia por trás do glmnet/sklearn ElasticNet): otimiza uma
+    // feature de cada vez, mantendo as outras fixas, ciclando até convergir.
+    // Objetivo: 0.5·‖y_c − X_c·w‖² + lambda1·‖w‖₁ + 0.5·lambda2·‖w‖₂²
+    // (X_c/y_c centrados, mesma convenção do Ridge original — features aqui
+    // são todas one-hot 0/1, escala já comparável entre si, não precisa
+    // padronizar variância como se faria com features contínuas).
+    private static final int CD_MAX_ITER = 300;
+    private static final double CD_TOL = 1e-6;
+
+    private ModelFit fitElasticNet(double[][] X, double[] y, double alpha, double l1Ratio) {
         int n = X.length;
         int p = X[0].length;
 
@@ -445,33 +480,63 @@ public class SalaryModelTrainerService {
         double[] yc = new double[n];
         for (int i = 0; i < n; i++) yc[i] = y[i] - yMean;
 
-        // (Xcᵀ Xc + alpha·I) w = Xcᵀ yc
-        double[][] xtx = new double[p][p];
-        for (int a = 0; a < p; a++) {
-            for (int b = a; b < p; b++) {
-                double sum = 0;
-                for (int i = 0; i < n; i++) sum += xc[i][a] * xc[i][b];
-                xtx[a][b] = sum;
-                xtx[b][a] = sum;
-            }
-            xtx[a][a] += alpha;
-        }
-        double[] xty = new double[p];
-        for (int a = 0; a < p; a++) {
-            double sum = 0;
-            for (int i = 0; i < n; i++) sum += xc[i][a] * yc[i];
-            xty[a] = sum;
+        double lambda1 = alpha * l1Ratio;
+        double lambda2 = alpha * (1 - l1Ratio);
+
+        // Soma de quadrados de cada coluna — pré-computada uma vez, usada
+        // no denominador de toda atualização de coordenada.
+        double[] colSumSq = new double[p];
+        for (int j = 0; j < p; j++) {
+            double s = 0;
+            for (int i = 0; i < n; i++) s += xc[i][j] * xc[i][j];
+            colSumSq[j] = s;
         }
 
-        double[] w = choleskySolve(xtx, xty);
+        double[] w = new double[p];
+        // Resíduo corrente (y_c − X_c·w) — mantido incrementalmente: cada
+        // atualização de coordenada só ajusta o resíduo pela DIFERENÇA no
+        // peso, em vez de recalcular do zero (bem mais barato ao longo de
+        // várias iterações).
+        double[] residuo = yc.clone();
+
+        for (int iter = 0; iter < CD_MAX_ITER; iter++) {
+            double maiorMudanca = 0;
+            for (int j = 0; j < p; j++) {
+                if (colSumSq[j] < 1e-12) continue; // coluna toda zero (feature nunca aparece nesse subconjunto)
+                double wAntigo = w[j];
+                // "devolve" a contribuição atual de j ao resíduo antes de
+                // recalcular o quanto essa feature realmente explica.
+                double rho = 0;
+                for (int i = 0; i < n; i++) rho += xc[i][j] * (residuo[i] + xc[i][j] * wAntigo);
+                double wNovo = softThreshold(rho, lambda1) / (colSumSq[j] + lambda2);
+                if (wNovo != wAntigo) {
+                    double delta = wNovo - wAntigo;
+                    for (int i = 0; i < n; i++) residuo[i] -= xc[i][j] * delta;
+                    w[j] = wNovo;
+                    maiorMudanca = Math.max(maiorMudanca, Math.abs(delta));
+                }
+            }
+            if (maiorMudanca < CD_TOL) break;
+        }
 
         double intercept = yMean;
         for (int j = 0; j < p; j++) intercept -= xMean[j] * w[j];
 
-        return new RidgeFit(intercept, w);
+        return new ModelFit(intercept, w);
     }
 
-    private double[] predictAll(RidgeFit fit, double[][] X) {
+    // Operador de soft-thresholding — o coração do L1: encolhe rho em
+    // direção a zero, e se o encolhimento passar de zero, ZERA de vez (ao
+    // contrário do Ridge, que só encolhe, nunca zera). É isso que dá seleção
+    // de feature de verdade: tag pouco informativa acaba com coeficiente
+    // EXATAMENTE 0, não só "pequeno".
+    private double softThreshold(double rho, double lambda) {
+        if (rho > lambda) return rho - lambda;
+        if (rho < -lambda) return rho + lambda;
+        return 0.0;
+    }
+
+    private double[] predictAll(ModelFit fit, double[][] X) {
         double[] out = new double[X.length];
         for (int i = 0; i < X.length; i++) {
             double pred = fit.intercept();
@@ -480,38 +545,6 @@ public class SalaryModelTrainerService {
             out[i] = pred;
         }
         return out;
-    }
-
-    // Decomposição de Cholesky (A = L·Lᵀ) pra resolver Ax=b — A é simétrica
-    // positiva definida aqui porque alpha > 0 sempre soma um termo positivo
-    // na diagonal de XᵀX (que é positiva semi-definida por construção).
-    private double[] choleskySolve(double[][] a, double[] b) {
-        int p = a.length;
-        double[][] l = new double[p][p];
-        for (int i = 0; i < p; i++) {
-            for (int j = 0; j <= i; j++) {
-                double sum = a[i][j];
-                for (int k = 0; k < j; k++) sum -= l[i][k] * l[j][k];
-                if (i == j) {
-                    l[i][j] = Math.sqrt(Math.max(sum, 1e-12));
-                } else {
-                    l[i][j] = sum / l[j][j];
-                }
-            }
-        }
-        double[] y = new double[p];
-        for (int i = 0; i < p; i++) {
-            double sum = b[i];
-            for (int k = 0; k < i; k++) sum -= l[i][k] * y[k];
-            y[i] = sum / l[i][i];
-        }
-        double[] x = new double[p];
-        for (int i = p - 1; i >= 0; i--) {
-            double sum = y[i];
-            for (int k = i + 1; k < p; k++) sum -= l[k][i] * x[k];
-            x[i] = sum / l[i][i];
-        }
-        return x;
     }
 
     // ===================== utilitários numéricos =====================
