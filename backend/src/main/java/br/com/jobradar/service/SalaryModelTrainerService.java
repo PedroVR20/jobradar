@@ -55,6 +55,16 @@ public class SalaryModelTrainerService {
     private static final int TOP_STATES_COUNT = 8;
     private static final int CV_FOLDS = 5;
     private static final int MIN_ROWS_PARA_TREINAR = 30;
+    // Multiplicador clássico de Tukey (1.5 = "outlier moderado", o padrão
+    // usado em boxplot) — mais agressivo que isso arriscaria descartar
+    // salário sênior/especialista genuinamente alto, que é raro mas real,
+    // não ruído.
+    private static final double IQR_MULTIPLIER = 1.5;
+    // Com menos linhas que isso num nível de senioridade, Q1/Q3 ficam
+    // instáveis demais pra confiar (poucos pontos, interpolação vira quase
+    // um chute) — melhor manter tudo sem filtrar nesse grupo do que
+    // descartar vaga real por estatística barulhenta.
+    private static final int MIN_GRUPO_PARA_IQR = 10;
 
     private static final List<String> SENIORITY_VOCAB = List.of("ESTAGIO", "JUNIOR", "PLENO", "SENIOR", "NAO_INFORMADO");
     private static final List<String> WORKPLACE_VOCAB = List.of("REMOTO", "HIBRIDO", "PRESENCIAL", "DESCONHECIDO");
@@ -91,7 +101,23 @@ public class SalaryModelTrainerService {
         List<SalaryEstimateService.TrainingRow> rows = raw.stream()
                 .filter(r -> r.salaryMonthly() >= SALARY_FLOOR && r.salaryMonthly() <= SALARY_CEIL)
                 .toList();
-        log.info("Retreino: {} linhas após filtro de outliers [{}, {}]", rows.size(), SALARY_FLOOR, SALARY_CEIL);
+        log.info("Retreino: {} linhas após filtro fixo [{}, {}]", rows.size(), SALARY_FLOOR, SALARY_CEIL);
+
+        // SALARY_FLOOR/CEIL acima são uma rede de segurança BEM larga (só
+        // pega erro grosseiro de parsing tipo "R$ 130.000" que na verdade é
+        // anual, não mensal) — não filtra os outliers de verdade DENTRO
+        // desse intervalo (ex: 41 vagas da Gupy com "R$ 200,00" — sentinela
+        // de "salário não informado" da própria plataforma, não um salário
+        // real; valor exatamente no chão do filtro, então passava batido).
+        // IQR (Tukey fence) em log-escala pega isso: calcula onde a maioria
+        // do dado realmente está (Q1-Q3) e descarta o que sobra muito longe
+        // disso, na escala LOG porque salário é multiplicativo por natureza
+        // (a diferença de R$1000 pra R$2000 "pesa" o mesmo que R$10000 pra
+        // R$20000), não teria sentido usar IQR na escala linear.
+        int antesIqr = rows.size();
+        rows = filtrarOutliersPorIqr(rows);
+        log.info("Retreino: {} linhas após filtro de outlier por IQR (removeu {})", rows.size(), antesIqr - rows.size());
+
         if (rows.size() < MIN_ROWS_PARA_TREINAR) {
             throw new IllegalStateException("Poucas vagas com salário pra treinar (" + rows.size()
                     + ") — precisa de pelo menos " + MIN_ROWS_PARA_TREINAR + ".");
@@ -200,6 +226,73 @@ public class SalaryModelTrainerService {
         metrics.put("cvSamples", n);
 
         return new TrainResult(model, n, round(r2, 4), round(maeBrl, 2), round(maePercent, 1));
+    }
+
+    // ===================== filtro de outlier (IQR / Tukey fence) =====================
+
+    // POR SENIORIDADE, não global — a primeira versão (um IQR só pra tudo
+    // junto) removeu ZERO linhas na prática: um sênior ganhando R$18k e um
+    // estagiário ganhando R$1.200 são os dois perfeitamente normais nos
+    // seus próprios níveis, mas misturados no mesmo cálculo, o Q1-Q3 fica
+    // tão largo (a diferença ENTRE níveis é maior que qualquer outlier
+    // DENTRO de um nível) que nada nunca sai fora da faixa. Calculando Q1/Q3
+    // separado por nível, um sênior ganhando R$1.500 (bizarro pro nível
+    // dele) ou um estagiário ganhando R$15.000 (bizarro pro dele) agora tem
+    // como ser pego — cada um só é comparado com seus pares de verdade.
+    private List<SalaryEstimateService.TrainingRow> filtrarOutliersPorIqr(List<SalaryEstimateService.TrainingRow> rows) {
+        Map<String, List<SalaryEstimateService.TrainingRow>> porSenioridade = rows.stream()
+                .collect(Collectors.groupingBy(this::bucketSenioridade));
+
+        List<SalaryEstimateService.TrainingRow> resultado = new ArrayList<>();
+        for (Map.Entry<String, List<SalaryEstimateService.TrainingRow>> entry : porSenioridade.entrySet()) {
+            String senioridade = entry.getKey();
+            List<SalaryEstimateService.TrainingRow> grupo = entry.getValue();
+
+            if (grupo.size() < MIN_GRUPO_PARA_IQR) {
+                log.info("Retreino: IQR pulado pra '{}' ({} vagas, abaixo do mínimo {}) — mantidas todas sem filtro",
+                        senioridade, grupo.size(), MIN_GRUPO_PARA_IQR);
+                resultado.addAll(grupo);
+                continue;
+            }
+
+            double[] logSalarios = grupo.stream().mapToDouble(r -> Math.log1p(r.salaryMonthly())).sorted().toArray();
+            double q1 = percentil(logSalarios, 0.25);
+            double q3 = percentil(logSalarios, 0.75);
+            double iqr = q3 - q1;
+            double limiteInferior = q1 - IQR_MULTIPLIER * iqr;
+            double limiteSuperior = q3 + IQR_MULTIPLIER * iqr;
+
+            List<SalaryEstimateService.TrainingRow> filtrado = grupo.stream()
+                    .filter(r -> {
+                        double v = Math.log1p(r.salaryMonthly());
+                        return v >= limiteInferior && v <= limiteSuperior;
+                    })
+                    .toList();
+
+            log.info("Retreino: IQR '{}' — {} vagas, faixa normal R$[{}, {}], removeu {}",
+                    senioridade, grupo.size(), round(Math.expm1(limiteInferior), 0), round(Math.expm1(limiteSuperior), 0),
+                    grupo.size() - filtrado.size());
+            resultado.addAll(filtrado);
+        }
+        return resultado;
+    }
+
+    private String bucketSenioridade(SalaryEstimateService.TrainingRow r) {
+        return SENIORITY_VOCAB.contains(r.seniority()) ? r.seniority() : "NAO_INFORMADO";
+    }
+
+    // Interpolação linear entre os dois pontos mais próximos (mesmo método
+    // que numpy.percentile usa por padrão) — values já precisa vir
+    // ordenado.
+    private double percentil(double[] valoresOrdenados, double p) {
+        if (valoresOrdenados.length == 0) return 0;
+        if (valoresOrdenados.length == 1) return valoresOrdenados[0];
+        double idx = p * (valoresOrdenados.length - 1);
+        int lo = (int) Math.floor(idx);
+        int hi = (int) Math.ceil(idx);
+        if (lo == hi) return valoresOrdenados[lo];
+        double frac = idx - lo;
+        return valoresOrdenados[lo] * (1 - frac) + valoresOrdenados[hi] * frac;
     }
 
     // ===================== feature engineering =====================
