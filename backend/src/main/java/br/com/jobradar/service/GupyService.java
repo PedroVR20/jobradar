@@ -31,13 +31,19 @@ import java.util.regex.Pattern;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class GupyService {
+public class GupyService implements JobSource {
+
+    @Override
+    public String nome() {
+        return "Gupy";
+    }
 
     private static final String API_URL = "https://employability-portal.gupy.io/api/v1/jobs";
     private static final String JOB_DETAIL_URL = "https://employability-portal.gupy.io/api/v1/jobs/{id}";
     private static final Pattern JOB_ID_IN_URL = Pattern.compile("\"jobId\":(\\d+)");
 
     private final SalaryExtractor salaryExtractor;
+    private final FocoGeograficoConfig focoGeograficoConfig;
 
     // Termos cobrindo o espectro de vagas de tecnologia + estágio, para dar
     // uma boa cobertura de volume sem varrer o catálogo inteiro da Gupy.
@@ -52,9 +58,10 @@ public class GupyService {
 
     // A busca nacional (sem state) limita a 100 resultados por termo — vagas
     // de um estado específico podem ficar de fora do corte por relevância.
-    // Repetir os termos principais com state=Rio de Janeiro garante boa
-    // cobertura da região sem depender do ranking nacional.
-    private static final String FOCO_ESTADO = "Rio de Janeiro";
+    // Repetir os termos principais com state=<foco> garante boa cobertura da
+    // região sem depender do ranking nacional. Estado(s) vêm agora de
+    // FocoGeograficoConfig (Fase 2.6) em vez de hardcoded aqui — compartilhado
+    // com qualquer outra fonte que suporte filtro geográfico.
     private static final List<String> TERMOS_FOCO_ESTADO = List.of(
             "desenvolvedor", "programador", "estagio tecnologia", "estagio ti",
             "trainee tecnologia", "dados", "java", "python", "frontend", "backend",
@@ -66,6 +73,7 @@ public class GupyService {
     private final ObjectMapper mapper = new ObjectMapper();
     private final RestTemplate restTemplate = new RestTemplate();
 
+    @Override
     public List<Job> fetchJobs() {
         // dedup por id da vaga: o mesmo anúncio aparece em múltiplos termos de busca
         Map<Long, Job> byId = new LinkedHashMap<>();
@@ -79,16 +87,19 @@ public class GupyService {
         }
 
         int antesDoFoco = byId.size();
-        for (String term : TERMOS_FOCO_ESTADO) {
-            try {
-                fetchByTerm(term, FOCO_ESTADO, byId);
-            } catch (Exception e) {
-                log.warn("Erro ao buscar '{}' (state={}) na Gupy: {}", term, FOCO_ESTADO, e.getMessage());
+        List<String> estadosFoco = focoGeograficoConfig.estados();
+        for (String estado : estadosFoco) {
+            for (String term : TERMOS_FOCO_ESTADO) {
+                try {
+                    fetchByTerm(term, estado, byId);
+                } catch (Exception e) {
+                    log.warn("Erro ao buscar '{}' (state={}) na Gupy: {}", term, estado, e.getMessage());
+                }
             }
         }
 
         log.info("Gupy: {} vagas únicas buscadas ({} extras via foco em {})",
-                byId.size(), byId.size() - antesDoFoco, FOCO_ESTADO);
+                byId.size(), byId.size() - antesDoFoco, estadosFoco);
         return byId.values().stream().toList();
     }
 

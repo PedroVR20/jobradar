@@ -16,11 +16,17 @@ import java.util.List;
 
 @Service
 @Slf4j
-public class WorkRemotelyService {
+public class WorkRemotelyService implements JobSource {
+
+    @Override
+    public String nome() {
+        return "We Work Remotely";
+    }
 
     private static final String RSS_URL =
             "https://weworkremotely.com/categories/remote-programming-jobs.rss";
 
+    @Override
     public List<Job> fetchJobs() {
         List<Job> jobs = new ArrayList<>();
         try {

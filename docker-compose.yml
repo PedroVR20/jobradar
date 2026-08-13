@@ -49,6 +49,13 @@ services:
       # client OAuth no Google Cloud Console.
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8080/api/gmail/oauth/callback}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      # Opcional — estado(s) que ganham uma segunda passada de busca por
+      # fonte que suporta filtro geográfico (Gupy, e futuras fontes BR).
+      # Separado por vírgula pra mais de um, ex: "Rio de Janeiro,Minas Gerais".
+      FOCO_ESTADOS: ${FOCO_ESTADOS:-Rio de Janeiro}
+      # Opcional — Adzuna BR (Fase 2.2). Gere grátis em developer.adzuna.com.
+      ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
+      ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
     volumes:
       # Persiste o modelo de salário retreinado fora da imagem — sem isso,
       # um "docker compose up --build" voltaria pro modelo empacotado no jar

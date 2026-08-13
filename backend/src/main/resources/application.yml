@@ -57,6 +57,13 @@ google:
     # a origem do frontend, não do backend.
     frontend-origin: ${FRONTEND_ORIGIN:http://localhost:3000}
 
+app:
+  foco:
+    # Fase 2.6 — estado(s) que ganham uma segunda passada de busca por
+    # fonte (antes só a Gupy tinha isso hardcoded). Separado por vírgula
+    # se quiser mais de um no futuro, ex: "Rio de Janeiro,Minas Gerais".
+    estados: ${FOCO_ESTADOS:Rio de Janeiro}
+
 logging:
   level:
     br.com.jobradar: INFO

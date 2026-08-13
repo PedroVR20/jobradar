@@ -18,7 +18,12 @@ import java.util.StringJoiner;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class ArbeitnowService {
+public class ArbeitnowService implements JobSource {
+
+    @Override
+    public String nome() {
+        return "Arbeitnow";
+    }
 
     // API pública de vagas europeias com filtro de remote
     private static final String API_URL = "https://arbeitnow.com/api/job-board-api";
@@ -31,6 +36,7 @@ public class ArbeitnowService {
     // Limita a paginação pra não sobrecarregar a API pública gratuita
     private static final int MAX_PAGES = 5;
 
+    @Override
     public List<Job> fetchJobs() {
         List<Job> jobs = new ArrayList<>();
         try {

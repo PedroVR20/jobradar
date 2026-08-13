@@ -33,13 +33,19 @@ import java.util.StringJoiner;
  */
 @Service
 @Slf4j
-public class NerdinService {
+public class NerdinService implements JobSource {
+
+    @Override
+    public String nome() {
+        return "Nerdin";
+    }
 
     private static final String BASE_URL = "https://www.nerdin.com.br";
     private static final String LIST_URL = BASE_URL + "/vagas.php?pagina=";
     private static final int MAX_PAGES = 45; // catálogo tinha ~700 vagas (35 páginas) — folga pro site crescer
     private static final ZoneId BRASILIA = ZoneId.of("America/Sao_Paulo");
 
+    @Override
     public List<Job> fetchJobs() {
         List<Job> jobs = new ArrayList<>();
         try {

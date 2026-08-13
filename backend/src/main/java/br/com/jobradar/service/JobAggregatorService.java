@@ -28,13 +28,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class JobAggregatorService {
 
     private final JobRepository jobRepository;
-    private final RemotiveService remotiveService;
-    private final ArbeitnowService arbeitnowService;
-    private final WorkRemotelyService workRemotelyService;
+    // Fase 2.5 — antes eram 7 campos individuais (RemotiveService,
+    // ArbeitnowService, ...) com 7 chamadas allJobs.addAll(xService.fetchJobs())
+    // hardcoded em fetchAllJobs() — adicionar uma fonte nova (Greenhouse,
+    // Adzuna, SINE Aberto, ver Fase 2) significava editar esse método. Agora
+    // o Spring injeta automaticamente TODO bean que implementa JobSource
+    // nessa lista — adicionar fonte vira só criar a classe com @Service.
+    private final List<JobSource> fontes;
+    // gupyService continua injetado À PARTE (o MESMO bean singleton que já
+    // está dentro de `fontes`, Spring não duplica) porque tem um método
+    // extra fora do contrato JobSource: fetchSalaryHint, usado só pelo
+    // backfill de salário (ver enriquecerSalariosGupyAntigas).
     private final GupyService gupyService;
-    private final EurecaService eurecaService;
-    private final QuerovagastechService querovagastechService;
-    private final NerdinService nerdinService;
     private final SeniorityClassifier seniorityClassifier;
     private final JobEmbeddingService jobEmbeddingService;
 
@@ -264,13 +269,18 @@ public class JobAggregatorService {
         }
         try {
             List<Job> allJobs = new ArrayList<>();
-            allJobs.addAll(remotiveService.fetchJobs());
-            allJobs.addAll(arbeitnowService.fetchJobs());
-            allJobs.addAll(workRemotelyService.fetchJobs());
-            allJobs.addAll(gupyService.fetchJobs());
-            allJobs.addAll(eurecaService.fetchJobs());
-            allJobs.addAll(querovagastechService.fetchJobs());
-            allJobs.addAll(nerdinService.fetchJobs());
+            // Fase 2.5 — cada fonte já trata seus próprios erros e nunca
+            // deveria lançar (contrato de JobSource), mas o try/catch extra
+            // aqui garante que uma fonte NOVA com um bug real (exceção
+            // escapando) nunca derruba o fetch das outras fontes junto.
+            for (JobSource fonte : fontes) {
+                try {
+                    allJobs.addAll(fonte.fetchJobs());
+                } catch (Exception e) {
+                    log.error("=== Fonte '{}' falhou no fetch (exceção não tratada internamente): {} ===",
+                            fonte.nome(), e.getMessage());
+                }
+            }
 
             // Pool de vagas ativas agrupadas por empresa normalizada, pra
             // achar duplicata entre FONTES diferentes (mesma vaga na Gupy e
