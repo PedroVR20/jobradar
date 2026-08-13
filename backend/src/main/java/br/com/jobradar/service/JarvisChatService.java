@@ -1373,7 +1373,8 @@ public class JarvisChatService {
     // o modelo pode decidir chamar sem querer. Falso positivo ocasional é
     // aceitável aqui — o resultado já avisa que é só indício.
     private Object executarDetectarDuplicatas() {
-        List<Job> ativas = jobRepository.findAll().stream().filter(j -> !j.isRejected()).toList();
+        // Fase 1.6 — filtro empurrado pro SQL em vez de Java (ver JobSpecifications.notRejected).
+        List<Job> ativas = jobRepository.findAll(br.com.jobradar.repository.JobSpecifications.notRejected());
         Map<String, List<Job>> porEmpresa = new LinkedHashMap<>();
         for (Job j : ativas) {
             String chave = j.getCompany() == null ? "" : j.getCompany().trim().toLowerCase();
@@ -1752,7 +1753,10 @@ public class JarvisChatService {
         }
         int limite = args.get("limite") instanceof Number n ? Math.min(20, Math.max(1, n.intValue())) : 10;
 
-        List<Job> candidatas = jobRepository.findAll().stream().filter(j -> !j.isRejected()).toList();
+        // Fase 1.6 — filtro empurrado pro SQL: vaga recusada nunca entra na
+        // busca semântica de qualquer forma, então nem carrega da memória
+        // (economiza justo a coluna mais pesada da tabela, o embedding).
+        List<Job> candidatas = jobRepository.findAll(br.com.jobradar.repository.JobSpecifications.notRejected());
         List<JobEmbeddingService.Match> matches = jobEmbeddingService.buscar(consulta, candidatas, limite);
 
         List<Map<String, Object>> vagas = matches.stream().map(match -> {

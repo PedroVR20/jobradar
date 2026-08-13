@@ -55,7 +55,8 @@ public class JobEmbeddingService {
      * inteiro porque o Gemini está fora do ar ou sem key configurada.
      */
     public boolean embedESalvar(Job job) {
-        GeminiService.EmbedResult resultado = geminiService.embedContent(textoDaVaga(job));
+        GeminiService.EmbedResult resultado = geminiService.embedContent(
+                textoDaVaga(job), GeminiService.TASK_TYPE_DOCUMENTO);
         if (!resultado.ok()) {
             log.warn("Não foi possível embeddar a vaga {} ('{}'): {}", job.getId(), job.getTitle(), resultado.errorMessage());
             return false;
@@ -73,7 +74,7 @@ public class JobEmbeddingService {
      * não trava a busca, só fica de fora até ser embeddada.
      */
     public List<Match> buscar(String consulta, List<Job> candidatas, int limite) {
-        GeminiService.EmbedResult consultaEmbed = geminiService.embedContent(consulta);
+        GeminiService.EmbedResult consultaEmbed = geminiService.embedContent(consulta, GeminiService.TASK_TYPE_CONSULTA);
         if (!consultaEmbed.ok()) {
             log.warn("Busca semântica: não consegui embeddar a consulta '{}': {}", consulta, consultaEmbed.errorMessage());
             return List.of();

@@ -91,6 +91,28 @@ public class NerdinService {
         String salary = textOrNull(card, ".vaga-salario-destaque");
         String workplaceType = translateWorkplace(location);
 
+        // BUG REAL corrigido (Fase 1.2): antes o texto de local só era salvo
+        // (como cidade crua, sem separar estado) quando workplaceType vinha
+        // null — ou seja, TODA vaga marcada REMOTO/HIBRIDO/PRESENCIAL
+        // perdia a localização, mesmo tendo ela disponível (~380 das 841
+        // vagas do Nerdin no banco). O local vem no formato "Cidade • UF"
+        // (ex: "Rio de Janeiro • RJ") — agora sempre tenta separar os dois,
+        // independente da modalidade detectada.
+        String cidade = null;
+        String estado = null;
+        if (location != null) {
+            String[] partes = location.split("•");
+            if (partes.length == 2) {
+                cidade = partes[0].trim();
+                String nomeEstado = EstadosBrasileiros.nomeCompleto(partes[1].trim());
+                estado = nomeEstado != null ? nomeEstado : null;
+            } else {
+                // Não bate o formato "Cidade • UF" (ex: só "Home Office") —
+                // guarda o texto cru como cidade em vez de perder de vez.
+                cidade = location;
+            }
+        }
+
         StringJoiner tagsJoiner = new StringJoiner(",");
         tagsJoiner.add("nerdin");
         for (Element tag : card.select(".vaga-hashtags a")) {
@@ -104,9 +126,8 @@ public class NerdinService {
                 .url(url)
                 .source("NERDIN")
                 .workplaceType(workplaceType)
-                // sem modalidade estruturada (presencial/híbrido), guarda o texto
-                // cru do local como cidade — melhor que nada pro usuário ver
-                .city(workplaceType == null ? location : null)
+                .city(cidade)
+                .state(estado)
                 .tags(tagsJoiner.toString())
                 .salary(salary)
                 .postedAt(postedAt != null ? postedAt : LocalDateTime.now())

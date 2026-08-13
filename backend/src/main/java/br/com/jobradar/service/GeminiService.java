@@ -199,7 +199,20 @@ public class GeminiService {
     // KeySlot.dailyExhaustedOn: marcar uma key como "esgotada" aqui esgotaria
     // ela erradamente pro chat também, e vice-versa — são baldes diferentes,
     // mesmo sendo a mesma key/projeto.
-    private static final String EMBEDDING_MODEL = "text-embedding-004";
+    //
+    // BUG REAL corrigido (Fase 1.1 — busca semântica achada morta: 0 de 5327
+    // vagas com embedding salvo): "text-embedding-004" foi DESATIVADO pelo
+    // Google em 14/jan/2026 — toda chamada dava 404 em TODAS as 29 keys (não
+    // era problema de key nenhuma, era o modelo não existir mais), e como
+    // embedESalvar()/buscar() falham silenciosamente de propósito (pra não
+    // travar o fetch periódico), isso nunca apareceu como erro visível em
+    // lugar nenhum — só via log, que ninguém tinha motivo de vasculhar.
+    // Substituto oficial: "gemini-embedding-001", 3072 dimensões por padrão;
+    // pedido em 768 via outputDimensionality (suporta truncar por Matryoshka
+    // Representation Learning) pra manter o vetor pequeno — sem isso o
+    // TEXT salvo por vaga quadruplicaria de tamanho à toa.
+    private static final String EMBEDDING_MODEL = "gemini-embedding-001";
+    private static final int EMBEDDING_DIMENSOES = 768;
 
     public record EmbedResult(float[] vector, String errorMessage) {
         public boolean ok() {
@@ -207,16 +220,28 @@ public class GeminiService {
         }
     }
 
+    // taskType diferencia o lado "documento sendo indexado" do lado "consulta
+    // buscando" — embeddings assimétricos (RETRIEVAL_DOCUMENT vs
+    // RETRIEVAL_QUERY) dão resultado melhor que embeddar os dois iguais,
+    // porque o modelo otimiza a geometria do vetor sabendo qual papel cada
+    // texto tem na busca.
+    public static final String TASK_TYPE_DOCUMENTO = "RETRIEVAL_DOCUMENT";
+    public static final String TASK_TYPE_CONSULTA = "RETRIEVAL_QUERY";
+
     /**
      * Embedda um texto livre (título+empresa+tags de uma vaga, ou a busca
-     * digitada pelo usuário) num vetor de 768 dimensões — usado pra busca
-     * semântica (ver JobEmbeddingService), que acha vagas por SIGNIFICADO em
-     * vez de substring exata ("vaga de infra" achando "DevOps/SRE/Cloud").
-     * Roda o mesmo rodízio de keys que generate()/chat(), só que sem marcar
-     * nada como esgotado (ver comentário acima) — cada key tenta uma vez,
-     * pula pra próxima em qualquer erro.
+     * digitada pelo usuário) num vetor de {@value #EMBEDDING_DIMENSOES}
+     * dimensões — usado pra busca semântica (ver JobEmbeddingService), que
+     * acha vagas por SIGNIFICADO em vez de substring exata ("vaga de infra"
+     * achando "DevOps/SRE/Cloud"). Roda o mesmo rodízio de keys que
+     * generate()/chat(), só que sem marcar nada como esgotado (ver comentário
+     * acima) — cada key tenta uma vez, pula pra próxima em qualquer erro.
+     *
+     * @param taskType {@link #TASK_TYPE_DOCUMENTO} pra texto sendo indexado
+     *                 (a vaga em si), {@link #TASK_TYPE_CONSULTA} pra busca
+     *                 do usuário — ver comentário do campo acima.
      */
-    public EmbedResult embedContent(String text) {
+    public EmbedResult embedContent(String text, String taskType) {
         if (!isEnabled()) {
             return new EmbedResult(null, "Recurso de IA não configurado.");
         }
@@ -225,8 +250,10 @@ public class GeminiService {
         }
 
         Map<String, Object> body = Map.of(
-                "model", "models/" + EMBEDDING_MODEL,
-                "content", Map.of("parts", List.of(Map.of("text", text)))
+                "content", Map.of("parts", List.of(Map.of("text", text))),
+                "embedContentConfig", Map.of(
+                        "outputDimensionality", EMBEDDING_DIMENSOES,
+                        "taskType", taskType != null ? taskType : TASK_TYPE_DOCUMENTO)
         );
 
         int size = pool.size();

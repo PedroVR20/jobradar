@@ -334,9 +334,11 @@ public class JobController {
 
     @GetMapping("/duplicates")
     public List<Map<String, Object>> getDuplicates() {
-        List<Job> ativos = jobRepository.findAll().stream()
-                .filter(j -> !j.isRejected())
-                .toList();
+        // Fase 1.6 — filtro "não recusada" empurrado pro WHERE do SQL (via
+        // JobSpecifications), em vez de carregar TODA vaga (incluindo
+        // recusada, que esse endpoint nunca precisa) só pra descartar em
+        // Java logo em seguida.
+        List<Job> ativos = jobRepository.findAll(JobSpecifications.notRejected());
 
         Map<String, List<Job>> porEmpresa = new HashMap<>();
         for (Job j : ativos) {

@@ -118,39 +118,65 @@ public class JobAggregatorService {
         log.info("=== Fetch inicial ao subir a aplicação (em background — app já está respondendo) ===");
         classificarVagasAntigas();
         marcarModalidadeRemotaAntigas();
+        limparLocalizacaoNerdinAntiga();
         fetchAllJobs();
         enriquecerSalariosGupyAntigas();
         limparVagasRecusadasAntigas();
         limparVagasAntigasNuncaEngajadas();
     }
 
-// Limita quantas vagas antigas sem salário são checadas por ciclo —
+    // Limita quantas vagas antigas sem salário são checadas por ciclo —
     // cada checagem é uma requisição HTTP extra à Gupy, então isso evita
-    // disparar centenas de requisições de uma vez.
-    private static final int MAX_BACKFILL_SALARIO = 150;
+    // disparar centenas de requisições de uma vez. Subido de 150 pra 300
+    // (Fase 1.3) junto da correção do bug abaixo — sem o bug, cada vaga só
+    // precisa ser checada uma vez de verdade, então dá pra ser mais
+    // generoso sem desperdiçar requisição repetida.
+    private static final int MAX_BACKFILL_SALARIO = 300;
 
     /**
      * Backfill: vagas Gupy já salvas sem salário (a busca por termo não traz
      * esse dado) são checadas uma a uma via endpoint de detalhe, em lotes
-     * pequenos por ciclo, até o catálogo inteiro ficar coberto.
+     * por ciclo, até o catálogo inteiro ficar coberto.
+     *
+     * <p>BUG REAL corrigido (Fase 1.3): antes pegava sempre as N vagas MAIS
+     * RECENTES sem salário (ORDER BY postedAt DESC). Medido em produção:
+     * 150 vagas checadas, 0 com salário achado — ou seja, as vagas mais
+     * recentes genuinamente não tinham salário divulgado, e o backfill
+     * martelava o MESMO lote todo ciclo pra sempre, nunca avançando pras
+     * ~1900 outras vagas Gupy sem salário que nunca tinham sido checadas.
+     * Cobertura real ficou travada em 6% (131/2202) por causa disso.</p>
+     *
+     * <p>Agora {@code salaryCheckedAt} marca quando uma vaga foi checada —
+     * a fase 1 do lote prioriza vaga NUNCA checada (é isso que faz o
+     * backfill avançar pelo catálogo de verdade); só se sobrar cota depois
+     * de esgotar as nunca-checadas é que reprocessa as já checadas há mais
+     * tempo (empresa pode ter adicionado salário depois).</p>
      */
     @Transactional
     public void enriquecerSalariosGupyAntigas() {
-        List<Job> semSalario = jobRepository.findBySourceAndSalaryIsNullOrderByPostedAtDesc(
-                "GUPY", PageRequest.of(0, MAX_BACKFILL_SALARIO));
-        if (semSalario.isEmpty()) return;
+        List<Job> candidatas = new ArrayList<>(jobRepository.findBySourceAndSalaryIsNullAndSalaryCheckedAtIsNull(
+                "GUPY", PageRequest.of(0, MAX_BACKFILL_SALARIO)));
+        int nuncaCheckadas = candidatas.size();
+
+        int faltam = MAX_BACKFILL_SALARIO - candidatas.size();
+        if (faltam > 0) {
+            candidatas.addAll(jobRepository.findBySourceAndSalaryIsNullAndSalaryCheckedAtIsNotNullOrderBySalaryCheckedAtAsc(
+                    "GUPY", PageRequest.of(0, faltam)));
+        }
+        if (candidatas.isEmpty()) return;
 
         int achados = 0;
-        for (Job job : semSalario) {
+        for (Job job : candidatas) {
             String salario = gupyService.fetchSalaryHint(job.getUrl());
+            job.setSalaryCheckedAt(LocalDateTime.now());
             if (salario != null) {
                 job.setSalary(salario);
-                jobRepository.save(job);
                 achados++;
             }
         }
-        log.info("=== Backfill de salário Gupy: {} vagas checadas, {} com salário encontrado ===",
-                semSalario.size(), achados);
+        jobRepository.saveAll(candidatas);
+        log.info("=== Backfill de salário Gupy: {} vagas checadas ({} nunca checadas antes), {} com salário encontrado ===",
+                candidatas.size(), nuncaCheckadas, achados);
     }
 
     /**
@@ -167,6 +193,32 @@ public class JobAggregatorService {
         }
         jobRepository.saveAll(semModalidade);
         log.info("=== {} vagas antigas marcadas como REMOTO ===", semModalidade.size());
+    }
+
+    /**
+     * Backfill pontual (Fase 1.2): vagas do Nerdin salvas ANTES do fix que
+     * separa "Cidade • UF" em cidade+estado de verdade ficaram com o texto
+     * cru mashed no campo city (ex: "Rio de Janeiro • RJ" como se fosse o
+     * nome da cidade) — limpa essas retroativamente. Roda uma vez por
+     * vaga (o "•" some depois de limpa, então não reprocessa a mesma toda
+     * inicialização).
+     */
+    @Transactional
+    public void limparLocalizacaoNerdinAntiga() {
+        List<Job> comLocalCru = jobRepository.findBySourceAndCityContaining("NERDIN", "•");
+        if (comLocalCru.isEmpty()) return;
+
+        int corrigidas = 0;
+        for (Job job : comLocalCru) {
+            String[] partes = job.getCity().split("•");
+            if (partes.length != 2) continue;
+            String estado = EstadosBrasileiros.nomeCompleto(partes[1].trim());
+            job.setCity(partes[0].trim());
+            if (job.getState() == null && estado != null) job.setState(estado);
+            corrigidas++;
+        }
+        jobRepository.saveAll(comLocalCru);
+        log.info("=== {} vagas antigas do Nerdin com localização crua corrigidas (cidade+estado separados) ===", corrigidas);
     }
 
     /**

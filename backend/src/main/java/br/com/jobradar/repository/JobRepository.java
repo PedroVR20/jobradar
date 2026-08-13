@@ -43,6 +43,20 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
 
     List<Job> findBySourceAndSalaryIsNullOrderByPostedAtDesc(String source, Pageable pageable);
 
+    // Fase 1.3 — duas fases do backfill de salário: primeiro as NUNCA
+    // checadas (prioridade — é isso que faz o backfill avançar pelo
+    // catálogo em vez de reprocessar sempre as mesmas), depois, só se
+    // sobrar cota, as já checadas há mais tempo (empresa pode ter
+    // adicionado salário depois da primeira checagem).
+    List<Job> findBySourceAndSalaryIsNullAndSalaryCheckedAtIsNull(String source, Pageable pageable);
+
+    List<Job> findBySourceAndSalaryIsNullAndSalaryCheckedAtIsNotNullOrderBySalaryCheckedAtAsc(String source, Pageable pageable);
+
+    // Vagas do Nerdin salvas ANTES do fix que separa "Cidade • UF" em
+    // cidade+estado de verdade (ver NerdinService e Fase 1.2) — o texto cru
+    // ficou mashed no campo city, precisa de um backfill pontual pra limpar.
+    List<Job> findBySourceAndCityContaining(String source, String needle);
+
     long countByAppliedTrueAndInProgressTrue();
 
     long countByRejectedTrue();

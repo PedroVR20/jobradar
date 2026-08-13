@@ -33,6 +33,18 @@ public class Job {
 
     private String salary;
 
+    // Quando a checagem de detalhe da Gupy foi feita por último pra tentar
+    // achar salário (ver JobAggregatorService.enriquecerSalariosGupyAntigas)
+    // — null = nunca checada ainda. BUG REAL corrigido (Fase 1.3): sem esse
+    // marcador, o backfill sempre pegava as N vagas mais recentes SEM
+    // salário (ORDER BY postedAt DESC) — se essas nunca tiverem salário
+    // divulgado (comum), o backfill martelava as MESMAS vagas todo ciclo
+    // pra sempre e nunca avançava pras milhares de outras vagas antigas
+    // nunca checadas. Com o marcador, "nunca checada" tem prioridade sobre
+    // "já checada e não achou", garantindo que o backfill avança pelo
+    // catálogo inteiro em vez de ficar preso no mesmo lote.
+    private LocalDateTime salaryCheckedAt;
+
     private String workplaceType; // REMOTO | HIBRIDO | PRESENCIAL
 
     private String state; // estado brasileiro por extenso, ex: "São Paulo" (só quando a fonte informa)
@@ -100,7 +112,7 @@ public class Job {
     // usado só pra transparência visual no card (badge "🤖"), não afeta lógica.
     private Boolean classifiedByAi;
 
-    // Vetor de embedding (768 floats, text-embedding-004) serializado como
+    // Vetor de embedding (768 floats, gemini-embedding-001) serializado como
     // números separados por vírgula — usado pra busca semântica (ver
     // JobEmbeddingService). Sem extensão pgvector instalada no Postgres, a
     // similaridade de cosseno é calculada em Java sobre a lista de vagas, não

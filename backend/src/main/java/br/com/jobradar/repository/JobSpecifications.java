@@ -87,6 +87,13 @@ public final class JobSpecifications {
         return (root, query, cb) -> cb.isTrue(root.get("rejected"));
     }
 
+    // Inverso de onlyRejected() — usado pelos vários pontos do app (Hunter
+    // incluso) que hoje fazem findAll() + filter(!isRejected()) em Java,
+    // carregando vaga recusada pra memória só pra descartar em seguida.
+    public static Specification<Job> notRejected() {
+        return (root, query, cb) -> cb.isFalse(root.get("rejected"));
+    }
+
     // Encadeia specs opcionais, ignorando as nulas — evita um "and" gigante
     // cheio de checagem de null no controller.
     @SafeVarargs

@@ -2,6 +2,7 @@ package br.com.jobradar.service;
 
 import br.com.jobradar.model.Job;
 import br.com.jobradar.repository.JobRepository;
+import br.com.jobradar.repository.JobSpecifications;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -51,10 +52,12 @@ public class JarvisAssistantService {
         String perfilSenioridade = seniorityClassifier.classify(candidateProfile, String.join(",", perfilTags));
 
         LocalDateTime cutoff = LocalDateTime.now().minusDays(Math.max(1, dias));
-        List<Job> candidatos = jobRepository.findAll().stream()
-                .filter(j -> !j.isRejected())
-                .filter(j -> j.getPostedAt() != null && j.getPostedAt().isAfter(cutoff))
-                .toList();
+        // Fase 1.6 — os dois filtros (não recusada + postada depois do
+        // corte) empurrados pro WHERE do SQL em vez de Java: pra "vagas de
+        // hoje" isso corta a imensa maioria do catálogo ANTES de carregar
+        // qualquer linha na memória, não só depois.
+        List<Job> candidatos = jobRepository.findAll(
+                JobSpecifications.combine(JobSpecifications.notRejected(), JobSpecifications.postedAfter(cutoff)));
 
         if (candidatos.isEmpty()) {
             return new CompatibilityResult(true, 0, 0, List.of(), null);
