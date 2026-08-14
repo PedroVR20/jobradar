@@ -40,6 +40,13 @@ public class JarvisChatService {
     private final JobEmbeddingService jobEmbeddingService;
     private final GmailService gmailService;
 
+    // Fase 3.4 — cache curto pras ferramentas determinísticas que varrem o
+    // catálogo inteiro (resumoFunil, metricasDeDesempenho,
+    // desempenhoPorFonte). Ver SimpleTtlCache pra motivação do TTL em vez
+    // de invalidação amarrada a cada escrita.
+    private final SimpleTtlCache cache = new SimpleTtlCache();
+    private static final int CACHE_TTL_SEGUNDOS = 20;
+
     // compatibilidadeComVagasDoFunil analisa DIRETO (sem pré-filtro), porque
     // o grupo já vem pequeno por natureza (é o funil curado do próprio
     // usuário) — mas ainda precisa de um teto rígido: um status como "NOVA"
@@ -1094,6 +1101,10 @@ public class JarvisChatService {
     }
 
     private Object executarResumoFunil() {
+        return cache.getOuCalcula("resumoFunil", CACHE_TTL_SEGUNDOS, this::calcularResumoFunil);
+    }
+
+    private Object calcularResumoFunil() {
         // Cada vaga cai em EXATAMENTE um bucket (statusDe), o mesmo critério
         // que listarVagas usa e que as abas do funil no frontend usam pra
         // filtrar — por isso os números aqui batem com o que o usuário vê
@@ -1309,6 +1320,10 @@ public class JarvisChatService {
     // bastante pra não valer a pena um refactor de extrair um serviço à
     // parte só por causa disso.
     private Object executarMetricasDeDesempenho() {
+        return cache.getOuCalcula("metricasDeDesempenho", CACHE_TTL_SEGUNDOS, this::calcularMetricasDeDesempenho);
+    }
+
+    private Object calcularMetricasDeDesempenho() {
         List<Job> aplicadas = jobRepository.findByAppliedTrue();
         long total = aplicadas.size();
         long emAndamento = aplicadas.stream().filter(Job::isInProgress).count();
@@ -1422,6 +1437,10 @@ public class JarvisChatService {
     // realmente avançam (aplicadas e, dentro dessas, quantas viraram
     // andamento) — não é só "quantas vagas cada fonte tem".
     private Object executarDesempenhoPorFonte() {
+        return cache.getOuCalcula("desempenhoPorFonte", CACHE_TTL_SEGUNDOS, this::calcularDesempenhoPorFonte);
+    }
+
+    private Object calcularDesempenhoPorFonte() {
         List<Job> todas = jobRepository.findAll();
         Map<String, long[]> porFonte = new LinkedHashMap<>(); // [total, aplicadas, emAndamento]
         for (Job j : todas) {

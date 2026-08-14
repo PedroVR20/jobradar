@@ -17,6 +17,7 @@ import br.com.jobradar.service.JobEmbeddingService;
 import br.com.jobradar.service.JobStatusService;
 import br.com.jobradar.service.LearningPlanService;
 import br.com.jobradar.service.MatchScoreService;
+import br.com.jobradar.service.PersonalRankingService;
 import br.com.jobradar.service.SalaryEstimateService;
 import br.com.jobradar.service.SalaryModelTrainerService;
 import br.com.jobradar.service.SalaryPredictionService;
@@ -78,6 +79,7 @@ public class JobController {
     private final InterviewQuestionsService interviewQuestionsService;
     private final JobStatusService jobStatusService;
     private final JobEmbeddingService jobEmbeddingService;
+    private final PersonalRankingService personalRankingService;
 
     // Gate simples (não é segurança de verdade — app pessoal local) pra não
     // ter um botão de "retreinar" clicável sem querer. Vazio == recurso
@@ -96,7 +98,7 @@ public class JobController {
      * workplaceType → REMOTO | HIBRIDO | PRESENCIAL (só vagas brasileiras/Gupy informam)
      * state     → nome do estado por extenso, ignora acentos (ex: "sao paulo" acha "São Paulo")
      * days      → só vagas publicadas nos últimos N dias
-     * sort      → posted_desc (padrão) | posted_asc | fetched_desc
+     * sort      → posted_desc (padrão) | posted_asc | fetched_desc | personal (Fase 3.1, ver PersonalRankingService)
      * onlyNew   → só não vistas
      * onlySeen  → só vistas, sem interesse marcado, e não aplicadas
      * onlyInteressado → só marcadas com interesse, e não aplicadas
@@ -149,11 +151,13 @@ public class JobController {
         Comparator<Job> pinnedFirst = Comparator.comparing(
                 (Job j) -> !Boolean.TRUE.equals(j.getFavorited()));
 
+        Comparator<Job> comparadorDeConteudo = "personal".equals(sort) ? comparatorPersonal() : comparatorFor(sort);
+
         return jobs.stream()
                 .filter(j -> state == null || state.isBlank()
                         || (j.getState() != null && normalize(state).equals(normalize(j.getState()))))
                 .filter(j -> matchesSearch(j, search))
-                .sorted(pinnedFirst.thenComparing(comparatorFor(sort)))
+                .sorted(pinnedFirst.thenComparing(comparadorDeConteudo))
                 .map(this::toDto)
                 .toList();
     }
@@ -178,6 +182,24 @@ public class JobController {
     @GetMapping("/sources")
     public List<String> getSources() {
         return jobRepository.findDistinctSources();
+    }
+
+    /**
+     * Fase 3.1 — diz se já dá pra ordenar por "ranking pessoal" (dado
+     * suficiente de interesse/aplicada/favoritada vs recusada-sem-aplicar).
+     * O frontend usa isso pra decidir se mostra a opção no seletor de
+     * ordenação, em vez de mostrar uma opção que hoje empataria tudo em 50.
+     * GET /api/jobs/personal-ranking-status
+     */
+    @GetMapping("/personal-ranking-status")
+    public Map<String, Object> getPersonalRankingStatus() {
+        PersonalRankingService.Modelo modelo = personalRankingService.treinar();
+        Map<String, Object> m = new HashMap<>();
+        m.put("disponivel", modelo.disponivel());
+        m.put("motivoIndisponivel", modelo.motivoIndisponivel());
+        m.put("totalPositivas", modelo.totalPositivas());
+        m.put("totalNegativas", modelo.totalNegativas());
+        return m;
     }
 
     /**
@@ -221,6 +243,23 @@ public class JobController {
             default -> Comparator.comparing(Job::getPostedAt,
                     Comparator.nullsLast(Comparator.reverseOrder()));
         };
+    }
+
+    /**
+     * Fase 3.1 — ranking pessoal aprendido (sem IA, ver
+     * PersonalRankingService). Treina UMA vez por request (não dentro do
+     * comparator — key extractor pode ser chamado várias vezes por
+     * elemento durante o sort, treinar ali reprocessaria o catálogo
+     * inteiro repetidas vezes). Sem dado suficiente, pontuar() devolve 50
+     * pra tudo, e o desempate por data recente ainda ordena de forma
+     * sensata.
+     */
+    private Comparator<Job> comparatorPersonal() {
+        PersonalRankingService.Modelo modelo = personalRankingService.treinar();
+        return Comparator
+                .comparing((Job j) -> personalRankingService.pontuar(j, modelo))
+                .reversed()
+                .thenComparing(Job::getPostedAt, Comparator.nullsLast(Comparator.reverseOrder()));
     }
 
     /**

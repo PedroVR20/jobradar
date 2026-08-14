@@ -540,7 +540,7 @@ export interface Metrics {
   tempoMedioAteRecusaDias: number | null;
 }
 
-export type SortOption = 'posted_desc' | 'posted_asc' | 'fetched_desc';
+export type SortOption = 'posted_desc' | 'posted_asc' | 'fetched_desc' | 'personal';
 
 export type ViewMode = 'novas' | 'vistas' | 'interessado' | 'aplicadas' | 'andamento' | 'recusadas';
 

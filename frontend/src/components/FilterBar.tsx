@@ -60,6 +60,19 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources }
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
   const dragOrigin = useRef<{ mouseX: number; mouseY: number; posX: number; posY: number } | null>(null);
 
+  // Fase 3.1 — ranking pessoal (sem IA, ver PersonalRankingService no
+  // backend). Só mostra a opção "🎯 Ranking pessoal" no seletor de
+  // ordenação quando já há sinal suficiente (interesse/aplicada/favoritada
+  // vs recusada-sem-aplicar) — antes disso a ordenação empataria tudo em
+  // 50 e a opção só confundiria sem fazer nada.
+  const [personalRanking, setPersonalRanking] = useState<{ disponivel: boolean; motivo: string } | null>(null);
+  useEffect(() => {
+    fetch('/api/jobs/personal-ranking-status')
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then(data => setPersonalRanking({ disponivel: data.disponivel, motivo: data.motivoIndisponivel ?? '' }))
+      .catch(() => setPersonalRanking(null));
+  }, []);
+
   // sincroniza se outro tab mudar o localStorage
   useEffect(() => {
     const handler = () => setPills(loadPills());
@@ -270,6 +283,9 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources }
           <option value="posted_desc">📅 Publicação ↓ (recentes)</option>
           <option value="posted_asc">📅 Publicação ↑ (antigas)</option>
           <option value="fetched_desc">🔄 Adicionadas recentemente</option>
+          {personalRanking?.disponivel && (
+            <option value="personal">🎯 Ranking pessoal (aprendido do seu histórico)</option>
+          )}
         </select>
 
         {savedFilters.length > 0 && (
