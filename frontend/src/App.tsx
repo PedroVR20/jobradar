@@ -7,6 +7,7 @@ import { StatsBar } from './components/StatsBar';
 import { FilterBar } from './components/FilterBar';
 import { ViewTabs } from './components/ViewTabs';
 import { JobCard } from './components/JobCard';
+import { EmptyState } from './components/EmptyState';
 import { AddJobModal } from './components/AddJobModal';
 import { AgendaStatusBar } from './components/AgendaStatusBar';
 import { MetricsModal } from './components/MetricsModal';
@@ -375,12 +376,13 @@ export default function App() {
             <p>Carregando vagas...</p>
           </div>
         ) : jobs.length === 0 ? (
-          <div className="empty-box">
-            <p>😶 Nenhuma vaga encontrada com esses filtros.</p>
-            <button className="btn btn-primary" onClick={() => setFilters(defaultFilters)}>
-              Limpar filtros
-            </button>
-          </div>
+          <EmptyState
+            filters={filters}
+            onClearFilters={() => setFilters(defaultFilters)}
+            onClearDays={() => setFilters({ ...filters, days: '' })}
+            onFetchNow={handleFetch}
+            fetching={fetching}
+          />
         ) : (
           <>
             <div className="jobs-grid">

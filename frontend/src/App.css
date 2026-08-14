@@ -802,6 +802,10 @@ a:hover { text-decoration: underline; }
   padding: 4rem;
   color: var(--text-muted);
 }
+/* Fase 4.7 — empty state com ação: mais de um botão lado a lado quando
+   faz sentido (ex: "Limpar filtros" + "Ampliar período"). */
+.empty-box-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
+.empty-box-hint { font-size: 0.85rem; opacity: 0.8; margin-top: -0.4rem; }
 
 /* ============================
    TOAST
