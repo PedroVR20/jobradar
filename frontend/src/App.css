@@ -59,6 +59,12 @@ body {
   font-family: 'Inter', system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.6;
+  /* Fase 4.2 — rede de segurança: nenhum elemento específico devia
+     estourar a viewport (grid/flex já usam auto-fill, wrap e
+     width:100%+max-width em vez de largura fixa), mas isso garante que
+     um scroll horizontal acidental nunca aparece em vez de silenciosamente
+     deixar passar. */
+  overflow-x: hidden;
 }
 
 /* Scrollbar escura pra combinar com o tema — sem isso, o navegador usa a
@@ -3265,4 +3271,13 @@ html.jarvis-resizing .header-inner {
   .view-tab { font-size: 0.78rem; padding: 6px 8px; }
   .app-title { font-size: 1.2rem; }
   .stat-value { font-size: 1.4rem; }
+  /* Fase 4.2 — cabeçalho com 7 botões (tema, agenda, métricas,
+     configurações, triagem, hunter, adicionar) cabia via flex-wrap, mas
+     ficava com padding generoso demais pro espaço — aperta sem cortar
+     nenhum texto/ícone. */
+  .header-actions { gap: 0.4rem; }
+  .header-actions .btn { padding: 6px 10px; font-size: 0.82rem; }
+  /* Card mais compacto — o padding de 1.25rem some rápido numa tela de
+     360-375px de largura, sobrando pouco pro conteúdo em si. */
+  .job-card { padding: 1rem; }
 }
