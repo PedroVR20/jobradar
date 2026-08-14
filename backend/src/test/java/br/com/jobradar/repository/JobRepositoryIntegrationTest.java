@@ -115,9 +115,16 @@ class JobRepositoryIntegrationTest {
         List<Job> vencidasAtivas = jobRepository.findAll(JobSpecifications.onlyExpired());
         assertThat(vencidasAtivas).extracting(Job::getTitle).containsExactly("Vencida ativa");
 
-        List<Job> naoVencidas = jobRepository.findAll(JobSpecifications.notExpired());
-        assertThat(naoVencidas).extracting(Job::getTitle)
-                .containsExactlyInAnyOrder("Vencida mas aplicada", "Ainda válida", "Sem prazo informado");
+        // notExpired() sozinho é só data — "Vencida mas aplicada" tem
+        // expiresAt no passado, então ele corretamente NÃO entra aqui. Quem
+        // protege vaga aplicada de sumir por prazo vencido é o
+        // JobQueryService: notExpired() só é combinado na query quando a
+        // aba é onlyNew/onlySeen/onlyInteressado — a aba Aplicadas nunca
+        // aplica esse filtro, então nem chega a importar o que essa
+        // Specification sozinha devolveria pra uma vaga já aplicada.
+        List<Job> naoVencidasPelaData = jobRepository.findAll(JobSpecifications.notExpired());
+        assertThat(naoVencidasPelaData).extracting(Job::getTitle)
+                .containsExactlyInAnyOrder("Ainda válida", "Sem prazo informado");
     }
 
     // Fase 7.3+8.4 — arquivada some de toda aba por padrão; só aparece com
