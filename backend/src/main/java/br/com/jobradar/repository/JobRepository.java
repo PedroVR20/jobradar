@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -29,6 +30,11 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
 
     long countBySource(String source);
 
+    // Fase 7.2 — mesma regra de JobSpecifications.onlyExpired(): só conta
+    // como "vencida" no painel quem ainda está na esteira de decisão (nem
+    // aplicada, nem recusada).
+    long countByExpiresAtBeforeAndAppliedFalseAndRejectedFalse(LocalDate date);
+
     long countBySeenFalse();
 
     long countByAppliedTrue();
@@ -38,6 +44,12 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
     long countBySeniority(String seniority);
 
     List<Job> findBySeniorityIsNull();
+
+    // Fase 7.1+7.6 — backfill único de relevância/empresa normalizada nas
+    // vagas que existiam antes dessas colunas entrarem (companyNormalized é
+    // preenchido junto com foraDeArea sempre no mesmo lugar, então checar só
+    // uma das duas colunas já identifica a linha inteira não classificada).
+    List<Job> findByCompanyNormalizedIsNull();
 
     List<Job> findByWorkplaceTypeIsNullAndSourceIn(List<String> sources);
 
@@ -84,6 +96,47 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
             AND (j.favorited IS NULL OR j.favorited = false)
             """)
     int deleteOldUnengagedJobs(LocalDateTime cutoff);
+
+    // Fase 7.3+8.4 — arquivamento REVERSÍVEL, um degrau antes do delete
+    // definitivo acima: mesma regra de "nunca engajada" (que já cobre
+    // "nunca vista" — toda vaga nunca vista é, por definição, também nunca
+    // engajada), intervalo bem mais curto (ver ARQUIVAMENTO_DIAS em
+    // JobAggregatorService), e dá pra desfazer com reativarVaga() abaixo.
+    // UPDATE em vez de DELETE — não perde a linha, só tira ela do funil ativo.
+    @Transactional
+    @Modifying
+    @Query("""
+            UPDATE Job j SET j.archived = true, j.archivedAt = CURRENT_TIMESTAMP, j.archivedReason = :motivo
+            WHERE j.archived = false AND j.postedAt < :cutoff
+            AND j.interested = false AND j.applied = false AND j.rejected = false
+            AND (j.favorited IS NULL OR j.favorited = false)
+            """)
+    int arquivarVagasAntigasNuncaEngajadas(LocalDateTime cutoff, String motivo);
+
+    long countByArchivedTrue();
+
+    // Fase 7.5 — mesmo padrão em duas fases do backfill de salário
+    // (enriquecerSalariosGupyAntigas): prioriza vaga NUNCA checada, só
+    // reprocessa as já checadas há mais tempo se sobrar cota no lote. Não
+    // checa vaga recusada nem arquivada — já saiu do funil ativo, não
+    // importa se o link ainda funciona.
+    List<Job> findByLinkCheckedAtIsNullAndRejectedFalseAndArchivedFalse(Pageable pageable);
+
+    List<Job> findByLinkCheckedAtIsNotNullAndRejectedFalseAndArchivedFalseOrderByLinkCheckedAtAsc(Pageable pageable);
+
+    long countByLinkMortoTrue();
+
+    long countByLinkCheckedAtIsNull();
+
+    // Fase 7.7 — painel de qualidade.
+    long countByForaDeAreaTrue();
+
+    long countByCompanyNormalizedIsNull();
+
+    @Transactional
+    @Modifying
+    @Query("UPDATE Job j SET j.archived = false, j.archivedAt = null, j.archivedReason = null WHERE j.id = :id")
+    int reativarVaga(Long id);
 
     @Query("SELECT DISTINCT j.state FROM Job j WHERE j.state IS NOT NULL AND j.state <> '' ORDER BY j.state")
     List<String> findDistinctStates();

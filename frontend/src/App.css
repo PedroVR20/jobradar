@@ -758,6 +758,83 @@ a:hover { text-decoration: underline; }
   border-top: 1px solid var(--border);
 }
 
+/* Minimal-underline button, usado como link-ish action (ex: "cancelar" no
+   seletor de motivo de recusa, "verificar com IA" nas duplicatas) */
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.btn-link:hover { color: var(--text); }
+
+/* Fase 8.5 — atalho de filtro geográfico */
+.rj-quick-filter--active {
+  background: #6366f122;
+  border-color: var(--accent, #6366f1);
+  color: var(--accent, #6366f1);
+}
+
+/* Fase 7.7 — painel de qualidade do catálogo (Configurações) */
+.quality-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.75rem;
+}
+.quality-panel-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius, 10px);
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+}
+.quality-panel-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.quality-panel-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* Fase 8.7 — motivo da recusa em um clique */
+.reject-reason-toggle {
+  margin-left: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-decoration: underline;
+  opacity: 0.85;
+  cursor: pointer;
+}
+.reject-reason-toggle:hover { opacity: 1; }
+
+.reject-reason-picker {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.reject-reason-chip {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-card2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.reject-reason-chip:hover {
+  border-color: var(--red, #ef4444);
+  color: var(--red, #ef4444);
+}
+
 .load-more-btn {
   align-self: center;
   background: var(--bg-card);
@@ -1245,6 +1322,18 @@ a:hover { text-decoration: underline; }
   white-space: nowrap;
 }
 
+/* Fase 7.5 — badge de link possivelmente morto (JobLinkCheckerService) */
+.badge-link-morto {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--red-bg, #ef444422);
+  color: var(--red, #ef4444);
+  border: 1px solid #ef444444;
+  white-space: nowrap;
+}
+
 /* ============================
    BOTÃO FIXAR (PIN)
    ============================ */
@@ -1288,6 +1377,44 @@ a:hover { text-decoration: underline; }
   0% { box-shadow: 0 0 0 0 #6366f166; }
   70% { box-shadow: 0 0 0 10px #6366f100; }
   100% { box-shadow: 0 0 0 0 #6366f100; }
+}
+
+/* Fase 8.3 — anel de foco por teclado (j/k no grid principal) */
+.job-card--kbd-focused {
+  outline: 2px solid var(--accent, #6366f1);
+  outline-offset: 2px;
+}
+
+/* Fase 8.2 — card selecionado pra ação em lote */
+.job-card--selected {
+  background: #6366f114;
+  border-color: var(--accent, #6366f1);
+}
+.job-card-select {
+  width: 16px;
+  height: 16px;
+  margin-right: 0.5rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: var(--accent, #6366f1);
+}
+
+/* Fase 8.2 — barra flutuante de ações em lote */
+.bulk-action-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  z-index: 40;
+  font-size: 0.85rem;
 }
 
 /* ============================

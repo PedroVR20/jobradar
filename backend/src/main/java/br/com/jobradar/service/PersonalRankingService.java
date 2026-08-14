@@ -73,8 +73,12 @@ public class PersonalRankingService {
                     positivas.size(), negativas.size(), Map.of());
         }
 
-        Map<String, Integer> contPositivas = contarFeatures(positivas);
-        Map<String, Integer> contNegativas = contarFeatures(negativas);
+        Map<String, Integer> contPositivas = contarFeatures(positivas, false);
+        // Fase 8.7 — recusa com motivo estruturado só conta features da
+        // dimensão certa (ver featuresParaRecusa) em vez de penalizar a vaga
+        // inteira. Sem motivo (recusa antiga, ou usuário pulou o passo),
+        // comportamento é o de sempre — 100% retrocompatível.
+        Map<String, Integer> contNegativas = contarFeatures(negativas, true);
 
         Map<String, Double> pesos = new HashMap<>();
         for (String feature : java.util.stream.Stream.concat(contPositivas.keySet().stream(), contNegativas.keySet().stream()).distinct().toList()) {
@@ -102,14 +106,34 @@ public class PersonalRankingService {
         return (int) Math.round(sigmoide * 100);
     }
 
-    private Map<String, Integer> contarFeatures(List<Job> jobs) {
+    private Map<String, Integer> contarFeatures(List<Job> jobs, boolean isNegativa) {
         Map<String, Integer> cont = new HashMap<>();
         for (Job j : jobs) {
-            for (String f : featuresDe(j)) {
+            for (String f : isNegativa ? featuresParaRecusa(j) : featuresDe(j)) {
                 cont.merge(f, 1, Integer::sum);
             }
         }
         return cont;
+    }
+
+    // Fase 8.7 — recusa com motivo estruturado (ver Job.rejectedReason)
+    // filtra pra features da dimensão certa: recusar por SALARIO ou EMPRESA
+    // não diz nada sobre a stack/senioridade/modalidade serem ruins, então
+    // não deveriam puxar o log-odds delas pra baixo. Sem motivo informado —
+    // recusa antiga (feature nova) ou usuário pulou o passo — mantém o
+    // comportamento de sempre (penaliza a vaga inteira).
+    private List<String> featuresParaRecusa(Job j) {
+        List<String> todas = featuresDe(j);
+        String motivo = j.getRejectedReason();
+        if (motivo == null) return todas;
+        return switch (motivo) {
+            case "SALARIO", "EMPRESA" -> List.of();
+            case "LOCALIDADE" -> todas.stream()
+                    .filter(f -> f.startsWith("state:") || f.startsWith("workplaceType:")).toList();
+            case "SENIORIDADE" -> todas.stream().filter(f -> f.startsWith("seniority:")).toList();
+            case "STACK" -> todas.stream().filter(f -> f.startsWith("tag:")).toList();
+            default -> todas; // OUTRO ou valor desconhecido
+        };
     }
 
     private List<String> featuresDe(Job j) {

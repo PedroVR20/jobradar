@@ -7,6 +7,7 @@ import br.com.jobradar.repository.JobEventRepository;
 import br.com.jobradar.repository.JobRepository;
 import br.com.jobradar.repository.JobSpecifications;
 import br.com.jobradar.service.AiDuplicateVerifierService;
+import br.com.jobradar.service.CompanyNormalizer;
 import br.com.jobradar.service.GeminiService;
 import br.com.jobradar.service.JarvisAssistantService;
 import br.com.jobradar.service.JobAggregatorService;
@@ -55,6 +56,7 @@ public class JobController {
     private final JobAggregatorService aggregatorService;
     private final SeniorityClassifier seniorityClassifier;
     private final AiDuplicateVerifierService aiDuplicateVerifierService;
+    private final CompanyNormalizer companyNormalizer;
     private final GeminiService geminiService;
     private final JarvisAssistantService jarvisAssistantService;
     private final JobStatusService jobStatusService;
@@ -77,6 +79,12 @@ public class JobController {
      * onlyApplied → só aplicadas e fora de processo (não confundir com em andamento)
      * onlyInProgress → só aplicadas e em processo seletivo ativo
      * onlyRejected → só recusadas/congeladas (somem sozinhas depois de 7 dias)
+     * onlyExpired → Fase 7.2: só vagas com prazo (expiresAt) vencido, ainda
+     *   não aplicadas nem recusadas. Nas outras abas de decisão (onlyNew/
+     *   onlySeen/onlyInteressado) vaga vencida some sozinha da lista.
+     * onlyArchived → Fase 7.3+8.4: só vagas arquivadas (ver
+     *   JobAggregatorService.arquivarVagasAntigasNuncaEngajadas). Sem essa
+     *   flag, vaga arquivada some de TODAS as abas, não só das de decisão.
      *
      * Fase 6.3 — devolve página, não o catálogo inteiro. Antes disso o
      * corpo desse método inteiro (filtro SQL, busca textual, ordenação)
@@ -101,15 +109,30 @@ public class JobController {
             @RequestParam(required = false, defaultValue = "false") boolean onlyApplied,
             @RequestParam(required = false, defaultValue = "false") boolean onlyInProgress,
             @RequestParam(required = false, defaultValue = "false") boolean onlyRejected,
+            @RequestParam(required = false, defaultValue = "false") boolean onlyExpired,
+            @RequestParam(required = false, defaultValue = "false") boolean onlyArchived,
             @RequestParam(required = false) List<String> techStack,
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "30") int size
     ) {
         return jobQueryService.listar(new JobQueryService.Filtro(
                 source, search, seniority, workplaceType, state, days, sort,
-                onlyNew, onlySeen, onlyInteressado, onlyApplied, onlyInProgress, onlyRejected,
+                onlyNew, onlySeen, onlyInteressado, onlyApplied, onlyInProgress, onlyRejected, onlyExpired, onlyArchived,
                 techStack, page, size
         ));
+    }
+
+    /**
+     * Reativa uma vaga arquivada (Fase 7.3+8.4) — tira ela do "porão" e
+     * devolve pro funil normal (volta a aparecer em Novas/Já vistas
+     * dependendo de `seen`). Reversível de propósito: arquivamento nunca é
+     * uma decisão definitiva, só uma limpeza de lista.
+     * POST /api/jobs/{id}/reativar
+     */
+    @PostMapping("/{id}/reativar")
+    public ResponseEntity<Void> reativarVaga(@PathVariable Long id) {
+        int atualizadas = jobRepository.reativarVaga(id);
+        return atualizadas > 0 ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 
     /**
@@ -199,6 +222,10 @@ public class JobController {
         // este campo pra qualquer conta que precise só da recusa "dentro"
         // do funil de aplicadas (bug reportado: "-21 aplicadas" na tela).
         stats.put("recusadasDeAplicadas", jobRepository.countByAppliedTrueAndRejectedTrue());
+        // Fase 7.2 — alimenta o badge da aba "Vencidas".
+        stats.put("vencidas", jobRepository.countByExpiresAtBeforeAndAppliedFalseAndRejectedFalse(LocalDate.now()));
+        // Fase 7.3+8.4 — alimenta o badge da aba "Arquivadas".
+        stats.put("arquivadas", jobRepository.countByArchivedTrue());
         // Fase 12.6 — era findByFetchedAtAfter(...).size(): materializava as
         // ~635 entidades das últimas 24h inteiras (todos os campos, uma a
         // uma via Hibernate) só pra jogar fora e contar o tamanho da lista.
@@ -391,20 +418,12 @@ public class JobController {
         return ResponseEntity.ok(Map.of("mesmaVaga", mesmaVaga));
     }
 
-    private static final Set<String> COMPANY_SUFFIXES = Set.of(
-            "sa", "s a", "ltda", "me", "eireli", "inc", "llc", "corp", "corporation", "co"
-    );
-
+    // Fase 7.6 — delega pro CompanyNormalizer compartilhado (agora também
+    // usado no fetch pra persistir Job.companyNormalized) em vez de manter
+    // uma segunda cópia da mesma lógica aqui — as duas precisam concordar
+    // sempre, ou o dedup em memória deste endpoint e o campo salvo divergem.
     private String normalizeCompany(String company) {
-        if (company == null) return "";
-        String norm = normalize(company).replaceAll("[^a-z0-9 ]", " ").trim();
-        StringBuilder sb = new StringBuilder();
-        for (String w : norm.split("\\s+")) {
-            if (COMPANY_SUFFIXES.contains(w)) continue;
-            if (sb.length() > 0) sb.append(' ');
-            sb.append(w);
-        }
-        return sb.toString().trim();
+        return companyNormalizer.normalizar(company);
     }
 
     private static final Set<String> TITLE_STOPWORDS = Set.of(
@@ -480,17 +499,20 @@ public class JobController {
      * (alternativa ao drag-and-drop, que nem sempre funciona ao iniciar o
      * arrasto a partir de um link dentro do card).
      * PATCH /api/jobs/{id}/status?value=NOVA|VISTA|APLICADA|ANDAMENTO|RECUSADA
+     * motivo (opcional, só usado com value=RECUSADA) → Fase 8.7:
+     * SALARIO|LOCALIDADE|SENIORIDADE|STACK|EMPRESA|OUTRO
      */
     @PatchMapping("/{id}/status")
     public ResponseEntity<Map<String, Object>> setStatus(
-            @PathVariable Long id, @RequestParam String value) {
+            @PathVariable Long id, @RequestParam String value,
+            @RequestParam(required = false) String motivo) {
         String status = value == null ? "" : value.toUpperCase();
         if (!VALID_STATUSES.contains(status)) {
             return ResponseEntity.badRequest().build();
         }
 
         return jobRepository.findById(id).map(job -> {
-            aplicarStatus(job, status);
+            jobStatusService.aplicarStatus(job, status, motivo);
             return ResponseEntity.ok(toDto(jobRepository.save(job)));
         }).orElse(ResponseEntity.notFound().build());
     }
@@ -611,6 +633,7 @@ public class JobController {
         dto.put("inProgressAt", job.getInProgressAt() != null ? job.getInProgressAt().toString() : null);
         dto.put("rejected", job.isRejected());
         dto.put("rejectedAt", job.getRejectedAt() != null ? job.getRejectedAt().toString() : null);
+        dto.put("rejectedReason", job.getRejectedReason());
         dto.put("tags", job.getTags() != null
                 ? Arrays.asList(job.getTags().split(","))
                 : List.of());

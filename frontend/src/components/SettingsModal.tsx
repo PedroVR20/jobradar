@@ -45,6 +45,17 @@ interface FonteSaude {
   diasSemVagaNova: number | null;
 }
 
+// Fase 7.7 — formato devolvido por GET /api/jobs/admin/painel-qualidade.
+interface PainelQualidade {
+  total: number;
+  foraDeArea: number;
+  arquivadas: number;
+  vencidasAtivas: number;
+  linksMortos: number;
+  linksNuncaChecados: number;
+  semClassificacaoDeQualidade: number;
+}
+
 // Fase 3.5 — formato devolvido por GET/POST /api/jobs/admin/digest-semanal.
 interface WeeklyDigestDto {
   existe: boolean;
@@ -64,6 +75,10 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
   useEscapeToClose(onClose);
   const [fontesSaude, setFontesSaude] = useState<FonteSaude[]>([]);
   const [fontesSaudeLoading, setFontesSaudeLoading] = useState(true);
+
+  // Fase 7.7 — painel de qualidade do catálogo.
+  const [painelQualidade, setPainelQualidade] = useState<PainelQualidade | null>(null);
+  const [painelQualidadeLoading, setPainelQualidadeLoading] = useState(true);
 
   // Fase 3.5 — resumo semanal automático (ver WeeklyDigestService).
   const [digest, setDigest] = useState<WeeklyDigestDto | null>(null);
@@ -94,6 +109,11 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
       .then((data: FonteSaude[]) => setFontesSaude(data))
       .catch(() => setFontesSaude([]))
       .finally(() => setFontesSaudeLoading(false));
+    fetch('/api/jobs/admin/painel-qualidade')
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((data: PainelQualidade) => setPainelQualidade(data))
+      .catch(() => setPainelQualidade(null))
+      .finally(() => setPainelQualidadeLoading(false));
     carregarDigest();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -546,6 +566,46 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
             </button>
           </div>
         )}
+
+        <div className="settings-section">
+          <h3 className="settings-section-title">🧹 Qualidade do catálogo</h3>
+          <p className="agenda-hint">
+            Sinais introduzidos nas Fases 7.1–7.6 — cada número já tem ação própria em outro lugar
+            do app (aba Vencidas, aba Arquivadas, painel Duplicatas, badge ⚠️ no card).
+          </p>
+          {painelQualidadeLoading ? (
+            <p className="agenda-hint">Carregando...</p>
+          ) : !painelQualidade ? (
+            <p className="agenda-hint">Não foi possível carregar o painel agora.</p>
+          ) : (
+            <div className="quality-panel-grid">
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.foraDeArea}</span>
+                <span className="quality-panel-label">fora de área (7.1)</span>
+              </div>
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.arquivadas}</span>
+                <span className="quality-panel-label">arquivadas (7.3+8.4)</span>
+              </div>
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.vencidasAtivas}</span>
+                <span className="quality-panel-label">vencidas ativas (7.2)</span>
+              </div>
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.linksMortos}</span>
+                <span className="quality-panel-label">links mortos (7.5)</span>
+              </div>
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.linksNuncaChecados}</span>
+                <span className="quality-panel-label">links nunca checados</span>
+              </div>
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.total}</span>
+                <span className="quality-panel-label">total no catálogo</span>
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="settings-section">
           <h3 className="settings-section-title">📡 Saúde das fontes</h3>

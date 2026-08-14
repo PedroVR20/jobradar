@@ -4,6 +4,7 @@ import br.com.jobradar.model.Job;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.text.Normalizer;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -120,6 +121,41 @@ public final class JobSpecifications {
     // carregando vaga recusada pra memória só pra descartar em seguida.
     public static Specification<Job> notRejected() {
         return (root, query, cb) -> cb.isFalse(root.get("rejected"));
+    }
+
+    // Fase 7.2 — "vaga vencida" (expiresAt no passado) precisa parar de
+    // aparecer nas abas de decisão (Novas/Já vistas/Interessado) — ninguém
+    // vai se candidatar depois do prazo formal. NULL conta como "não
+    // vencida" (a maioria das fontes — só Gupy e Eureca preenchem
+    // expiresAt hoje — não expõe prazo nenhum, então ausência de dado não
+    // pode virar exclusão).
+    public static Specification<Job> notExpired() {
+        return (root, query, cb) -> cb.or(
+                cb.isNull(root.get("expiresAt")),
+                cb.greaterThanOrEqualTo(root.get("expiresAt"), LocalDate.now()));
+    }
+
+    // Inverso — vira a aba "Vencidas". Só entram as que ainda estavam na
+    // esteira de decisão (nem aplicada, nem recusada): quem já aplicou
+    // continua normalmente em Aplicadas mesmo com o prazo formal encerrado
+    // (o processo seletivo real pode seguir depois da data-limite anunciada).
+    public static Specification<Job> onlyExpired() {
+        return (root, query, cb) -> cb.and(
+                cb.isNotNull(root.get("expiresAt")),
+                cb.lessThan(root.get("expiresAt"), LocalDate.now()),
+                cb.isFalse(root.get("applied")),
+                cb.isFalse(root.get("rejected")));
+    }
+
+    // Fase 7.3+8.4 — vaga arquivada some de TODAS as abas por padrão (não só
+    // das de decisão como a vencida) — é um "porão" à parte, só visível na
+    // aba dedicada Arquivadas. Ver JobAggregatorService.arquivarVagasAntigasNuncaEngajadas.
+    public static Specification<Job> notArchived() {
+        return (root, query, cb) -> cb.isFalse(root.get("archived"));
+    }
+
+    public static Specification<Job> onlyArchived() {
+        return (root, query, cb) -> cb.isTrue(root.get("archived"));
     }
 
     // Encadeia specs opcionais, ignorando as nulas — evita um "and" gigante

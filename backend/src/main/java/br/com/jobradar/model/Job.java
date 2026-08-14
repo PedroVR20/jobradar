@@ -143,6 +143,49 @@ public class Job {
     // eram só esse campo, e QUALQUER query que devolvesse Job (incluindo a
     // listagem principal, sem filtro nenhum) arrastava ele junto — mesmo
     // quando ninguém ia usar o vetor. Movido pra tabela própria
-    // job_embeddings (ver JobEmbedding/JobEmbeddingRepository), correlacionada
+    // job_embeddings (ver JobEmbeddingService/JobEmbeddingRepository), correlacionada
     // por id sem FK formal (ver comentário na entidade nova sobre o porquê).
+
+    // Fase 7.1 — null = nunca classificada (vaga anterior a essa feature, ou
+    // fonte cujo classificador falhou); true = fora de área de tecnologia
+    // (contabilidade, engenharia civil, etc — ver RelevanceClassifier);
+    // false = relevante. Marca, não descarta: o veredito fica visível e
+    // reversível (ver JobAdminController), diferente de simplesmente não
+    // trazer a vaga pro banco.
+    private Boolean foraDeArea;
+
+    // Fase 7.3 + 8.4 — arquivamento automático e reversível de vaga que
+    // envelheceu sem engajamento real (mesmo critério de
+    // JobRepository.deleteOldUnengagedJobs: nunca interessou/aplicou/
+    // recusou/favoritou) — sai do caminho da triagem sem ser apagada, ao
+    // contrário da exclusão definitiva aos 730 dias que já existia. archivedReason
+    // diz o motivo ("IDADE" ou "NUNCA_VISTA", ver JobArchivalService) — útil
+    // pra decidir se vale reativar.
+    @Builder.Default
+    private boolean archived = false;
+    private LocalDateTime archivedAt;
+    private String archivedReason;
+
+    // Fase 7.5 — null = link nunca checado. true = HTTP 404/redirect pra
+    // home da empresa detectado (sinal forte de vaga encerrada, nenhuma
+    // fonte informa isso de forma confiável). false = link respondeu ok da
+    // última vez que foi checado. Ver JobLinkCheckerService — checagem é
+    // amostrada e limitada por ciclo, não verifica toda vaga toda vez.
+    private Boolean linkMorto;
+    private LocalDateTime linkCheckedAt;
+
+    // Fase 7.6 — nome de empresa "canônico" (minúsculo, sem acento, sem
+    // sufixo tipo LTDA/S.A.) usado SÓ pra agrupar (dedup, histórico por
+    // empresa, painel de fontes) — o campo `company` continua com o nome
+    // original pra exibição. Sem isso "Start Recrutamento e Treinamento
+    // LTDA" e variações contam como empregadores diferentes.
+    private String companyNormalized;
+
+    // Fase 8.7 — motivo estruturado da recusa (SALARIO | LOCALIDADE |
+    // SENIORIDADE | STACK | EMPRESA | OUTRO), opcional — null quando a
+    // recusa foi feita antes dessa feature existir, ou o usuário pulou o
+    // passo. PersonalRankingService usa isso pra aprender só da dimensão
+    // certa em vez de penalizar TODAS as features da vaga por igual quando
+    // o motivo real era só o salário, por exemplo.
+    private String rejectedReason;
 }

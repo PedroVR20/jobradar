@@ -56,6 +56,8 @@ public class JobQueryService {
             boolean onlyApplied,
             boolean onlyInProgress,
             boolean onlyRejected,
+            boolean onlyExpired,
+            boolean onlyArchived,
             List<String> techStack,
             int page,
             int size
@@ -83,7 +85,17 @@ public class JobQueryService {
                 f.onlyInteressado() ? JobSpecifications.onlyInteressado() : null,
                 f.onlyApplied() ? JobSpecifications.onlyApplied() : null,
                 f.onlyInProgress() ? JobSpecifications.onlyInProgress() : null,
-                f.onlyRejected() ? JobSpecifications.onlyRejected() : null
+                f.onlyRejected() ? JobSpecifications.onlyRejected() : null,
+                f.onlyExpired() ? JobSpecifications.onlyExpired() : null,
+                // Fase 7.2 — nas abas de decisão (ainda não aplicou/recusou),
+                // vaga vencida some sozinha; some daqui, não dessas specs
+                // acima, porque Aplicadas/Andamento/Recusadas não devem ser
+                // afetadas por prazo vencido (ver Javadoc de onlyExpired).
+                (f.onlyNew() || f.onlySeen() || f.onlyInteressado()) ? JobSpecifications.notExpired() : null,
+                // Fase 7.3+8.4 — arquivada some de QUALQUER aba, exceto a
+                // própria aba Arquivadas (diferente do padrão acima, que só
+                // afeta as abas de decisão).
+                f.onlyArchived() ? JobSpecifications.onlyArchived() : JobSpecifications.notArchived()
         );
         List<Job> jobs = jobRepository.findAll(spec);
 

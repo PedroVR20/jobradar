@@ -15,6 +15,8 @@ const tabs: { key: ViewMode; label: string; droppable?: boolean }[] = [
   { key: 'aplicadas', label: '✅ Aplicadas', droppable: true },
   { key: 'andamento', label: '🔄 Em Andamento', droppable: true },
   { key: 'recusadas', label: '❌ Recusadas', droppable: true },
+  { key: 'vencidas', label: '⏰ Vencidas' },
+  { key: 'arquivadas', label: '🗄️ Arquivadas' },
 ];
 
 function countFor(tab: ViewMode, stats: Stats | null): number | null {
@@ -26,6 +28,8 @@ function countFor(tab: ViewMode, stats: Stats | null): number | null {
     case 'andamento': return stats.emAndamento;
     case 'recusadas': return stats.recusadas;
     case 'vistas': return Math.max(0, stats.total - stats.novas - stats.interessadas - stats.aplicadas);
+    case 'vencidas': return stats.vencidas;
+    case 'arquivadas': return stats.arquivadas;
   }
 }
 

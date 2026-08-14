@@ -44,6 +44,9 @@ public class JobAggregatorService {
     private final SeniorityClassifier seniorityClassifier;
     private final JobEmbeddingService jobEmbeddingService;
     private final JobEmbeddingRepository jobEmbeddingRepository;
+    private final CompanyNormalizer companyNormalizer;
+    private final RelevanceClassifier relevanceClassifier;
+    private final JobLinkCheckerService jobLinkCheckerService;
 
     /**
      * Roda automaticamente a cada 2 horas, sempre em hora cheia par
@@ -57,6 +60,8 @@ public class JobAggregatorService {
         fetchAllJobs();
         limparVagasRecusadasAntigas();
         limparVagasAntigasNuncaEngajadas();
+        arquivarVagasAntigasNuncaEngajadas();
+        jobLinkCheckerService.checarLinksAntigos();
         limparEmbeddingsOrfaos();
     }
 
@@ -116,6 +121,33 @@ public class JobAggregatorService {
         }
     }
 
+    // Fase 7.3+8.4 — janela BEM mais curta que DIAS_PARA_EXCLUIR_VAGAS_ANTIGAS
+    // (730 dias): o problema real não é "vaga de 2 anos atrás" (isso o
+    // delete definitivo já resolve), é vaga de 1-2 meses atrás parada em
+    // Novas/Já vistas sem nunca ter sido decidida, poluindo a lista ativa
+    // no dia a dia. Arquivar é reversível (JobRepository.reativarVaga) —
+    // deletar não. Cobre "nunca vista" de graça: toda vaga nunca vista
+    // também nunca foi engajada, então já cai na mesma regra.
+    private static final int DIAS_PARA_ARQUIVAR_NUNCA_ENGAJADA = 30;
+
+    /**
+     * Arquiva (não apaga) vaga publicada há mais de
+     * {@link #DIAS_PARA_ARQUIVAR_NUNCA_ENGAJADA} dias que o usuário nunca
+     * interagiu de verdade — mesma regra de {@link #limparVagasAntigasNuncaEngajadas()},
+     * intervalo bem mais curto, reversível. Roda no fetch periódico e ao
+     * subir o backend.
+     */
+    @Transactional
+    public void arquivarVagasAntigasNuncaEngajadas() {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(DIAS_PARA_ARQUIVAR_NUNCA_ENGAJADA);
+        String motivo = "Sem interação há mais de " + DIAS_PARA_ARQUIVAR_NUNCA_ENGAJADA + " dias";
+        int arquivadas = jobRepository.arquivarVagasAntigasNuncaEngajadas(cutoff, motivo);
+        if (arquivadas > 0) {
+            log.info("=== {} vagas antigas (publicadas antes de {}) nunca engajadas foram arquivadas ===",
+                    arquivadas, cutoff.toLocalDate());
+        }
+    }
+
     /**
      * Roda também ao subir a aplicação para já ter dados no dashboard.
      *
@@ -137,12 +169,15 @@ public class JobAggregatorService {
     public void fetchNaInicializacao() {
         log.info("=== Fetch inicial ao subir a aplicação (em background — app já está respondendo) ===");
         classificarVagasAntigas();
+        classificarQualidadeVagasAntigas();
         marcarModalidadeRemotaAntigas();
         limparLocalizacaoNerdinAntiga();
         fetchAllJobs();
         enriquecerSalariosGupyAntigas();
         limparVagasRecusadasAntigas();
         limparVagasAntigasNuncaEngajadas();
+        arquivarVagasAntigasNuncaEngajadas();
+        jobLinkCheckerService.checarLinksAntigos();
     }
 
     // Limita quantas vagas antigas sem salário são checadas por ciclo —
@@ -257,6 +292,29 @@ public class JobAggregatorService {
         log.info("=== {} vagas antigas classificadas por senioridade ===", semSenioridade.size());
     }
 
+    /**
+     * Backfill (Fase 7.1 + 7.6): vagas salvas antes dessas duas colunas
+     * existirem (companyNormalized nunca é apagado depois de preenchido,
+     * então "sem ele" só acontece uma vez por vaga, igual ao backfill de
+     * senioridade acima). Roda os dois campos juntos porque os dois são
+     * cálculo local (regex/normalização de texto), sem custo de rede —
+     * não precisa de lote limitado como o backfill de salário da Gupy.
+     */
+    @Transactional
+    public void classificarQualidadeVagasAntigas() {
+        List<Job> semClassificacao = jobRepository.findByCompanyNormalizedIsNull();
+        if (semClassificacao.isEmpty()) return;
+
+        for (Job job : semClassificacao) {
+            job.setCompanyNormalized(companyNormalizer.normalizar(job.getCompany()));
+            job.setForaDeArea(!relevanceClassifier.isRelevante(job.getTitle(), job.getTags()));
+        }
+        jobRepository.saveAll(semClassificacao);
+        long foraDeArea = semClassificacao.stream().filter(j -> Boolean.TRUE.equals(j.getForaDeArea())).count();
+        log.info("=== {} vagas antigas classificadas (empresa normalizada + relevância) — {} marcadas fora de área ===",
+                semClassificacao.size(), foraDeArea);
+    }
+
     // Trava simples pra evitar dois fetches rodando ao mesmo tempo — desde
     // que o fetch inicial passou a rodar em background (ver
     // fetchNaInicializacao), o app fica respondendo durante ele, e agora dá
@@ -346,6 +404,12 @@ public class JobAggregatorService {
                 if ("GUPY".equals(job.getSource()) && job.getSalary() == null) {
                     job.setSalary(gupyService.fetchSalaryHint(job.getUrl()));
                 }
+                // Fase 7.1 + 7.6 — classificados na entrada, não depois: uma
+                // vaga nova já nasce com o veredito de relevância e o nome de
+                // empresa canônico, em vez de esperar o backfill periódico
+                // alcançar ela.
+                job.setForaDeArea(!relevanceClassifier.isRelevante(job.getTitle(), job.getTags()));
+                job.setCompanyNormalized(companyNormalizer.normalizar(job.getCompany()));
                 jobRepository.save(job);
                 novos++;
                 // Falha silenciosa de propósito (sem IA configurada, Gemini
@@ -428,20 +492,12 @@ public class JobAggregatorService {
         return null;
     }
 
-    private static final Set<String> COMPANY_SUFFIXES = Set.of(
-            "sa", "s a", "ltda", "me", "eireli", "inc", "llc", "corp", "corporation", "co"
-    );
-
+    // Fase 7.6 — delega pro CompanyNormalizer compartilhado, mesma lógica
+    // usada em JobController.getDuplicates e agora também persistida em
+    // Job.companyNormalized (ver classificarQualidadeVagasAntigas abaixo e
+    // o preenchimento em fetchAllJobs).
     private String normalizeCompany(String company) {
-        if (company == null) return "";
-        String norm = normalize(company).replaceAll("[^a-z0-9 ]", " ").trim();
-        StringBuilder sb = new StringBuilder();
-        for (String w : norm.split("\\s+")) {
-            if (COMPANY_SUFFIXES.contains(w)) continue;
-            if (sb.length() > 0) sb.append(' ');
-            sb.append(w);
-        }
-        return sb.toString().trim();
+        return companyNormalizer.normalizar(company);
     }
 
     private static final Set<String> TITLE_STOPWORDS = Set.of(

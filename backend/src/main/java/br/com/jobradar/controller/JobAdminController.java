@@ -147,6 +147,32 @@ public class JobAdminController {
         return resultado;
     }
 
+    /**
+     * Fase 7.7 — visão consolidada dos sinais de qualidade do catálogo
+     * introduzidos pelas Fases 7.1 a 7.6, hoje só visíveis vaga a vaga (ou
+     * nem isso): quantas vagas foram marcadas fora de área, quantas estão
+     * arquivadas, quantas vencidas ainda ativas, quantos links possivelmente
+     * mortos, e o tamanho do sinal ainda não classificado (nenhuma classe
+     * atribuída porque a vaga é anterior à feature). Só leitura — não
+     * remedia nada sozinho, cada número já tem sua própria ação em outro
+     * lugar do app (aba Vencidas, aba Arquivadas, painel Duplicatas, badge
+     * de link morto no card).
+     * GET /api/jobs/admin/painel-qualidade
+     */
+    @GetMapping("/admin/painel-qualidade")
+    public Map<String, Object> getPainelQualidade() {
+        Map<String, Object> painel = new HashMap<>();
+        long total = jobRepository.count();
+        painel.put("total", total);
+        painel.put("foraDeArea", jobRepository.countByForaDeAreaTrue());
+        painel.put("arquivadas", jobRepository.countByArchivedTrue());
+        painel.put("vencidasAtivas", jobRepository.countByExpiresAtBeforeAndAppliedFalseAndRejectedFalse(java.time.LocalDate.now()));
+        painel.put("linksMortos", jobRepository.countByLinkMortoTrue());
+        painel.put("linksNuncaChecados", jobRepository.countByLinkCheckedAtIsNull());
+        painel.put("semClassificacaoDeQualidade", jobRepository.countByCompanyNormalizedIsNull());
+        return painel;
+    }
+
     public record RetrainCodeRequest(String code, Boolean force) {}
 
     private boolean codigoRetreinoBate(String code) {

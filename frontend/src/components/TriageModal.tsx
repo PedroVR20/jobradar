@@ -12,30 +12,57 @@ interface Props {
 // Modo "Triagem rápida" — resposta ao gargalo real do app: milhares de vagas
 // NOVAS acumuladas que ninguém revisa uma por uma na lista normal (rolar uma
 // lista de 4700+ cards não é fluxo, é trabalho). Aqui é uma vaga de cada vez,
-// decisão binária rápida (⭐ interessa / ❌ não interessa / pular), com o
-// pré-filtro heurístico (sem IA) ordenando as mais prováveis primeiro quando
-// há perfil salvo — sem perfil, cai pra ordem cronológica normal.
+// decisão binária rápida (⭐ interessa / ❌ não interessa / pular).
+//
+// Fase 8.1 — antes disso, a ordem vinha SÓ do pré-filtro heurístico local
+// (useQuickMatchScores, sobreposição simples de tags do perfil), ignorando
+// completamente o ranking pessoal de verdade (PersonalRankingService, Naive
+// Bayes treinado no histórico de interesse/aplicação/recusa — ver Fase 3.1)
+// que a lista normal já usa via sort=personal. Agora pede sort=personal ao
+// backend quando o modelo já tem dado suficiente (mesmo endpoint que
+// alimenta o seletor de ordenação da lista normal); sem modelo treinado
+// ainda, cai pro heurístico local como antes.
+//
+// Também corrigido aqui: a busca usava `fetch('/api/jobs?...')` esperando
+// devolver um array — GET /api/jobs devolve página (JobPageResult) desde a
+// Fase 6.3, então `data` era na verdade `{content, totalElements, ...}`, e
+// espalhar isso com `[...jobs]` mais abaixo lançava TypeError em runtime
+// (objeto simples não é iterável) toda vez que a triagem carregava com
+// vaga disponível — a tela nunca chegava a mostrar um card. `size=300`
+// porque triagem é uma sessão de decisão em lote, não precisa de mais que
+// isso de uma vez (dá pra reabrir pra continuar).
 export function TriageModal({ onSeen, onSetStatus, onClose }: Props) {
   const { profile } = useCandidateProfile();
   const { scores, loading: scoring, refresh } = useQuickMatchScores();
   const [jobs, setJobs] = useState<Job[] | null>(null);
+  const [rankingPersonalDisponivel, setRankingPersonalDisponivel] = useState(false);
   const [index, setIndex] = useState(0);
   const [decided, setDecided] = useState(0);
 
   useEffect(() => {
-    fetch('/api/jobs?onlyNew=true&sort=posted_desc')
+    fetch('/api/jobs/personal-ranking-status')
       .then(r => r.json())
-      .then((data: Job[]) => setJobs(data))
+      .then(status => {
+        const disponivel = !!status.disponivel;
+        setRankingPersonalDisponivel(disponivel);
+        const sort = disponivel ? 'personal' : 'posted_desc';
+        return fetch(`/api/jobs?onlyNew=true&sort=${sort}&size=300`);
+      })
+      .then(r => r.json())
+      .then(data => setJobs(data.content ?? []))
       .catch(() => setJobs([]));
     if (profile.trim()) refresh(profile);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Com ranking pessoal disponível, a ordem já vem certa do backend — não
+  // sobrescreve com o heurístico local (mais fraco: só sobreposição de tag,
+  // sem levar em conta senioridade/modalidade/fonte que o modelo aprendeu).
   const ordenadas = useMemo(() => {
     if (!jobs) return [];
-    if (Object.keys(scores).length === 0) return jobs;
+    if (rankingPersonalDisponivel || Object.keys(scores).length === 0) return jobs;
     return [...jobs].sort((a, b) => (scores[String(b.id)] ?? -1) - (scores[String(a.id)] ?? -1));
-  }, [jobs, scores]);
+  }, [jobs, scores, rankingPersonalDisponivel]);
 
   const atual = ordenadas[index];
   const acabou = jobs !== null && (ordenadas.length === 0 || index >= ordenadas.length);
@@ -87,7 +114,9 @@ export function TriageModal({ onSeen, onSetStatus, onClose }: Props) {
           <>
             <div className="triage-progress">
               <span>{index + 1} de {ordenadas.length}</span>
-              {profile.trim() && (
+              {rankingPersonalDisponivel ? (
+                <span className="triage-progress-hint">ordenado pelo seu ranking pessoal</span>
+              ) : profile.trim() && (
                 <span className="triage-progress-hint">
                   {scoring ? 'calculando pré-filtro...' : 'ordenado por provável match'}
                 </span>

@@ -32,7 +32,26 @@ export interface Job {
   pinned: boolean;
   notes: string | null;
   classifiedByAi: boolean;
+  // Fase 7.3+8.4 — arquivamento reversível (ver JobController.reativarVaga).
+  archived: boolean;
+  archivedReason: string | null;
+  // Fase 7.5 — null = link nunca checado, ver JobLinkCheckerService.
+  linkMorto: boolean | null;
+  // Fase 8.7 — motivo estruturado da recusa (ver RejectedReason).
+  rejectedReason: RejectedReason | null;
 }
+
+// Fase 8.7 — mesmos valores de JobStatusService.VALID_REJECTED_REASONS.
+export type RejectedReason = 'SALARIO' | 'LOCALIDADE' | 'SENIORIDADE' | 'STACK' | 'EMPRESA' | 'OUTRO';
+
+export const rejectedReasonMeta: Record<RejectedReason, string> = {
+  SALARIO: '💰 Salário',
+  LOCALIDADE: '📍 Localidade',
+  SENIORIDADE: '📶 Senioridade',
+  STACK: '🧩 Stack',
+  EMPRESA: '🏢 Empresa',
+  OUTRO: '❓ Outro',
+};
 
 // Status da integração com Gemini — GET /api/jobs/ai-status
 export interface AiStatus {
@@ -524,6 +543,11 @@ export interface Stats {
   // na lista fixa) aparece sozinha sem precisar editar tipo nem backend.
   porFonte: Record<string, number>;
   porSenioridade: Partial<Record<Seniority, number>>;
+  // Fase 7.2 — vagas com prazo (expiresAt) vencido, ainda não aplicadas
+  // nem recusadas. Alimenta o badge da aba "Vencidas".
+  vencidas: number;
+  // Fase 7.3+8.4 — alimenta o badge da aba "Arquivadas".
+  arquivadas: number;
 }
 
 export interface Metrics {
@@ -539,7 +563,7 @@ export interface Metrics {
 
 export type SortOption = 'posted_desc' | 'posted_asc' | 'fetched_desc' | 'personal';
 
-export type ViewMode = 'novas' | 'vistas' | 'interessado' | 'aplicadas' | 'andamento' | 'recusadas';
+export type ViewMode = 'novas' | 'vistas' | 'interessado' | 'aplicadas' | 'andamento' | 'recusadas' | 'vencidas' | 'arquivadas';
 
 export type JobStatus = 'NOVA' | 'VISTA' | 'INTERESSADO' | 'APLICADA' | 'ANDAMENTO' | 'RECUSADA';
 

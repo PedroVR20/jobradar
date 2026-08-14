@@ -9,6 +9,8 @@ const VIEW_MODE_TO_STATUS: Record<ViewMode, JobStatus | null> = {
   aplicadas: 'APLICADA',
   andamento: 'ANDAMENTO',
   recusadas: 'RECUSADA',
+  vencidas: null,
+  arquivadas: null,
 };
 
 interface Props {
@@ -64,6 +66,24 @@ export function EmptyState({ filters, onClearFilters, onClearDays, onFetchNow, f
         <button className="btn btn-primary" onClick={onFetchNow} disabled={fetching}>
           {fetching ? 'Buscando...' : '🔄 Buscar agora'}
         </button>
+      </div>
+    );
+  }
+
+  if (filters.viewMode === 'vencidas') {
+    return (
+      <div className="empty-box">
+        <p>⏰ Nenhuma vaga vencida agora.</p>
+        <p className="empty-box-hint">Vaga com prazo (expiresAt) passado cai aqui sozinha, sem precisar marcar nada.</p>
+      </div>
+    );
+  }
+
+  if (filters.viewMode === 'arquivadas') {
+    return (
+      <div className="empty-box">
+        <p>🗄️ Nenhuma vaga arquivada.</p>
+        <p className="empty-box-hint">Vaga sem interação por muito tempo cai aqui sozinha (dá pra reativar a qualquer momento).</p>
       </div>
     );
   }

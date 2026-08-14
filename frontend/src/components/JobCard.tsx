@@ -1,5 +1,5 @@
 import { DragEvent, useEffect, useRef, useState } from 'react';
-import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, SortOption, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
+import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, RejectedReason, rejectedReasonMeta, SortOption, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
 import { AgendaModal } from './AgendaModal';
 import { InterviewModal } from './InterviewModal';
 import { CoverLetterModal } from './CoverLetterModal';
@@ -15,9 +15,16 @@ interface Props {
   onSeen: (id: number) => void;
   onApplied: (id: number) => void;
   onInProgress: (id: number) => void;
-  onSetStatus: (id: number, status: JobStatus) => void;
+  // Fase 8.7 — motivo é opcional, só usado com status='RECUSADA'.
+  onSetStatus: (id: number, status: JobStatus, motivo?: RejectedReason) => void;
   onTogglePin: (id: number) => void;
   onUpdateNotes: (id: number, notes: string) => void;
+  // Fase 7.3+8.4 — só passado quando a aba é "Arquivadas" (App.tsx decide).
+  onReativar?: (id: number) => void;
+  // Fase 8.2+8.3 — seleção em lote e foco por teclado, controlados pelo App.tsx.
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  keyboardFocused?: boolean;
   onToast: (msg: string) => void;
   aiEnabled: boolean;
   sortMode: SortOption;
@@ -239,7 +246,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode, highlighted, matchPercent, compact }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onReativar, onToast, aiEnabled, sortMode, highlighted, matchPercent, compact, selected, onToggleSelect, keyboardFocused }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -269,6 +276,11 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  // Fase 8.7 — motivo da recusa em um clique: chip aparece só quando o
+  // usuário pede ("por quê?"), pra não adicionar uma decisão extra na
+  // recusa rápida de sempre (o botão principal continua recusando direto,
+  // sem motivo, como sempre fez).
+  const [showRejectReasons, setShowRejectReasons] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<JobEventDto[] | null>(null);
@@ -357,13 +369,23 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   if (!showFull) {
     return (
       <div
-        className={`job-card job-card--compact ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''}`}
+        className={`job-card job-card--compact ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''} ${keyboardFocused ? 'job-card--kbd-focused' : ''} ${selected ? 'job-card--selected' : ''}`}
         id={`job-card-${job.id}`}
         role="button"
         tabIndex={0}
         onClick={() => setExpanded(true)}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(true); } }}
       >
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            className="job-card-select"
+            checked={!!selected}
+            onClick={e => e.stopPropagation()}
+            onChange={onToggleSelect}
+            aria-label="Selecionar vaga para ação em lote"
+          />
+        )}
         <div className="company-avatar company-avatar--compact" style={{ borderColor: src.color + '44' }}>
           {job.companyLogoUrl && !logoError ? (
             <img
@@ -391,7 +413,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
   return (
     <div
-      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''}`}
+      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''} ${keyboardFocused ? 'job-card--kbd-focused' : ''} ${selected ? 'job-card--selected' : ''}`}
       id={`job-card-${job.id}`}
       draggable={job.applied}
       onDragStart={job.applied ? handleDragStart : undefined}
@@ -400,6 +422,16 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
       {/* Header */}
       <div className="card-header">
         <div className="card-header-left">
+          {/* Fase 8.2 — seleção em lote */}
+          {onToggleSelect && (
+            <input
+              type="checkbox"
+              className="job-card-select"
+              checked={!!selected}
+              onChange={onToggleSelect}
+              aria-label="Selecionar vaga para ação em lote"
+            />
+          )}
           {/* Logo da empresa */}
           <div className="company-avatar" style={{ borderColor: src.color + '44' }}>
             {job.companyLogoUrl && !logoError ? (
@@ -473,6 +505,11 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
                 ♿ PcD
               </span>
             )}
+            {job.linkMorto && (
+              <span className="badge-link-morto" title="O link parou de responder na última checagem (404/410) — a vaga pode ter saído do ar">
+                ⚠️ link morto
+              </span>
+            )}
           </div>
         </div>
         <div className="card-header-right">
@@ -485,6 +522,19 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             </span>
           ) : (
             <span className="card-date" title={formatDateFull(job.postedAt)}>📅 {formatDate(job.postedAt)}</span>
+          )}
+
+          {/* Fase 7.3+8.4 — vaga arquivada some do funil normal; único jeito
+              de agir nela é reativar (tira ela do "porão"). */}
+          {job.archived && onReativar && (
+            <button
+              className="btn-pin"
+              onClick={() => onReativar(job.id)}
+              title={job.archivedReason ? `Arquivada: ${job.archivedReason}` : 'Reativar vaga'}
+              aria-label="Reativar vaga"
+            >
+              ♻️ Reativar
+            </button>
           )}
 
           {/* Botão fixar — oculto em vagas recusadas */}
@@ -810,12 +860,37 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
           </button>
         )}
         {job.applied && !job.rejected && (
-          <button
-            className="btn btn-danger"
-            onClick={() => onSetStatus(job.id, 'RECUSADA')}
-          >
-            ❌ Recusada/congelada
-          </button>
+          showRejectReasons ? (
+            <div className="reject-reason-picker">
+              {(Object.keys(rejectedReasonMeta) as RejectedReason[]).map(motivo => (
+                <button
+                  key={motivo}
+                  type="button"
+                  className="reject-reason-chip"
+                  onClick={() => { onSetStatus(job.id, 'RECUSADA', motivo); setShowRejectReasons(false); }}
+                >
+                  {rejectedReasonMeta[motivo]}
+                </button>
+              ))}
+              <button type="button" className="btn-link" onClick={() => setShowRejectReasons(false)}>
+                cancelar
+              </button>
+            </div>
+          ) : (
+            <button
+              className="btn btn-danger"
+              onClick={() => onSetStatus(job.id, 'RECUSADA')}
+            >
+              ❌ Recusada/congelada
+              <span
+                className="reject-reason-toggle"
+                title="Dizer por quê (ajuda o ranking pessoal a aprender certo)"
+                onClick={e => { e.stopPropagation(); setShowRejectReasons(true); }}
+              >
+                por quê?
+              </span>
+            </button>
+          )
         )}
         {job.rejected && (
           <button

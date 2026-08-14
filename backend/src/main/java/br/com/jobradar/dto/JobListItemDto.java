@@ -46,7 +46,14 @@ public record JobListItemDto(
         boolean pcd,
         boolean pinned,
         String notes,
-        boolean classifiedByAi
+        boolean classifiedByAi,
+        // Fase 7.3+8.4 — arquivamento reversível.
+        boolean archived,
+        String archivedReason,
+        // Fase 7.5 — null = nunca checado, ver JobLinkCheckerService.
+        Boolean linkMorto,
+        // Fase 8.7 — motivo estruturado da recusa (ver JobStatusService.VALID_REJECTED_REASONS).
+        String rejectedReason
 ) {
     public static JobListItemDto de(Job job) {
         return new JobListItemDto(
@@ -76,7 +83,11 @@ public record JobListItemDto(
                 job.getPcd() != null && job.getPcd(),
                 job.getFavorited() != null && job.getFavorited(),
                 job.getNotes(),
-                job.getClassifiedByAi() != null && job.getClassifiedByAi()
+                job.getClassifiedByAi() != null && job.getClassifiedByAi(),
+                job.isArchived(),
+                job.getArchivedReason(),
+                job.getLinkMorto(),
+                job.getRejectedReason()
         );
     }
 }
