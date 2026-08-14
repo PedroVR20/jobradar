@@ -61,6 +61,12 @@ services:
       # um "docker compose up --build" voltaria pro modelo empacotado no jar
       # e o retreino se perderia.
       - ./data:/app/data
+      # Fase 5.4 — backup diário do Postgres (ver BackupService), fora do
+      # volume nomeado do próprio postgres de propósito: um volume Docker
+      # comum e o dump de backup vivendo juntos não protegem contra nada —
+      # se o Docker/disco tiver um problema, os dois somem juntos. Pasta no
+      # host é resgatável independente do estado dos containers/volumes.
+      - ./backups:/app/backups
     depends_on:
       postgres:
         condition: service_healthy

@@ -30,3 +30,7 @@ scripts/salary_model.json
 # — específico de cada máquina/deploy, não é pra versionar; sobrevive a
 # "docker compose up" via bind-mount (ver docker-compose.yml).
 /data/
+
+# Fase 5.4 — dumps do backup automático/manual do Postgres (BackupService).
+# Dado real do usuário, não pertence ao repositório — só o bind-mount local.
+/backups/

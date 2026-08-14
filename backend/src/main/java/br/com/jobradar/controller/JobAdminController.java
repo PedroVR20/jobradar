@@ -3,6 +3,7 @@ package br.com.jobradar.controller;
 import br.com.jobradar.model.Job;
 import br.com.jobradar.repository.FonteSaudeProjection;
 import br.com.jobradar.repository.JobRepository;
+import br.com.jobradar.service.BackupService;
 import br.com.jobradar.service.GeminiService;
 import br.com.jobradar.service.JobEmbeddingService;
 import br.com.jobradar.service.SalaryEstimateService;
@@ -44,6 +45,7 @@ public class JobAdminController {
     private final SalaryEstimateService salaryEstimateService;
     private final SalaryPredictionService salaryPredictionService;
     private final SalaryModelTrainerService salaryModelTrainerService;
+    private final BackupService backupService;
 
     // Gate simples (não é segurança de verdade — app pessoal local) pra não
     // ter um botão de "retreinar" clicável sem querer. Vazio == recurso
@@ -216,5 +218,43 @@ public class JobAdminController {
         } finally {
             retreinoEmAndamento.set(false);
         }
+    }
+
+    /**
+     * Fase 5.4 — dispara um backup na hora, fora da rotina agendada de 4h da
+     * manhã (ver {@link BackupService#backupAutomatico()}) — útil antes de
+     * uma migração/mudança arriscada, sem precisar esperar o cron nem entrar
+     * no container pra rodar pg_dump na mão.
+     * POST /api/jobs/admin/backup
+     */
+    @PostMapping("/admin/backup")
+    public ResponseEntity<Map<String, Object>> backupManual() {
+        BackupService.BackupResult resultado = backupService.executarBackup();
+        if (!resultado.ok()) {
+            return ResponseEntity.status(500).body(Map.of("error", resultado.erro()));
+        }
+        return ResponseEntity.ok(Map.of(
+                "arquivo", resultado.arquivo(),
+                "tamanhoBytes", resultado.tamanhoBytes()
+        ));
+    }
+
+    /**
+     * Lista os backups já feitos (automáticos + manuais, mesmo diretório),
+     * mais recente primeiro — pro painel de Configurações mostrar que o
+     * backup de verdade está rodando, não só confiar que o cron funciona.
+     * GET /api/jobs/admin/backups
+     */
+    @GetMapping("/admin/backups")
+    public List<Map<String, Object>> listarBackups() {
+        return backupService.listarBackups().stream()
+                .map(b -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("arquivo", b.arquivo());
+                    m.put("tamanhoBytes", b.tamanhoBytes());
+                    m.put("modificadoEm", b.modificadoEm());
+                    return m;
+                })
+                .toList();
     }
 }

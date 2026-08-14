@@ -10,6 +10,11 @@ RUN mvn package -DskipTests -B
 FROM amazoncorretto:21-alpine
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
+# Fase 5.4 — pg_dump pro backup automático (ver BackupService). Versão 16
+# de propósito (postgresql16-client), pra bater com o postgres:16-alpine do
+# docker-compose.yml — dump gerado por uma versão de cliente mais nova que
+# o servidor às vezes falha ou usa formato que a mais antiga não entende.
+RUN apk add --no-cache postgresql16-client
 EXPOSE 8080
 # Fase 6.6 — -Xmx2g (Fase 1) foi tampão de emergência pro OOM real de
 # então: o campo embedding (~39 mil caracteres/vaga) vivia dentro de Job e
