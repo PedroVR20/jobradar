@@ -6,7 +6,6 @@ import br.com.jobradar.repository.JobEventRepository;
 import br.com.jobradar.repository.JobRepository;
 import org.junit.jupiter.api.Test;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -16,12 +15,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Cobre os dois bugs reais já reportados nessa área (ver git log): o "-21
- * aplicadas" (statusBate/resumoFunil contando errado) e o Hunter usando a
- * ferramenta errada pra "vagas que estão paradas". Só as duas ferramentas
- * mais fáceis de isolar sem montar toda a cadeia de function-calling do
- * Gemini — statusBate/contemBusca são puras, e executarVagasParadas só
- * depende do JobRepository (mockado aqui, não precisa de banco de verdade).
+ * Fase 14.3 — statusBate/contemBusca/executarVagasParadas migraram pra
+ * JarvisReadToolsTest junto com a implementação (ver JarvisReadTools). Este
+ * arquivo cobre só o que continua em JarvisChatService de verdade: o
+ * fast-path sem IA e o DISPATCH (executarFerramenta chegando no handler
+ * certo — leitura via readTools, escrita via writeTools).
  */
 class JarvisChatServiceTest {
 
@@ -30,8 +28,10 @@ class JarvisChatServiceTest {
     // Fase 6.1 — apagarVaga limpa job_embeddings também; mock simples, só
     // precisa não estourar NPE se algum teste futuro exercitar esse caminho.
     private final JobEmbeddingRepository jobEmbeddingRepository = mock(JobEmbeddingRepository.class);
-    // statusBate/contemBusca/executarVagasParadas/dispatch não tocam nos
-    // outros serviços injetados — null é seguro aqui.
+    // Nenhum teste aqui toca nos outros colaboradores de leitura
+    // (compatibilidade/salário/carta/embedding/email) — null é seguro.
+    private final JarvisReadTools readTools =
+            new JarvisReadTools(jobRepository, null, null, null, null, null, null);
     // JarvisWriteTools precisa de instâncias reais de JobStatusService e
     // SeniorityClassifier (não null) pros testes de dispatch de
     // marcarStatusDeVaga/adicionarVagaManual (Fase 3.7) — os dois chamam
@@ -39,8 +39,7 @@ class JarvisChatServiceTest {
     // grava timeline, não precisa de comportamento real pro teste).
     private final JarvisWriteTools writeTools = new JarvisWriteTools(
             jobRepository, new JobStatusService(jobRepository, jobEventRepository), new SeniorityClassifier(), jobEmbeddingRepository);
-    private final JarvisChatService service =
-            new JarvisChatService(null, jobRepository, null, null, null, null, null, null, null, null, writeTools);
+    private final JarvisChatService service = new JarvisChatService(null, readTools, writeTools);
 
     private Job job(String status) {
         Job j = Job.builder().title("Dev Java").company("Acme").url("https://x/" + status).source("MANUAL").build();
@@ -54,57 +53,6 @@ class JarvisChatServiceTest {
             default -> throw new IllegalArgumentException(status);
         }
         return j;
-    }
-
-    @Test
-    void statusBate_cadaVagaSoBateComOSeuProprioStatus() {
-        String[] statuses = {"NOVA", "VISTA", "INTERESSADO", "APLICADA", "ANDAMENTO", "RECUSADA"};
-        for (String dono : statuses) {
-            Job j = job(dono);
-            for (String candidato : statuses) {
-                boolean esperado = dono.equals(candidato);
-                assertThat(service.statusBate(j, candidato))
-                        .as("vaga com status real %s comparada contra filtro %s", dono, candidato)
-                        .isEqualTo(esperado);
-            }
-        }
-    }
-
-    @Test
-    void statusBate_semFiltroAceitaQualquerStatus() {
-        assertThat(service.statusBate(job("RECUSADA"), null)).isTrue();
-    }
-
-    @Test
-    void contemBusca_procuraEmTituloEmpresaETags() {
-        Job j = job("NOVA");
-        j.setTags("java,spring-boot");
-
-        assertThat(service.contemBusca(j, "java")).isTrue();
-        assertThat(service.contemBusca(j, "acme")).isTrue();
-        assertThat(service.contemBusca(j, "python")).isFalse();
-    }
-
-    @SuppressWarnings("unchecked")
-    @Test
-    void executarVagasParadas_soConsideraAplicadaOuAndamentoAcimaDoLimite() {
-        Job paradaHaMuito = job("APLICADA");
-        paradaHaMuito.setAppliedAt(LocalDateTime.now().minusDays(30));
-
-        Job aplicadaRecente = job("APLICADA");
-        aplicadaRecente.setAppliedAt(LocalDateTime.now().minusDays(1));
-
-        // recusadaAntiga NÃO entra na lista mockada — na Fase 14.1 o filtro
-        // "aplicada e não recusada" virou WHERE de SQL (ver
-        // JobSpecifications.appliedNaoRejeitada), então o banco de verdade
-        // nunca devolveria essa vaga pro método de qualquer forma.
-        when(jobRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
-                .thenReturn(List.of(paradaHaMuito, aplicadaRecente));
-
-        Map<String, Object> resultado = (Map<String, Object>) service.executarVagasParadas(Map.of("diasMinimo", 10));
-        List<?> vagas = (List<?>) resultado.get("vagas");
-
-        assertThat(vagas).hasSize(1);
     }
 
     @SuppressWarnings("unchecked")
