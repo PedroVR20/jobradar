@@ -34,6 +34,18 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- Fase 5.3 — Flyway: versões gerenciadas pelo BOM do Spring Boot
+             (evita fixar uma versão que fique dessincronizada). O módulo
+             flyway-database-postgresql é separado desde o Flyway 10 —
+             sem ele o suporte a recursos específicos do Postgres degrada. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
         <!-- RSS parser para We Work Remotely -->
         <dependency>
             <groupId>com.rometools</groupId>

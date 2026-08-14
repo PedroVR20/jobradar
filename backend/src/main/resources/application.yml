@@ -4,9 +4,23 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:jobradar}
     password: ${SPRING_DATASOURCE_PASSWORD:jobradar123}
     driver-class-name: org.postgresql.Driver
+  # Fase 5.3 — antes disso o schema inteiro era gerenciado por
+  # `ddl-auto: update`, sem histórico nenhum de "o que mudou quando" além
+  # do git log dos @Entity. baseline-on-migrate marca o banco de produção
+  # existente como "já na versão 1" (ver V1__baseline.sql) sem tentar
+  # recriá-lo — só migrações NOVAS (V2__ em diante) rodam de verdade nele.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "Schema existente antes do Flyway"
   jpa:
     hibernate:
-      ddl-auto: update
+      # validate, não mais update — Flyway é a única fonte de verdade do
+      # schema agora; o Hibernate só CONFERE que as entidades batem com o
+      # que existe (erro alto e claro no boot se alguém esquecer de somar
+      # uma migração ao mudar um @Entity), nunca mais altera nada sozinho.
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
