@@ -8,10 +8,16 @@ interface Props {
   onDropJob?: (jobId: number, tab: ViewMode) => void;
 }
 
+// Fase 8.2 — droppable em toda aba de status (antes só
+// aplicadas/andamento/recusadas aceitavam soltar). Vencidas/Arquivadas
+// ficam de fora de propósito: nenhuma das duas é um status que dá pra
+// "escolher" arrastando — vencida é automática por data, arquivada é
+// automática por inatividade (a única ação manual nela é reativar, que já
+// tem botão próprio no card).
 const tabs: { key: ViewMode; label: string; droppable?: boolean }[] = [
-  { key: 'novas', label: '🔴 Novas' },
-  { key: 'vistas', label: '👁 Já vistas' },
-  { key: 'interessado', label: '⭐ Interessado' },
+  { key: 'novas', label: '🔴 Novas', droppable: true },
+  { key: 'vistas', label: '👁 Já vistas', droppable: true },
+  { key: 'interessado', label: '⭐ Interessado', droppable: true },
   { key: 'aplicadas', label: '✅ Aplicadas', droppable: true },
   { key: 'andamento', label: '🔄 Em Andamento', droppable: true },
   { key: 'recusadas', label: '❌ Recusadas', droppable: true },

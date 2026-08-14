@@ -771,13 +771,6 @@ a:hover { text-decoration: underline; }
 }
 .btn-link:hover { color: var(--text); }
 
-/* Fase 8.5 — atalho de filtro geográfico */
-.rj-quick-filter--active {
-  background: #6366f122;
-  border-color: var(--accent, #6366f1);
-  color: var(--accent, #6366f1);
-}
-
 /* Fase 7.7 — painel de qualidade do catálogo (Configurações) */
 .quality-panel-grid {
   display: grid;
@@ -1360,6 +1353,17 @@ a:hover { text-decoration: underline; }
   transform: rotate(-20deg);
 }
 
+/* Fase 7.3+8.4 — botão de reativar vaga arquivada, no cabeçalho do card
+   (antes usava .btn-pin por engano — aquela classe é feita pra ícone
+   sozinho de opacidade baixa/grayscale, não pra botão com texto). */
+.btn-reativar-arquivada {
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  margin-right: 0.4rem;
+}
+
 /* Card fixado tem borda superior accent + leve brilho */
 .job-card--pinned {
   border-top: 2px solid var(--accent);
@@ -1383,38 +1387,6 @@ a:hover { text-decoration: underline; }
 .job-card--kbd-focused {
   outline: 2px solid var(--accent, #6366f1);
   outline-offset: 2px;
-}
-
-/* Fase 8.2 — card selecionado pra ação em lote */
-.job-card--selected {
-  background: #6366f114;
-  border-color: var(--accent, #6366f1);
-}
-.job-card-select {
-  width: 16px;
-  height: 16px;
-  margin-right: 0.5rem;
-  cursor: pointer;
-  flex-shrink: 0;
-  accent-color: var(--accent, #6366f1);
-}
-
-/* Fase 8.2 — barra flutuante de ações em lote */
-.bulk-action-bar {
-  position: fixed;
-  left: 50%;
-  bottom: 1.25rem;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 1rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
-  z-index: 40;
-  font-size: 0.85rem;
 }
 
 /* ============================

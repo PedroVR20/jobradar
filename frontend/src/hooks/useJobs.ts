@@ -158,9 +158,8 @@ export function useJobs(filters: Filters) {
     reloadPaginasCarregadas(); // atualiza stats sem piscar loading
   };
 
-  // Extraído de setStatus (Fase 8.2) pra ser reaproveitado pelo bulkSetStatus
-  // sem duplicar o switch — o mapeamento status→campos booleanos é o mesmo,
-  // seja pra uma vaga ou pra um lote inteiro.
+  // Extraído de setStatus pra ficar num lugar só o mapeamento status→campos
+  // booleanos, reaproveitado pelas ações otimistas abaixo.
   const patchParaStatus = (j: Job, status: JobStatus, motivo?: RejectedReason): Partial<Job> => ({
     NOVA:        { seen: false, interested: false, applied: false,   inProgress: false, rejected: false, rejectedAt: null, rejectedReason: null },
     VISTA:       { seen: true,  interested: false, applied: false,   inProgress: false, rejected: false, rejectedAt: null, rejectedReason: null },
@@ -181,25 +180,6 @@ export function useJobs(filters: Filters) {
     // aplicada), inflando as métricas. Mantém o applied que a vaga já tinha.
     setJobs(prev => prev.map(j => j.id === id ? { ...j, ...patchParaStatus(j, status, motivo) } : j));
     reloadPaginasCarregadas(); // reflete a mudança de aba e atualiza stats sem piscar loading
-  };
-
-  // Fase 8.2 — ações em lote no grid principal (seleção via checkbox/atalho
-  // "x", ver App.tsx). Dispara os PATCHes em paralelo (não é um endpoint de
-  // bulk novo no backend — cada PATCH já é rápido e idempotente, o ganho
-  // aqui é só não recarregar a lista inteira uma vez por item) e só recarrega
-  // UMA vez no final, diferente de chamar setStatus em loop.
-  const bulkSetStatus = async (ids: number[], status: JobStatus) => {
-    if (ids.length === 0) return;
-    await Promise.all(ids.map(id => fetch(`${API}/${id}/status?value=${status}`, { method: 'PATCH' })));
-    setJobs(prev => prev.map(j => ids.includes(j.id) ? { ...j, ...patchParaStatus(j, status) } : j));
-    reloadPaginasCarregadas();
-  };
-
-  const bulkMarkSeen = async (ids: number[]) => {
-    if (ids.length === 0) return;
-    await Promise.all(ids.map(id => fetch(`${API}/${id}/seen`, { method: 'PATCH' })));
-    setJobs(prev => prev.map(j => ids.includes(j.id) ? { ...j, seen: true } : j));
-    reloadPaginasCarregadas();
   };
 
   // Adiciona uma vaga manualmente (achada fora das fontes automáticas, tipo
@@ -281,7 +261,7 @@ export function useJobs(filters: Filters) {
     // em vez de já ter tudo carregado e só "revelar" mais linhas de uma
     // lista que já estava inteira em memória.
     totalElements, hasMore, loadMore, loadingMore,
-    markSeen, markApplied, markInProgress, setStatus, bulkSetStatus, bulkMarkSeen, addManualJob, triggerFetch, togglePin, updateNotes, reativarVaga,
+    markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reativarVaga,
     // reload = recarrega as páginas já vistas (preserva "carregar mais"
     // anteriores) — usado depois de ações externas que mexem em várias
     // vagas de uma vez (Hunter, Triagem rápida).

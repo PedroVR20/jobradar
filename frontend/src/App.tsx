@@ -78,11 +78,12 @@ export default function App() {
   // sido importado/renderizado em lugar nenhum do app — botão morto, tela
   // inacessível. Faltava só isso: um jeito de abrir.
   const [showDuplicates, setShowDuplicates] = useState(false);
-  // Fase 8.2+8.3 — seleção em lote e navegação por teclado no grid
-  // principal (a Triagem rápida, Fase 3.9/Lote 9, já tinha atalho de
-  // teclado pro fluxo "uma vaga por vez"; isso aqui é o mesmo princípio
-  // pro grid normal, onde o padrão até agora era mouse/clique em tudo).
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  // Fase 8.3 — navegação por teclado no grid principal (a Triagem rápida,
+  // Lote 9, já tinha atalho de teclado pro fluxo "uma vaga por vez"; isso
+  // aqui é o mesmo princípio pro grid normal, onde o padrão até agora era
+  // mouse/clique em tudo). Mover vaga entre abas em lote usa arrastar e
+  // soltar (já existia pras abas Aplicadas/Andamento/Recusadas — Fase 8.2
+  // estendeu pras demais em vez de introduzir seleção por checkbox).
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [compactCards, setCompactCards] = useState(() => {
     try { return localStorage.getItem(COMPACT_CARDS_KEY) === '1'; } catch { return false; }
@@ -99,7 +100,7 @@ export default function App() {
   // App.css. Desliga sozinho depois de alguns segundos.
   const [highlightedJobId, setHighlightedJobId] = useState<number | null>(null);
 
-  const { jobs, stats, states, sources, loading, fetching, error, totalElements, hasMore, loadMore, loadingMore, markSeen, markApplied, markInProgress, setStatus, bulkSetStatus, bulkMarkSeen, addManualJob, triggerFetch, togglePin, updateNotes, reativarVaga, reload } =
+  const { jobs, stats, states, sources, loading, fetching, error, totalElements, hasMore, loadMore, loadingMore, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reativarVaga, reload } =
     useJobs(filters);
   const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
   const aiStatus = useAiStatus();
@@ -243,10 +244,16 @@ export default function App() {
     showToast('🔄 Vaga movida pra "Em Andamento"!');
   };
 
+  // Fase 8.2 — estendido pra todas as abas de status (antes só
+  // aplicadas/andamento/recusadas aceitavam soltar) em vez de introduzir
+  // seleção em lote por checkbox: arrastar e soltar já existia, só faltava
+  // funcionar em toda aba pra cobrir o mesmo caso de uso.
   const handleDropJob = async (jobId: number, tab: ViewMode) => {
     if (tab === 'andamento') await handleInProgress(jobId);
     else if (tab === 'aplicadas') await handleApplied(jobId);
     else if (tab === 'interessado') await setStatus(jobId, 'INTERESSADO');
+    else if (tab === 'novas') await setStatus(jobId, 'NOVA');
+    else if (tab === 'vistas') await setStatus(jobId, 'VISTA');
     else if (tab === 'recusadas') {
       await setStatus(jobId, 'RECUSADA');
       syncAgendaForStatus(jobId, 'RECUSADA');
@@ -291,13 +298,7 @@ export default function App() {
         setFocusedIndex(i => Math.max(0, i - 1));
       } else if (focusedIndex >= 0 && focusedIndex < jobs.length) {
         const job = jobs[focusedIndex];
-        if (e.key === 'x') {
-          setSelectedIds(prev => {
-            const next = new Set(prev);
-            if (next.has(job.id)) next.delete(job.id); else next.add(job.id);
-            return next;
-          });
-        } else if (e.key === 'y') {
+        if (e.key === 'y') {
           handleSetStatus(job.id, 'INTERESSADO');
         } else if (e.key === 'n') {
           handleSetStatus(job.id, 'RECUSADA');
@@ -306,7 +307,6 @@ export default function App() {
         } else if (e.key === 'Enter') {
           window.open(job.url, '_blank', 'noopener,noreferrer');
         } else if (e.key === 'Escape') {
-          setSelectedIds(new Set());
           setFocusedIndex(-1);
         }
       }
@@ -320,23 +320,11 @@ export default function App() {
     document.getElementById(`job-card-${jobs[focusedIndex].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [focusedIndex, jobs]);
 
-  // reseta foco/seleção quando o filtro muda — índice antigo não corresponde
-  // mais a nada depois de trocar de aba/busca.
+  // reseta foco quando o filtro muda — índice antigo não corresponde mais
+  // a nada depois de trocar de aba/busca.
   useEffect(() => {
     setFocusedIndex(-1);
-    setSelectedIds(new Set());
   }, [filters.viewMode, filters.source, filters.search, filters.seniority, filters.state]);
-
-  // Fase 8.2 — barra de ações em lote (aparece só quando há seleção).
-  const limparSelecao = () => setSelectedIds(new Set());
-  const executarAcaoEmLote = async (acao: 'vista' | 'interesse' | 'recusar') => {
-    const ids = Array.from(selectedIds);
-    if (acao === 'vista') await bulkMarkSeen(ids);
-    else if (acao === 'interesse') await bulkSetStatus(ids, 'INTERESSADO');
-    else await bulkSetStatus(ids, 'RECUSADA');
-    showToast(`${ids.length} vaga(s) atualizada(s)!`);
-    limparSelecao();
-  };
 
   return (
     <div className={`app ${showJarvis ? 'app--jarvis-open' : ''}`}>
@@ -505,12 +493,6 @@ export default function App() {
                   matchPercent={filters.viewMode === 'novas' ? matchScores[String(job.id)] : undefined}
                   compact={compactCards}
                   keyboardFocused={idx === focusedIndex}
-                  selected={selectedIds.has(job.id)}
-                  onToggleSelect={() => setSelectedIds(prev => {
-                    const next = new Set(prev);
-                    if (next.has(job.id)) next.delete(job.id); else next.add(job.id);
-                    return next;
-                  })}
                 />
               ))}
             </div>
@@ -529,17 +511,6 @@ export default function App() {
 
       {/* Toast */}
       {toast && <div className="toast">{toast}</div>}
-
-      {/* Fase 8.2 — barra de ações em lote (seleção via checkbox no card ou atalho "x") */}
-      {selectedIds.size > 0 && (
-        <div className="bulk-action-bar">
-          <span>{selectedIds.size} selecionada(s)</span>
-          <button className="btn btn-ghost" onClick={() => executarAcaoEmLote('vista')}>👁 Marcar vistas</button>
-          <button className="btn btn-interested" onClick={() => executarAcaoEmLote('interesse')}>⭐ Marcar interesse</button>
-          <button className="btn btn-danger" onClick={() => executarAcaoEmLote('recusar')}>❌ Recusar</button>
-          <button className="btn btn-ghost" onClick={limparSelecao}>Cancelar</button>
-        </div>
-      )}
     </div>
   );
 }

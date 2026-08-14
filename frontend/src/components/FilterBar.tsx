@@ -273,19 +273,6 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources, 
           {states.map(state => <option key={state} value={state}>{state}</option>)}
         </select>
 
-        {/* Fase 8.5 — RJ é o foco geográfico configurado no backend desde a
-            Fase 2.6 (FocoGeograficoConfig, multi-fonte) — o filtro de estado
-            existia, mas exigia abrir o select e digitar/procurar "Rio de
-            Janeiro" toda vez. Um clique aplica (ou tira) o filtro direto. */}
-        <button
-          type="button"
-          className={`btn btn-ghost rj-quick-filter ${filters.state === 'Rio de Janeiro' ? 'rj-quick-filter--active' : ''}`}
-          onClick={() => set({ state: filters.state === 'Rio de Janeiro' ? '' : 'Rio de Janeiro' })}
-          title="Foco geográfico do app — atalho pra filtrar só vagas do Rio de Janeiro"
-        >
-          📍 Só RJ
-        </button>
-
         <select className="filter-select" value={filters.days} onChange={e => set({ days: e.target.value })}>
           <option value="">Qualquer data</option>
           <option value="1">Últimas 24h</option>

@@ -21,9 +21,7 @@ interface Props {
   onUpdateNotes: (id: number, notes: string) => void;
   // Fase 7.3+8.4 — só passado quando a aba é "Arquivadas" (App.tsx decide).
   onReativar?: (id: number) => void;
-  // Fase 8.2+8.3 — seleção em lote e foco por teclado, controlados pelo App.tsx.
-  selected?: boolean;
-  onToggleSelect?: () => void;
+  // Fase 8.3 — foco por teclado no grid principal, controlado pelo App.tsx.
   keyboardFocused?: boolean;
   onToast: (msg: string) => void;
   aiEnabled: boolean;
@@ -246,7 +244,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onReativar, onToast, aiEnabled, sortMode, highlighted, matchPercent, compact, selected, onToggleSelect, keyboardFocused }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onReativar, onToast, aiEnabled, sortMode, highlighted, matchPercent, compact, keyboardFocused }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -369,23 +367,15 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   if (!showFull) {
     return (
       <div
-        className={`job-card job-card--compact ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''} ${keyboardFocused ? 'job-card--kbd-focused' : ''} ${selected ? 'job-card--selected' : ''}`}
+        className={`job-card job-card--compact ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''} ${keyboardFocused ? 'job-card--kbd-focused' : ''}`}
         id={`job-card-${job.id}`}
         role="button"
         tabIndex={0}
+        draggable
+        onDragStart={handleDragStart}
         onClick={() => setExpanded(true)}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(true); } }}
       >
-        {onToggleSelect && (
-          <input
-            type="checkbox"
-            className="job-card-select"
-            checked={!!selected}
-            onClick={e => e.stopPropagation()}
-            onChange={onToggleSelect}
-            aria-label="Selecionar vaga para ação em lote"
-          />
-        )}
         <div className="company-avatar company-avatar--compact" style={{ borderColor: src.color + '44' }}>
           {job.companyLogoUrl && !logoError ? (
             <img
@@ -413,25 +403,15 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
 
   return (
     <div
-      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''} ${keyboardFocused ? 'job-card--kbd-focused' : ''} ${selected ? 'job-card--selected' : ''}`}
+      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''} ${keyboardFocused ? 'job-card--kbd-focused' : ''}`}
       id={`job-card-${job.id}`}
-      draggable={job.applied}
-      onDragStart={job.applied ? handleDragStart : undefined}
-      title={job.applied ? 'Arraste pra outra aba, ou use o menu ⋮' : undefined}
+      draggable
+      onDragStart={handleDragStart}
+      title="Arraste pra outra aba, ou use o menu ⋮"
     >
       {/* Header */}
       <div className="card-header">
         <div className="card-header-left">
-          {/* Fase 8.2 — seleção em lote */}
-          {onToggleSelect && (
-            <input
-              type="checkbox"
-              className="job-card-select"
-              checked={!!selected}
-              onChange={onToggleSelect}
-              aria-label="Selecionar vaga para ação em lote"
-            />
-          )}
           {/* Logo da empresa */}
           <div className="company-avatar" style={{ borderColor: src.color + '44' }}>
             {job.companyLogoUrl && !logoError ? (
@@ -528,7 +508,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
               de agir nela é reativar (tira ela do "porão"). */}
           {job.archived && onReativar && (
             <button
-              className="btn-pin"
+              className="btn btn-ghost btn-reativar-arquivada"
               onClick={() => onReativar(job.id)}
               title={job.archivedReason ? `Arquivada: ${job.archivedReason}` : 'Reativar vaga'}
               aria-label="Reativar vaga"
