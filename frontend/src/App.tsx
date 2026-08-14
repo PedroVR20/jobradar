@@ -59,7 +59,6 @@ const defaultFilters: Filters = {
   techStack: [],
 };
 
-const PAGE_SIZE = 30;
 const LAST_VISIT_KEY = 'jobradar:last-visit';
 // Fase 4.5 — modo compacto do grid de vagas, mesmo padrão de persistência
 // do modo compacto do Hunter (localStorage, lido uma vez no mount).
@@ -68,7 +67,6 @@ const COMPACT_CARDS_KEY = 'jobradar:compact-cards';
 export default function App() {
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [toast, setToast] = useState<string | null>(null);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -89,7 +87,7 @@ export default function App() {
   // App.css. Desliga sozinho depois de alguns segundos.
   const [highlightedJobId, setHighlightedJobId] = useState<number | null>(null);
 
-  const { jobs, stats, states, sources, loading, fetching, error, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reload } =
+  const { jobs, stats, states, sources, loading, fetching, error, totalElements, hasMore, loadMore, loadingMore, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reload } =
     useJobs(filters);
   const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
   const aiStatus = useAiStatus();
@@ -179,9 +177,6 @@ export default function App() {
     });
   }, [jobs, isConnected, reconcileWithAgenda]);
 
-  // volta pra primeira "página" sempre que os filtros mudam a lista
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filters]);
-
   // Ctrl+K (ou Cmd+K no mac) abre/fecha o Hunter de qualquer lugar da tela —
   // atalho padrão de "abrir busca/assistente" que a maioria dos apps usa.
   // preventDefault pra não deixar o navegador abrir a barra de endereço.
@@ -196,8 +191,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const visibleJobs = jobs.slice(0, visibleCount);
-  const hasMore = visibleCount < jobs.length;
 
   const handleFetch = async () => {
     try {
@@ -308,7 +301,7 @@ export default function App() {
         <JarvisPanel
           onClose={() => setShowJarvis(false)}
           onJobsChanged={vagaId => {
-            reload(true);
+            reload();
             if (vagaId != null) {
               setHighlightedJobId(vagaId);
               window.setTimeout(() => setHighlightedJobId(null), 3600);
@@ -324,7 +317,7 @@ export default function App() {
 
       {showTriage && (
         <TriageModal
-          onClose={() => { setShowTriage(false); reload(true); }}
+          onClose={() => { setShowTriage(false); reload(); }}
           onSeen={markSeen}
           onSetStatus={handleSetStatus}
         />
@@ -399,7 +392,7 @@ export default function App() {
         ) : (
           <>
             <div className={`jobs-grid ${compactCards ? 'jobs-grid--compact' : ''}`}>
-              {visibleJobs.map(job => (
+              {jobs.map(job => (
                 <JobCard
                   key={job.id}
                   job={job}
@@ -421,9 +414,10 @@ export default function App() {
             {hasMore && (
               <button
                 className="load-more-btn"
-                onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
+                onClick={loadMore}
+                disabled={loadingMore}
               >
-                Carregar mais vagas ({jobs.length - visibleCount} restantes)
+                {loadingMore ? 'Carregando...' : `Carregar mais vagas (${totalElements - jobs.length} restantes)`}
               </button>
             )}
           </>

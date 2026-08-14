@@ -1,5 +1,6 @@
 package br.com.jobradar.controller;
 
+import br.com.jobradar.dto.JobPageResult;
 import br.com.jobradar.model.Job;
 import br.com.jobradar.model.JobEvent;
 import br.com.jobradar.repository.FonteSaudeProjection;
@@ -14,6 +15,7 @@ import br.com.jobradar.service.JarvisAssistantService;
 import br.com.jobradar.service.JarvisChatService;
 import br.com.jobradar.service.JobAggregatorService;
 import br.com.jobradar.service.JobEmbeddingService;
+import br.com.jobradar.service.JobQueryService;
 import br.com.jobradar.service.JobStatusService;
 import br.com.jobradar.service.LearningPlanService;
 import br.com.jobradar.service.MatchScoreService;
@@ -80,6 +82,7 @@ public class JobController {
     private final JobStatusService jobStatusService;
     private final JobEmbeddingService jobEmbeddingService;
     private final PersonalRankingService personalRankingService;
+    private final JobQueryService jobQueryService;
 
     // Gate simples (não é segurança de verdade — app pessoal local) pra não
     // ter um botão de "retreinar" clicável sem querer. Vazio == recurso
@@ -106,8 +109,17 @@ public class JobController {
      * onlyInProgress → só aplicadas e em processo seletivo ativo
      * onlyRejected → só recusadas/congeladas (somem sozinhas depois de 7 dias)
      */
+    /**
+     * Fase 6.3 — devolve página, não o catálogo inteiro. Antes disso o
+     * corpo desse método inteiro (filtro SQL, busca textual, ordenação)
+     * vivia aqui; extraído pra {@link JobQueryService} (Fase 5.5) junto da
+     * paginação nova. techStack é novo aqui: antes os pills de tecnologia só
+     * filtravam no cliente sobre o catálogo inteiro já carregado — com
+     * paginação de verdade isso precisa acontecer no servidor, senão a
+     * página 1 pode vir vazia mesmo com resultado no catálogo inteiro.
+     */
     @GetMapping
-    public List<Map<String, Object>> getAll(
+    public JobPageResult getAll(
             @RequestParam(required = false) String source,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String seniority,
@@ -120,46 +132,16 @@ public class JobController {
             @RequestParam(required = false, defaultValue = "false") boolean onlyInteressado,
             @RequestParam(required = false, defaultValue = "false") boolean onlyApplied,
             @RequestParam(required = false, defaultValue = "false") boolean onlyInProgress,
-            @RequestParam(required = false, defaultValue = "false") boolean onlyRejected
+            @RequestParam(required = false, defaultValue = "false") boolean onlyRejected,
+            @RequestParam(required = false) List<String> techStack,
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "30") int size
     ) {
-        LocalDateTime postedAfter = days != null && days > 0
-                ? LocalDateTime.now().minusDays(days)
-                : null;
-
-        // Filtros de comparação direta (fonte, senioridade, modalidade, data,
-        // status do funil) viram WHERE de SQL — cortam a imensa maioria das
-        // ~4800 vagas ANTES de qualquer coisa rodar em memória Java. Busca
-        // textual (multi-termo, insensível a acento) e comparação de estado
-        // continuam em Java de propósito — ver comentário em
-        // JobSpecifications sobre por que (precisaria da extensão unaccent
-        // do Postgres pra fazer certo em SQL).
-        Specification<Job> spec = JobSpecifications.combine(
-                JobSpecifications.bySource(source),
-                JobSpecifications.bySeniorityIn(seniority),
-                JobSpecifications.byWorkplaceType(workplaceType),
-                JobSpecifications.postedAfter(postedAfter),
-                onlyNew ? JobSpecifications.onlyNew() : null,
-                onlySeen ? JobSpecifications.onlySeen() : null,
-                onlyInteressado ? JobSpecifications.onlyInteressado() : null,
-                onlyApplied ? JobSpecifications.onlyApplied() : null,
-                onlyInProgress ? JobSpecifications.onlyInProgress() : null,
-                onlyRejected ? JobSpecifications.onlyRejected() : null
-        );
-        List<Job> jobs = jobRepository.findAll(spec);
-
-        // vagas pinadas sempre sobem ao topo, independente da aba ou filtro
-        Comparator<Job> pinnedFirst = Comparator.comparing(
-                (Job j) -> !Boolean.TRUE.equals(j.getFavorited()));
-
-        Comparator<Job> comparadorDeConteudo = "personal".equals(sort) ? comparatorPersonal() : comparatorFor(sort);
-
-        return jobs.stream()
-                .filter(j -> state == null || state.isBlank()
-                        || (j.getState() != null && normalize(state).equals(normalize(j.getState()))))
-                .filter(j -> matchesSearch(j, search))
-                .sorted(pinnedFirst.thenComparing(comparadorDeConteudo))
-                .map(this::toDto)
-                .toList();
+        return jobQueryService.listar(new JobQueryService.Filtro(
+                source, search, seniority, workplaceType, state, days, sort,
+                onlyNew, onlySeen, onlyInteressado, onlyApplied, onlyInProgress, onlyRejected,
+                techStack, page, size
+        ));
     }
 
     /**
@@ -219,47 +201,14 @@ public class JobController {
         return Map.of("count", jobRepository.countByFetchedAtAfter(cutoff));
     }
 
-    // Todos os termos da busca devem aparecer em título, empresa ou tags.
-    // Ignora acentuação para achar "itau" em "Itaú", "sao paulo" em "São Paulo", etc.
-    private boolean matchesSearch(Job j, String search) {
-        if (search == null || search.isBlank()) return true;
-        String haystack = normalize(j.getTitle() + " " + j.getCompany() + " "
-                + (j.getTags() != null ? j.getTags() : ""));
-        return Arrays.stream(normalize(search).trim().split("\\s+"))
-                .allMatch(haystack::contains);
-    }
-
+    // Usado por normalizeCompany/titleWords (detecção de duplicatas) — a
+    // versão usada pela listagem/busca textual mudou pra JobQueryService
+    // (Fase 5.5), mas esse aqui continua local, mesmo precedente de
+    // pequeno helper duplicado já registrado no projeto (ver statusDe em
+    // JarvisWriteTools/JobStatusService).
     private String normalize(String text) {
         String decomposed = Normalizer.normalize(text.toLowerCase(), Normalizer.Form.NFD);
         return decomposed.replaceAll("\\p{M}", "");
-    }
-
-    private Comparator<Job> comparatorFor(String sort) {
-        return switch (sort == null ? "" : sort) {
-            case "posted_asc" -> Comparator.comparing(Job::getPostedAt,
-                    Comparator.nullsLast(Comparator.naturalOrder()));
-            case "fetched_desc" -> Comparator.comparing(Job::getFetchedAt,
-                    Comparator.nullsLast(Comparator.reverseOrder()));
-            default -> Comparator.comparing(Job::getPostedAt,
-                    Comparator.nullsLast(Comparator.reverseOrder()));
-        };
-    }
-
-    /**
-     * Fase 3.1 — ranking pessoal aprendido (sem IA, ver
-     * PersonalRankingService). Treina UMA vez por request (não dentro do
-     * comparator — key extractor pode ser chamado várias vezes por
-     * elemento durante o sort, treinar ali reprocessaria o catálogo
-     * inteiro repetidas vezes). Sem dado suficiente, pontuar() devolve 50
-     * pra tudo, e o desempate por data recente ainda ordena de forma
-     * sensata.
-     */
-    private Comparator<Job> comparatorPersonal() {
-        PersonalRankingService.Modelo modelo = personalRankingService.treinar();
-        return Comparator
-                .comparing((Job j) -> personalRankingService.pontuar(j, modelo))
-                .reversed()
-                .thenComparing(Job::getPostedAt, Comparator.nullsLast(Comparator.reverseOrder()));
     }
 
     /**
