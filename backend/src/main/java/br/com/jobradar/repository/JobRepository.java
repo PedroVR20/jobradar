@@ -186,4 +186,15 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
     /** Fase 12.5 — mesma ideia de {@link #contagemPorSource()}, pra senioridade. */
     @Query("SELECT j.seniority AS chave, COUNT(j) AS total FROM Job j GROUP BY j.seniority")
     List<ChaveContagemProjection> contagemPorSenioridade();
+
+    // Fase 14.1 — ferramenta "desempenhoPorFonte" do Hunter fazia findAll()
+    // do catálogo inteiro e agrupava em Java; um GROUP BY com os 3
+    // agregados junto responde a mesma pergunta numa query só.
+    @Query("""
+            SELECT j.source AS fonte, COUNT(j) AS total,
+                   SUM(CASE WHEN j.applied = true THEN 1L ELSE 0L END) AS aplicadas,
+                   SUM(CASE WHEN j.applied = true AND j.inProgress = true THEN 1L ELSE 0L END) AS emAndamento
+            FROM Job j GROUP BY j.source
+            """)
+    List<FonteDesempenhoProjection> desempenhoPorFonte();
 }

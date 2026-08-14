@@ -147,6 +147,33 @@ public final class JobSpecifications {
                 cb.isFalse(root.get("rejected")));
     }
 
+    // Fase 14.1 — Hunter (JarvisChatService) filtrava tudo em Java depois de
+    // um findAll() sem WHERE nenhum, igual o resto do app fazia antes da
+    // Fase 1.6/5.5 — mesmo padrão de correção, aplicado nas ferramentas de
+    // chat que estavam de fora.
+    public static Specification<Job> byCompanyContainsIgnoreCase(String trecho) {
+        if (trecho == null || trecho.isBlank()) return null;
+        String alvo = "%" + trecho.toLowerCase() + "%";
+        return (root, query, cb) -> cb.like(cb.lower(root.get("company")), alvo);
+    }
+
+    // "vagasComPrazoProximo" do Hunter — prazo entre hoje e um limite N dias
+    // à frente, vaga não recusada (mesmo critério que já existia em Java).
+    public static Specification<Job> expiraEntre(LocalDate hoje, LocalDate limite) {
+        return (root, query, cb) -> cb.and(
+                cb.isNotNull(root.get("expiresAt")),
+                cb.greaterThanOrEqualTo(root.get("expiresAt"), hoje),
+                cb.lessThanOrEqualTo(root.get("expiresAt"), limite));
+    }
+
+    // "vagasParadas" do Hunter — candidata a "parada" só pode ser vaga
+    // aplicada (o bucket ANDAMENTO também exige applied=true no modelo,
+    // então esse filtro sozinho já cobre os dois status que a ferramenta
+    // considera) e não recusada.
+    public static Specification<Job> appliedNaoRejeitada() {
+        return (root, query, cb) -> cb.and(cb.isTrue(root.get("applied")), cb.isFalse(root.get("rejected")));
+    }
+
     // Fase 7.3+8.4 — vaga arquivada some de TODAS as abas por padrão (não só
     // das de decisão como a vencida) — é um "porão" à parte, só visível na
     // aba dedicada Arquivadas. Ver JobAggregatorService.arquivarVagasAntigasNuncaEngajadas.

@@ -1,9 +1,12 @@
 package br.com.jobradar.service;
 
 import br.com.jobradar.model.Job;
+import br.com.jobradar.repository.FonteDesempenhoProjection;
 import br.com.jobradar.repository.JobRepository;
+import br.com.jobradar.repository.JobSpecifications;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -68,6 +71,16 @@ public class JarvisChatService {
     // de 90 dias provavelmente já não reflete a faixa atual tão bem quanto
     // logo depois do treino, mesmo sem nada estar "quebrado" tecnicamente.
     private static final long MODELO_SALARIO_DIAS_DESATUALIZADO = 90;
+
+    // Fase 14.4 — teto pras ferramentas que não tinham nenhum limite
+    // explícito (historicoDaEmpresa, vagasComPrazoProximo, vagasParadas,
+    // detectarDuplicatas): com o catálogo crescendo, "todas as vagas paradas
+    // há mais de 10 dias" ou "todo grupo de duplicata" podia virar uma
+    // resposta grande o bastante pra pesar no contexto que vai pro modelo —
+    // sem estar filtrado por status/data como listarVagas, esse é o único
+    // freio que sobrava. Quando corta, a ferramenta avisa quantas existiam
+    // no total, o modelo sabe que houve corte.
+    private static final int MAX_RESULTADOS_FERRAMENTA = 30;
 
     // Limite de rounds de function-calling por mensagem — evita loop
     // infinito ou uma mensagem só disparando dezenas de chamadas de ferramenta.
@@ -619,13 +632,15 @@ public class JarvisChatService {
 
         LocalDateTime postedAfter = dias != null && dias > 0 ? LocalDateTime.now().minusDays(dias) : null;
 
-        List<Job> filtradas = jobRepository.findAll().stream()
-                .filter(j -> statusBate(j, status))
-                .filter(j -> postedAfter == null || (j.getPostedAt() != null && j.getPostedAt().isAfter(postedAfter)))
+        // Fase 14.1 — status e dias viram WHERE de SQL (mesmas Specifications
+        // que a listagem principal do app usa, ver specForStatus); busca e
+        // salarioMinimo continuam em Java porque exigem normalização de
+        // texto livre e o modelo de regressão de salário, respectivamente —
+        // mas agora rodam sobre o subconjunto já filtrado pelo banco, não
+        // sobre o catálogo inteiro carregado pra memória.
+        Specification<Job> spec = JobSpecifications.combine(specForStatus(status), JobSpecifications.postedAfter(postedAfter));
+        List<Job> filtradas = jobRepository.findAll(spec).stream()
                 .filter(j -> busca == null || contemBusca(j, busca))
-                // Estimativa só é calculada quando o filtro de salário é usado
-                // (é barato — modelo de regressão puro, não IA — mas ainda
-                // assim não vale computar pra toda vaga sempre à toa).
                 .filter(j -> salarioMinimo == null || estimativaBate(j, salarioMinimo))
                 .sorted(Comparator.comparing(Job::getPostedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
@@ -670,6 +685,24 @@ public class JarvisChatService {
         };
     }
 
+    // Fase 14.1 — equivalente em SQL do que statusBate() decide em Java,
+    // reaproveitando as mesmas Specifications que JobQueryService usa pra
+    // listagem principal (mesmos 6 buckets, mesma regra). null (status não
+    // informado ou desconhecido) devolve null, que JobSpecifications.combine
+    // já sabe ignorar.
+    private Specification<Job> specForStatus(String status) {
+        if (status == null) return null;
+        return switch (status) {
+            case "NOVA" -> JobSpecifications.onlyNew();
+            case "VISTA" -> JobSpecifications.onlySeen();
+            case "INTERESSADO" -> JobSpecifications.onlyInteressado();
+            case "APLICADA" -> JobSpecifications.onlyApplied();
+            case "ANDAMENTO" -> JobSpecifications.onlyInProgress();
+            case "RECUSADA" -> JobSpecifications.onlyRejected();
+            default -> null;
+        };
+    }
+
     private String statusDe(Job j) {
         if (j.isRejected()) return "RECUSADA";
         if (j.isInProgress()) return "ANDAMENTO";
@@ -711,6 +744,15 @@ public class JarvisChatService {
         // andamento" ou "recusada"). Mantemos o bruto num campo à parte,
         // explicitamente rotulado, pra quem perguntar "quantas vezes já
         // apliquei no total".
+        //
+        // Fase 14.1 — deixado como findAll() de propósito, diferente das
+        // outras ferramentas desta fase: bucket por vaga (statusDe) usa os
+        // mesmos 6 critérios de JobSpecifications, mas trocar por 6 count()
+        // separados (um por bucket) tornaria esse método bem mais difícil
+        // de testar com repositório mockado (Specification não é
+        // comparável por valor no Mockito) pra um ganho pequeno — já roda
+        // atrás do cache de 20s (CACHE_TTL_SEGUNDOS), então o custo real é
+        // "uma vez a cada 20s", não por request.
         List<Job> todas = jobRepository.findAll();
         Map<String, Long> porBucket = new LinkedHashMap<>();
         for (String bucket : List.of("NOVA", "VISTA", "INTERESSADO", "APLICADA", "ANDAMENTO", "RECUSADA")) {
@@ -779,8 +821,8 @@ public class JarvisChatService {
                 ? Math.min(MAX_COMPAT_FUNIL, Math.max(1, n.intValue()))
                 : DEFAULT_COMPAT_FUNIL;
 
-        List<Job> filtradas = jobRepository.findAll().stream()
-                .filter(j -> statusBate(j, status))
+        // Fase 14.1 — status vira WHERE de SQL (ver specForStatus).
+        List<Job> filtradas = jobRepository.findAll(specForStatus(status)).stream()
                 .filter(j -> busca == null || contemBusca(j, busca))
                 .sorted(Comparator.comparing(Job::getPostedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
@@ -829,8 +871,8 @@ public class JarvisChatService {
                 ? Math.min(MAX_SALARIO_VAGAS, Math.max(1, n.intValue()))
                 : DEFAULT_SALARIO_VAGAS;
 
-        List<Job> filtradas = jobRepository.findAll().stream()
-                .filter(j -> statusBate(j, status))
+        // Fase 14.1 — status vira WHERE de SQL (ver specForStatus).
+        List<Job> filtradas = jobRepository.findAll(specForStatus(status)).stream()
                 .filter(j -> busca == null || contemBusca(j, busca))
                 .sorted(Comparator.comparing(Job::getPostedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(limite)
@@ -951,15 +993,17 @@ public class JarvisChatService {
     // pro Hunter enxergar.
     private Object executarVagasComPrazoProximo(Map<String, Object> args) {
         int diasMaximo = args.get("diasMaximo") instanceof Number n ? Math.max(1, n.intValue()) : 7;
-        java.time.LocalDate limite = java.time.LocalDate.now().plusDays(diasMaximo);
+        java.time.LocalDate hoje = java.time.LocalDate.now();
+        java.time.LocalDate limite = hoje.plusDays(diasMaximo);
 
-        List<Job> comPrazo = jobRepository.findAll().stream()
-                .filter(j -> !j.isRejected())
-                .filter(j -> j.getExpiresAt() != null && !j.getExpiresAt().isAfter(limite) && !j.getExpiresAt().isBefore(java.time.LocalDate.now()))
+        // Fase 14.1 — não recusada + prazo no intervalo vira WHERE de SQL
+        // (ver JobSpecifications.notRejected/expiraEntre).
+        Specification<Job> spec = JobSpecifications.combine(JobSpecifications.notRejected(), JobSpecifications.expiraEntre(hoje, limite));
+        List<Job> comPrazo = jobRepository.findAll(spec).stream()
                 .sorted(Comparator.comparing(Job::getExpiresAt))
                 .toList();
 
-        List<Map<String, Object>> vagas = comPrazo.stream().map(j -> {
+        List<Map<String, Object>> vagas = comPrazo.stream().limit(MAX_RESULTADOS_FERRAMENTA).map(j -> {
             Map<String, Object> v = new LinkedHashMap<>();
             v.put("id", j.getId());
             v.put("titulo", j.getTitle());
@@ -973,7 +1017,12 @@ public class JarvisChatService {
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("diasMaximo", diasMaximo);
+        m.put("totalEncontradas", comPrazo.size());
         m.put("vagas", vagas);
+        // Fase 14.4
+        if (comPrazo.size() > vagas.size()) {
+            m.put("erro", "Só listei as " + vagas.size() + " com prazo mais próximo — tinha " + comPrazo.size() + " no total.");
+        }
         return m;
     }
 
@@ -984,7 +1033,7 @@ public class JarvisChatService {
     // aceitável aqui — o resultado já avisa que é só indício.
     private Object executarDetectarDuplicatas() {
         // Fase 1.6 — filtro empurrado pro SQL em vez de Java (ver JobSpecifications.notRejected).
-        List<Job> ativas = jobRepository.findAll(br.com.jobradar.repository.JobSpecifications.notRejected());
+        List<Job> ativas = jobRepository.findAll(JobSpecifications.notRejected());
         Map<String, List<Job>> porEmpresa = new LinkedHashMap<>();
         for (Job j : ativas) {
             String chave = j.getCompany() == null ? "" : j.getCompany().trim().toLowerCase();
@@ -1013,7 +1062,12 @@ public class JarvisChatService {
             }
         }
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("grupos", grupos);
+        List<Map<String, Object>> gruposLimitados = grupos.stream().limit(MAX_RESULTADOS_FERRAMENTA).toList();
+        m.put("grupos", gruposLimitados);
+        // Fase 14.4
+        if (grupos.size() > gruposLimitados.size()) {
+            m.put("erro", "Só listei os " + gruposLimitados.size() + " primeiros grupos — achei " + grupos.size() + " no total.");
+        }
         return m;
     }
 
@@ -1035,25 +1089,17 @@ public class JarvisChatService {
         return cache.getOuCalcula("desempenhoPorFonte", CACHE_TTL_SEGUNDOS, this::calcularDesempenhoPorFonte);
     }
 
+    // Fase 14.1 — era findAll() do catálogo inteiro (todas as ~6000 vagas)
+    // pra agrupar em Java; um GROUP BY (ver JobRepository.desempenhoPorFonte)
+    // responde os mesmos 3 agregados numa query só.
     private Object calcularDesempenhoPorFonte() {
-        List<Job> todas = jobRepository.findAll();
-        Map<String, long[]> porFonte = new LinkedHashMap<>(); // [total, aplicadas, emAndamento]
-        for (Job j : todas) {
-            String fonte = j.getSource() == null ? "DESCONHECIDA" : j.getSource();
-            long[] cont = porFonte.computeIfAbsent(fonte, k -> new long[3]);
-            cont[0]++;
-            if (j.isApplied()) {
-                cont[1]++;
-                if (j.isInProgress()) cont[2]++;
-            }
-        }
-        List<Map<String, Object>> fontes = porFonte.entrySet().stream()
-                .map(e -> {
+        List<Map<String, Object>> fontes = jobRepository.desempenhoPorFonte().stream()
+                .map(p -> {
                     Map<String, Object> f = new LinkedHashMap<>();
-                    f.put("fonte", e.getKey());
-                    f.put("totalVagas", e.getValue()[0]);
-                    f.put("aplicadas", e.getValue()[1]);
-                    f.put("emAndamento", e.getValue()[2]);
+                    f.put("fonte", p.getFonte() == null ? "DESCONHECIDA" : p.getFonte());
+                    f.put("totalVagas", p.getTotal());
+                    f.put("aplicadas", p.getAplicadas());
+                    f.put("emAndamento", p.getEmAndamento());
                     return (Map<String, Object>) f;
                 })
                 .sorted((a, b) -> Long.compare((long) b.get("emAndamento"), (long) a.get("emAndamento")))
@@ -1070,11 +1116,11 @@ public class JarvisChatService {
         if (empresa == null) {
             return Map.of("erro", "Preciso do nome da empresa.");
         }
-        List<Job> encontradas = jobRepository.findAll().stream()
-                .filter(j -> j.getCompany() != null && j.getCompany().toLowerCase().contains(empresa))
+        // Fase 14.1 — LIKE vira WHERE de SQL (ver JobSpecifications.byCompanyContainsIgnoreCase).
+        List<Job> encontradas = jobRepository.findAll(JobSpecifications.byCompanyContainsIgnoreCase(empresa)).stream()
                 .sorted(Comparator.comparing(Job::getPostedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
-        List<Map<String, Object>> vagas = encontradas.stream().map(j -> {
+        List<Map<String, Object>> vagas = encontradas.stream().limit(MAX_RESULTADOS_FERRAMENTA).map(j -> {
             Map<String, Object> v = new LinkedHashMap<>();
             v.put("id", j.getId());
             v.put("titulo", j.getTitle());
@@ -1085,8 +1131,12 @@ public class JarvisChatService {
             return (Map<String, Object>) v;
         }).toList();
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("totalEncontradas", vagas.size());
+        m.put("totalEncontradas", encontradas.size());
         m.put("vagas", vagas);
+        // Fase 14.4
+        if (encontradas.size() > vagas.size()) {
+            m.put("erro", "Só listei as " + vagas.size() + " mais recentes — tinha " + encontradas.size() + " no total.");
+        }
         return m;
     }
 
@@ -1124,9 +1174,13 @@ public class JarvisChatService {
                 })
                 .toList();
 
+        // Fase 14.4 — totalEncontradas (não o tamanho de "vagas") porque as
+        // duas ferramentas reaproveitadas aqui agora podem vir cortadas
+        // pelo teto de resultado; usar vagas.size() sub-contaria o total
+        // real quando isso acontece.
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("candidaturasParadas", Map.of("total", ((List<?>) paradas.get("vagas")).size(), "top", paradasTop));
-        m.put("prazosProximos", Map.of("total", ((List<?>) prazos.get("vagas")).size(), "top", prazosTop));
+        m.put("candidaturasParadas", Map.of("total", paradas.get("totalEncontradas"), "top", paradasTop));
+        m.put("prazosProximos", Map.of("total", prazos.get("totalEncontradas"), "top", prazosTop));
         m.put("vagasNovasComBomMatch", Map.of(
                 "perfilDisponivel", candidateProfile != null && !candidateProfile.isBlank(),
                 "top", matchesTop
@@ -1148,9 +1202,12 @@ public class JarvisChatService {
             return Map.of("erro", "Não reconheci nenhuma tecnologia conhecida no seu perfil salvo.");
         }
 
+        // Fase 14.1 — "não recusada" vira WHERE de SQL em vez de filtro em
+        // Java depois de carregar tudo (mesmo padrão de detectarDuplicatas/
+        // buscarVagasPorSignificado).
         Map<String, Long> contagem = new HashMap<>();
-        for (Job j : jobRepository.findAll()) {
-            if (j.isRejected() || j.getTags() == null || j.getTags().isBlank()) continue;
+        for (Job j : jobRepository.findAll(JobSpecifications.notRejected())) {
+            if (j.getTags() == null || j.getTags().isBlank()) continue;
             for (String tagBruta : j.getTags().split(",")) {
                 String tag = tagBruta.trim().toLowerCase();
                 if (!tag.isBlank()) contagem.merge(tag, 1L, Long::sum);
@@ -1266,6 +1323,12 @@ public class JarvisChatService {
 
         record Candidata(Job job, int score, Set<String> tagsComuns) {}
 
+        // Fase 14.1 — deixado como findAll() de propósito: a pontuação por
+        // sobreposição de tags precisa comparar a vaga de referência com
+        // TODA vaga do catálogo (inclusive recusada — ver comentário da
+        // ferramenta acima, "não filtra por status de propósito"),
+        // diferente das outras ferramentas desta fase, onde reduzir por
+        // status/data não muda o que a ferramenta promete devolver.
         List<Candidata> candidatas = jobRepository.findAll().stream()
                 .filter(j -> !j.getId().equals(ref.getId()))
                 .map(j -> {
@@ -1326,9 +1389,12 @@ public class JarvisChatService {
 
         record Parada(Job job, LocalDateTime referencia, String status) {}
 
+        // Fase 14.1 — "aplicada e não recusada" vira WHERE de SQL (ver
+        // JobSpecifications.appliedNaoRejeitada) — cobre os dois buckets
+        // (APLICADA e ANDAMENTO) porque o modelo só marca inProgress=true
+        // quando applied já é true.
         List<Parada> paradas = new ArrayList<>();
-        for (Job j : jobRepository.findAll()) {
-            if (j.isRejected()) continue;
+        for (Job j : jobRepository.findAll(JobSpecifications.appliedNaoRejeitada())) {
             if (j.isApplied() && !j.isInProgress() && j.getAppliedAt() != null && j.getAppliedAt().isBefore(limite)) {
                 paradas.add(new Parada(j, j.getAppliedAt(), "APLICADA"));
             } else if (j.isInProgress() && j.getInProgressAt() != null && j.getInProgressAt().isBefore(limite)) {
@@ -1337,7 +1403,7 @@ public class JarvisChatService {
         }
         paradas.sort(Comparator.comparing(Parada::referencia));
 
-        List<Map<String, Object>> vagas = paradas.stream().map(p -> {
+        List<Map<String, Object>> vagas = paradas.stream().limit(MAX_RESULTADOS_FERRAMENTA).map(p -> {
             long dias = java.time.temporal.ChronoUnit.DAYS.between(p.referencia(), LocalDateTime.now());
             Map<String, Object> v = new LinkedHashMap<>();
             v.put("id", p.job().getId());
@@ -1351,7 +1417,12 @@ public class JarvisChatService {
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("diasMinimo", diasMinimo);
+        m.put("totalEncontradas", paradas.size());
         m.put("vagas", vagas);
+        // Fase 14.4
+        if (paradas.size() > vagas.size()) {
+            m.put("erro", "Só listei as " + vagas.size() + " paradas há mais tempo — tinha " + paradas.size() + " no total.");
+        }
         return m;
     }
 
@@ -1370,7 +1441,7 @@ public class JarvisChatService {
         // Fase 1.6 — filtro empurrado pro SQL: vaga recusada nunca entra na
         // busca semântica de qualquer forma, então nem carrega da memória
         // (economiza justo a coluna mais pesada da tabela, o embedding).
-        List<Job> candidatas = jobRepository.findAll(br.com.jobradar.repository.JobSpecifications.notRejected());
+        List<Job> candidatas = jobRepository.findAll(JobSpecifications.notRejected());
         List<JobEmbeddingService.Match> matches = jobEmbeddingService.buscar(consulta, candidatas, limite);
 
         List<Map<String, Object>> vagas = matches.stream().map(match -> {

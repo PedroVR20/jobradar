@@ -28,10 +28,15 @@ import java.util.Map;
  * depois de aplicado, que não é preferência do usuário, é decisão de
  * terceiro).</p>
  *
- * <p>Treina de novo a cada chamada (varredura única sobre a lista já
- * carregada, não é caro) — chamado com pouca frequência (uma vez por
- * listagem ordenada por "pessoal"), sem precisar de infraestrutura de
- * cache/retreino separada como o modelo de salário.</p>
+ * <p>Fase 14.2 — treinava do zero a cada chamada (varredura do catálogo
+ * inteiro), inclusive numa listagem paginada onde "carregar mais" dispara
+ * uma nova ordenação a cada página — o Profiler de {@code sort=personal}
+ * media 3-5× mais lento que as outras ordenações por causa disso. Mesma
+ * saída da Fase 3.4 pras ferramentas do Hunter: TTL curto em vez de
+ * invalidação amarrada a cada ponto de escrita (status de vaga muda em
+ * vários lugares — {@code JobController}, {@code JobStatusService},
+ * ferramentas do chat — amarrar em todos custaria mais do que vale pra um
+ * modelo que só precisa refletir mudança em segundos, não em tempo real).</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -46,6 +51,13 @@ public class PersonalRankingService {
     private static final int MINIMO_POSITIVAS = 5;
     private static final int MINIMO_NEGATIVAS = 5;
 
+    // Fase 14.2 — mesmo TTL das ferramentas determinísticas do Hunter (Fase
+    // 3.4): curto o bastante pra nunca mostrar dado visivelmente velho,
+    // longo o bastante pra cobrir várias páginas de "carregar mais" ou
+    // perguntas seguidas sem retreinar em cada uma.
+    private final SimpleTtlCache cache = new SimpleTtlCache();
+    private static final int CACHE_TTL_SEGUNDOS = 20;
+
     public record Modelo(
             boolean disponivel,
             String motivoIndisponivel,
@@ -55,6 +67,10 @@ public class PersonalRankingService {
     ) {}
 
     public Modelo treinar() {
+        return cache.getOuCalcula("treinar", CACHE_TTL_SEGUNDOS, this::treinarDeVerdade);
+    }
+
+    private Modelo treinarDeVerdade() {
         List<Job> todas = jobRepository.findAll();
 
         List<Job> positivas = new ArrayList<>();

@@ -94,9 +94,12 @@ class JarvisChatServiceTest {
         Job aplicadaRecente = job("APLICADA");
         aplicadaRecente.setAppliedAt(LocalDateTime.now().minusDays(1));
 
-        Job recusadaAntiga = job("RECUSADA"); // nunca deve contar como "parada"
-
-        when(jobRepository.findAll()).thenReturn(List.of(paradaHaMuito, aplicadaRecente, recusadaAntiga));
+        // recusadaAntiga NÃO entra na lista mockada — na Fase 14.1 o filtro
+        // "aplicada e não recusada" virou WHERE de SQL (ver
+        // JobSpecifications.appliedNaoRejeitada), então o banco de verdade
+        // nunca devolveria essa vaga pro método de qualquer forma.
+        when(jobRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+                .thenReturn(List.of(paradaHaMuito, aplicadaRecente));
 
         Map<String, Object> resultado = (Map<String, Object>) service.executarVagasParadas(Map.of("diasMinimo", 10));
         List<?> vagas = (List<?>) resultado.get("vagas");
@@ -170,7 +173,9 @@ class JarvisChatServiceTest {
 
     @Test
     void dispatch_listarVagas_devolveListaDeVagas() {
-        when(jobRepository.findAll()).thenReturn(List.of(job("NOVA")));
+        // Fase 14.1 — status/dias viram WHERE de SQL (ver specForStatus).
+        when(jobRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+                .thenReturn(List.of(job("NOVA")));
 
         Map<String, Object> resultado = dispatch("listarVagas", Map.of());
 
@@ -201,7 +206,9 @@ class JarvisChatServiceTest {
 
     @Test
     void dispatch_vagasComPrazoProximo_naoVagasParadas() {
-        when(jobRepository.findAll()).thenReturn(List.of());
+        // Fase 14.1 — não recusada + prazo no intervalo viram WHERE de SQL.
+        when(jobRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+                .thenReturn(List.of());
 
         Map<String, Object> resultado = dispatch("vagasComPrazoProximo", Map.of());
 
@@ -219,9 +226,16 @@ class JarvisChatServiceTest {
 
     @Test
     void dispatch_desempenhoPorFonte_naoResumoFunil() {
-        Job j = job("APLICADA");
-        j.setSource("GUPY");
-        when(jobRepository.findAll()).thenReturn(List.of(j));
+        // Fase 14.1 — era findAll() + agrupamento em Java, agora é um
+        // GROUP BY (ver JobRepository.desempenhoPorFonte) — a projeção é
+        // uma interface, mockável do mesmo jeito que o repositório.
+        br.com.jobradar.repository.FonteDesempenhoProjection projecao =
+                mock(br.com.jobradar.repository.FonteDesempenhoProjection.class);
+        when(projecao.getFonte()).thenReturn("GUPY");
+        when(projecao.getTotal()).thenReturn(1L);
+        when(projecao.getAplicadas()).thenReturn(1L);
+        when(projecao.getEmAndamento()).thenReturn(0L);
+        when(jobRepository.desempenhoPorFonte()).thenReturn(List.of(projecao));
 
         Map<String, Object> resultado = dispatch("desempenhoPorFonte", Map.of());
 
@@ -232,7 +246,9 @@ class JarvisChatServiceTest {
     @Test
     void dispatch_historicoDaEmpresa_filtraPeloNomeDaEmpresaCorreto() {
         Job acme = job("NOVA"); // company = "Acme" no helper job()
-        when(jobRepository.findAll()).thenReturn(List.of(acme));
+        // Fase 14.1 — LIKE por empresa vira WHERE de SQL.
+        when(jobRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+                .thenReturn(List.of(acme));
 
         Map<String, Object> resultado = dispatch("historicoDaEmpresa", Map.of("empresa", "acme"));
 
