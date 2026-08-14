@@ -513,7 +513,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
               sempre fica cheio. */}
           {compact && (
             <button
-              className="btn-pin"
+              className="card-menu-btn"
               onClick={() => setExpanded(false)}
               title="Recolher vaga"
               aria-label="Recolher vaga"
