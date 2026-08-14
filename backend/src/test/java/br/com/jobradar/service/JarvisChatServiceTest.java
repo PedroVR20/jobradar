@@ -25,8 +25,13 @@ class JarvisChatServiceTest {
     private final JobRepository jobRepository = mock(JobRepository.class);
     // statusBate/contemBusca/executarVagasParadas/dispatch não tocam nos
     // outros serviços injetados — null é seguro aqui.
+    // JarvisWriteTools precisa ser uma instância real (não null) porque o
+    // teste de dispatch de apagarVaga chama de verdade até esse serviço —
+    // as outras dependências dele (JobStatusService, SeniorityClassifier)
+    // ficam null, seguro aqui porque apagarVaga só usa o jobRepository.
+    private final JarvisWriteTools writeTools = new JarvisWriteTools(jobRepository, null, null);
     private final JarvisChatService service =
-            new JarvisChatService(null, jobRepository, null, null, null, null, null, null, null, null);
+            new JarvisChatService(null, jobRepository, null, null, null, null, null, null, null, null, writeTools);
 
     private Job job(String status) {
         Job j = Job.builder().title("Dev Java").company("Acme").url("https://x/" + status).source("MANUAL").build();
