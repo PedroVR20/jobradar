@@ -26,11 +26,12 @@ import java.util.Map;
  * vive esgotada no free tier.</p>
  *
  * <p>Sem extensão pgvector no Postgres: os vetores ficam serializados como
- * TEXT numa tabela própria ({@link JobEmbedding}, ver Fase 6.1 pra por que
- * saiu de dentro de {@link Job}) e a similaridade de cosseno é calculada em
- * Java sobre a lista de vagas candidatas — ~5900 vagas × 768 dimensões é um
- * produto escalar trivial pra JVM, não precisa de banco vetorial de
- * verdade nessa escala.</p>
+ * bytea (Fase 6.5 — floats empacotados em binário, ver
+ * {@link #serializar}/{@link #parsear}) numa tabela própria ({@link JobEmbedding},
+ * ver Fase 6.1 pra por que saiu de dentro de {@link Job}) e a similaridade
+ * de cosseno é calculada em Java sobre a lista de vagas candidatas — ~5900
+ * vagas × 3072 dimensões é um produto escalar trivial pra JVM, não precisa
+ * de banco vetorial de verdade nessa escala.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -97,13 +98,13 @@ public class JobEmbeddingService {
         float[] vetorConsulta = consultaEmbed.vector();
 
         List<Long> ids = candidatas.stream().map(Job::getId).toList();
-        Map<Long, String> vetoresPorJobId = jobEmbeddingRepository.findAllById(ids).stream()
+        Map<Long, byte[]> vetoresPorJobId = jobEmbeddingRepository.findAllById(ids).stream()
                 .collect(java.util.stream.Collectors.toMap(JobEmbedding::getId, JobEmbedding::getVector));
 
         List<Match> resultados = new ArrayList<>();
         for (Job job : candidatas) {
-            String vetorSerializado = vetoresPorJobId.get(job.getId());
-            if (vetorSerializado == null || vetorSerializado.isBlank()) continue;
+            byte[] vetorSerializado = vetoresPorJobId.get(job.getId());
+            if (vetorSerializado == null || vetorSerializado.length == 0) continue;
             float[] vetorVaga = parsear(vetorSerializado);
             if (vetorVaga.length != vetorConsulta.length) continue; // modelo trocado no meio do caminho, ignora
             resultados.add(new Match(job, similaridadeCosseno(vetorConsulta, vetorVaga)));
@@ -125,19 +126,22 @@ public class JobEmbeddingService {
         return jobRepository.findAllNotEmbedded();
     }
 
-    static String serializar(float[] vetor) {
-        StringBuilder sb = new StringBuilder(vetor.length * 8);
-        for (int i = 0; i < vetor.length; i++) {
-            if (i > 0) sb.append(',');
-            sb.append(vetor[i]);
-        }
-        return sb.toString();
+    // Fase 6.5 — 4 bytes por float (little-endian), em vez do texto decimal
+    // de antes (~13 caracteres por float em média, incluindo notação
+    // científica). ByteBuffer em vez de escrever byte a byte na mão: mais
+    // curto e sem chance de errar a ordem dos bytes.
+    static byte[] serializar(float[] vetor) {
+        java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocate(vetor.length * Float.BYTES)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        for (float v : vetor) buffer.putFloat(v);
+        return buffer.array();
     }
 
-    static float[] parsear(String serializado) {
-        String[] partes = serializado.split(",");
-        float[] vetor = new float[partes.length];
-        for (int i = 0; i < partes.length; i++) vetor[i] = Float.parseFloat(partes[i]);
+    static float[] parsear(byte[] serializado) {
+        java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(serializado)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        float[] vetor = new float[serializado.length / Float.BYTES];
+        for (int i = 0; i < vetor.length; i++) vetor[i] = buffer.getFloat();
         return vetor;
     }
 

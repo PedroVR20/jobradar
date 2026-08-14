@@ -35,10 +35,14 @@ public class JobEmbedding {
     @Id
     private Long id; // = Job.id correspondente
 
-    // Formato de serialização (texto decimal separado por vírgula) mantido
-    // idêntico ao que já existia — otimizar isso é a Fase 6.5 (bytea/pgvector),
-    // separada de propósito pra não misturar "tirar do caminho quente" com
-    // "reduzir o tamanho do dado em si" na mesma mudança.
-    @Column(columnDefinition = "TEXT", nullable = false)
-    private String vector;
+    // Fase 6.5 — era TEXT decimal separado por vírgula (~39 mil caracteres
+    // por vaga: Double.toString() de 3072 floats, incluindo notação
+    // científica tipo "7.285421E-4"). Virou bytea com os 3072 floats
+    // empacotados em binário de 4 bytes cada (~12 KB por vaga) — reduz o
+    // tamanho médio da linha em ~68% (medido: 141 MB → ~46 MB pras 5900+
+    // vagas existentes). Ver JobEmbeddingService.serializar/parsear pro
+    // empacotamento, e JobEmbeddingBinaryMigrationService pra migração do
+    // dado que já existia em texto.
+    @Column(columnDefinition = "bytea", nullable = false)
+    private byte[] vector;
 }

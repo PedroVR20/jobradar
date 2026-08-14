@@ -35,12 +35,19 @@ class JobEmbeddingServiceTest {
     @Test
     void serializarEParsear_fazemRoundTrip() {
         float[] original = {0.123f, -0.456f, 7.89f};
-        String serializado = JobEmbeddingService.serializar(original);
+        byte[] serializado = JobEmbeddingService.serializar(original);
         float[] resultado = JobEmbeddingService.parsear(serializado);
 
         assertThat(resultado).hasSize(original.length);
         for (int i = 0; i < original.length; i++) {
             assertThat(resultado[i]).isCloseTo(original[i], within(1e-5f));
         }
+    }
+
+    @Test
+    void serializar_usaQuatroBytesPorFloat() {
+        float[] original = new float[3072]; // dimensão real do gemini-embedding-001
+        byte[] serializado = JobEmbeddingService.serializar(original);
+        assertThat(serializado).hasSize(3072 * Float.BYTES);
     }
 }
