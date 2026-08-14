@@ -1,6 +1,7 @@
 package br.com.jobradar.service;
 
 import br.com.jobradar.model.Job;
+import br.com.jobradar.repository.JobEmbeddingRepository;
 import br.com.jobradar.repository.JobRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +43,7 @@ public class JobAggregatorService {
     private final GupyService gupyService;
     private final SeniorityClassifier seniorityClassifier;
     private final JobEmbeddingService jobEmbeddingService;
+    private final JobEmbeddingRepository jobEmbeddingRepository;
 
     /**
      * Roda automaticamente a cada 2 horas, sempre em hora cheia par
@@ -55,6 +57,19 @@ public class JobAggregatorService {
         fetchAllJobs();
         limparVagasRecusadasAntigas();
         limparVagasAntigasNuncaEngajadas();
+        limparEmbeddingsOrfaos();
+    }
+
+    // Fase 6.1 — job_embeddings não tem FK formal pra jobs (ver comentário em
+    // JobEmbedding sobre por que), então limpezas em lote de Job (bulk
+    // DELETE via JPQL, que não dispara cascade) podem deixar linha órfã pra
+    // trás. Varre e remove periodicamente, mesmo ciclo das outras limpezas.
+    @Transactional
+    public void limparEmbeddingsOrfaos() {
+        int apagados = jobEmbeddingRepository.deleteOrphans();
+        if (apagados > 0) {
+            log.info("=== {} embeddings órfãos (vaga já apagada) removidos ===", apagados);
+        }
     }
 
     // Quantos dias uma vaga fica na aba "Recusadas" antes de ser apagada de vez.
@@ -335,10 +350,10 @@ public class JobAggregatorService {
                 novos++;
                 // Falha silenciosa de propósito (sem IA configurada, Gemini
                 // fora do ar) — busca semântica só fica indisponível pra essa
-                // vaga até o backfill rodar, não trava o fetch inteiro.
-                if (jobEmbeddingService.embedESalvar(job)) {
-                    jobRepository.save(job);
-                }
+                // vaga até o backfill rodar, não trava o fetch inteiro. Fase
+                // 6.1 — embedESalvar já persiste sozinho em job_embeddings,
+                // não precisa mais salvar o Job de novo depois.
+                jobEmbeddingService.embedESalvar(job);
                 ativosPorEmpresa.computeIfAbsent(normalizeCompany(job.getCompany()), k -> new ArrayList<>()).add(job);
             }
 

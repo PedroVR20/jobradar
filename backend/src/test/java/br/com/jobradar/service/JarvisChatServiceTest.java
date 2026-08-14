@@ -1,6 +1,7 @@
 package br.com.jobradar.service;
 
 import br.com.jobradar.model.Job;
+import br.com.jobradar.repository.JobEmbeddingRepository;
 import br.com.jobradar.repository.JobEventRepository;
 import br.com.jobradar.repository.JobRepository;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,9 @@ class JarvisChatServiceTest {
 
     private final JobRepository jobRepository = mock(JobRepository.class);
     private final JobEventRepository jobEventRepository = mock(JobEventRepository.class);
+    // Fase 6.1 — apagarVaga limpa job_embeddings também; mock simples, só
+    // precisa não estourar NPE se algum teste futuro exercitar esse caminho.
+    private final JobEmbeddingRepository jobEmbeddingRepository = mock(JobEmbeddingRepository.class);
     // statusBate/contemBusca/executarVagasParadas/dispatch não tocam nos
     // outros serviços injetados — null é seguro aqui.
     // JarvisWriteTools precisa de instâncias reais de JobStatusService e
@@ -34,7 +38,7 @@ class JarvisChatServiceTest {
     // esses serviços de verdade. jobEventRepository é mock simples (só
     // grava timeline, não precisa de comportamento real pro teste).
     private final JarvisWriteTools writeTools = new JarvisWriteTools(
-            jobRepository, new JobStatusService(jobRepository, jobEventRepository), new SeniorityClassifier());
+            jobRepository, new JobStatusService(jobRepository, jobEventRepository), new SeniorityClassifier(), jobEmbeddingRepository);
     private final JarvisChatService service =
             new JarvisChatService(null, jobRepository, null, null, null, null, null, null, null, null, writeTools);
 

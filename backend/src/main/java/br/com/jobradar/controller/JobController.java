@@ -784,8 +784,8 @@ public class JobController {
                 List<Job> pendentes = jobEmbeddingService.semEmbedding();
                 int ok = 0;
                 for (Job job : pendentes) {
+                    // Fase 6.1 — embedESalvar já persiste em job_embeddings sozinho.
                     if (jobEmbeddingService.embedESalvar(job)) {
-                        jobRepository.save(job);
                         ok++;
                     }
                 }

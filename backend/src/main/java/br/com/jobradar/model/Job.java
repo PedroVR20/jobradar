@@ -112,13 +112,12 @@ public class Job {
     // usado só pra transparência visual no card (badge "🤖"), não afeta lógica.
     private Boolean classifiedByAi;
 
-    // Vetor de embedding (768 floats, gemini-embedding-001) serializado como
-    // números separados por vírgula — usado pra busca semântica (ver
-    // JobEmbeddingService). Sem extensão pgvector instalada no Postgres, a
-    // similaridade de cosseno é calculada em Java sobre a lista de vagas, não
-    // em SQL — por isso um TEXT simples já basta, não precisa de tipo de
-    // coluna especial. Null até a vaga ser embeddada (vagas antigas ficam
-    // assim até o backfill rodar, ver POST /api/jobs/admin/backfill-embeddings).
-    @Column(columnDefinition = "TEXT")
-    private String embedding;
+    // Fase 6.1 — o vetor de embedding (768 floats, ~39 mil caracteres
+    // serializados) morava aqui como TEXT e era a causa raiz de um
+    // OutOfMemoryError real em produção: 125 dos 166 MB da tabela inteira
+    // eram só esse campo, e QUALQUER query que devolvesse Job (incluindo a
+    // listagem principal, sem filtro nenhum) arrastava ele junto — mesmo
+    // quando ninguém ia usar o vetor. Movido pra tabela própria
+    // job_embeddings (ver JobEmbedding/JobEmbeddingRepository), correlacionada
+    // por id sem FK formal (ver comentário na entidade nova sobre o porquê).
 }

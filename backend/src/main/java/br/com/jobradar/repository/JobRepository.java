@@ -91,6 +91,15 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
     @Query("SELECT DISTINCT j.source FROM Job j ORDER BY j.source")
     List<String> findDistinctSources();
 
+    // Fase 6.1 — substituem o filtro em memória (findAll().stream().filter
+    // embedding == null)) que existia quando o vetor morava dentro de Job.
+    // Agora é um JOIN/NOT IN de verdade contra a tabela job_embeddings.
+    @Query("SELECT j FROM Job j WHERE j.id NOT IN (SELECT je.id FROM JobEmbedding je)")
+    List<Job> findAllNotEmbedded();
+
+    @Query("SELECT COUNT(j) FROM Job j WHERE j.id NOT IN (SELECT je.id FROM JobEmbedding je)")
+    long countNotEmbedded();
+
     /**
      * Fase 2.7 — painel de saúde das fontes. Agregado por fonte, calculado
      * dinamicamente (GROUP BY j.source) em vez de uma lista hardcoded de

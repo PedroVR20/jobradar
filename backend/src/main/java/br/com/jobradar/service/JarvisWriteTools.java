@@ -1,6 +1,7 @@
 package br.com.jobradar.service;
 
 import br.com.jobradar.model.Job;
+import br.com.jobradar.repository.JobEmbeddingRepository;
 import br.com.jobradar.repository.JobRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,7 @@ class JarvisWriteTools {
     private final JobRepository jobRepository;
     private final JobStatusService jobStatusService;
     private final SeniorityClassifier seniorityClassifier;
+    private final JobEmbeddingRepository jobEmbeddingRepository;
 
     private String statusDe(Job j) {
         if (j.isRejected()) return "RECUSADA";
@@ -165,6 +167,11 @@ class JarvisWriteTools {
         String titulo = job.getTitle();
         String empresa = job.getCompany();
         jobRepository.delete(job);
+        // Fase 6.1 — job_embeddings não tem FK/cascade formal (ver
+        // comentário na entidade), então precisa limpar explicitamente aqui
+        // pra não deixar linha órfã. No-op silencioso se a vaga nunca teve
+        // embedding.
+        jobEmbeddingRepository.deleteById(vagaId);
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("sucesso", true);
