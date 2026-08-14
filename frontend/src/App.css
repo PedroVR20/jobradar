@@ -388,7 +388,6 @@ a:hover { text-decoration: underline; }
    JOB CARD
    ============================ */
 .job-card {
-  position: relative; /* pro botão de recolher (▲) do modo compacto, ver Fase 4.5 */
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -456,23 +455,6 @@ a:hover { text-decoration: underline; }
   flex-shrink: 0;
   white-space: nowrap;
 }
-.job-card-collapse-btn {
-  position: absolute;
-  top: 0.75rem;
-  right: 0.75rem;
-  background: var(--bg-card2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  width: 24px;
-  height: 24px;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 0.7rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.job-card-collapse-btn:hover { color: var(--text); border-color: var(--accent); }
 
 .card-header {
   display: flex;

@@ -397,17 +397,6 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
       onDragStart={job.applied ? handleDragStart : undefined}
       title={job.applied ? 'Arraste pra outra aba, ou use o menu ⋮' : undefined}
     >
-      {compact && (
-        <button
-          type="button"
-          className="job-card-collapse-btn"
-          onClick={() => setExpanded(false)}
-          aria-label="Recolher vaga"
-          title="Recolher"
-        >
-          ▲
-        </button>
-      )}
       {/* Header */}
       <div className="card-header">
         <div className="card-header-left">
@@ -518,6 +507,20 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
           >
             📜
           </button>
+
+          {/* Fase 4.5 — só aparece no modo compacto (recolhe de volta pra
+              linha densa); no modo normal esse botão não existe, o card
+              sempre fica cheio. */}
+          {compact && (
+            <button
+              className="btn-pin"
+              onClick={() => setExpanded(false)}
+              title="Recolher vaga"
+              aria-label="Recolher vaga"
+            >
+              ▲
+            </button>
+          )}
 
           <div className="card-menu" ref={menuRef}>
             <button
