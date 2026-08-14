@@ -5,8 +5,19 @@ import lombok.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+// Fase 6.2 — a tabela só tinha PK e a unique de url. Nenhuma das colunas
+// mais filtradas (funil novas/recusadas, ordenação por data, filtro por
+// fonte/estado, corte de prazo) tinha índice — em ~5900 linhas o seq scan
+// ainda é barato, mas o custo de criar agora é de segundos e evita que
+// isso vire gargalo real conforme o catálogo cresce.
 @Entity
-@Table(name = "jobs")
+@Table(name = "jobs", indexes = {
+        @Index(name = "idx_jobs_seen_rejected", columnList = "seen, rejected"),
+        @Index(name = "idx_jobs_posted_at", columnList = "postedAt"),
+        @Index(name = "idx_jobs_source", columnList = "source"),
+        @Index(name = "idx_jobs_state", columnList = "state"),
+        @Index(name = "idx_jobs_expires_at", columnList = "expiresAt"),
+})
 @Data
 @Builder
 @NoArgsConstructor
