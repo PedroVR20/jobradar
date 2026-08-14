@@ -44,6 +44,16 @@ interface FonteSaude {
   diasSemVagaNova: number | null;
 }
 
+// Fase 3.5 — formato devolvido por GET/POST /api/jobs/admin/digest-semanal.
+interface WeeklyDigestDto {
+  existe: boolean;
+  conteudo?: string;
+  geradoEm?: string;
+  vagasNovas?: number;
+  vagasParadas?: number;
+  prazosProximos?: number;
+}
+
 // Acima disso, o badge de alerta acende — sinal de "pode ter parado", não
 // confirmação (algumas fontes genuinamente postam pouco, ver comentário
 // do endpoint no JobController).
@@ -53,6 +63,28 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
   const [fontesSaude, setFontesSaude] = useState<FonteSaude[]>([]);
   const [fontesSaudeLoading, setFontesSaudeLoading] = useState(true);
 
+  // Fase 3.5 — resumo semanal automático (ver WeeklyDigestService).
+  const [digest, setDigest] = useState<WeeklyDigestDto | null>(null);
+  const [digestLoading, setDigestLoading] = useState(true);
+  const [digestGerando, setDigestGerando] = useState(false);
+
+  const carregarDigest = () => {
+    fetch('/api/jobs/admin/digest-semanal')
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((data: WeeklyDigestDto) => setDigest(data.existe ? data : null))
+      .catch(() => setDigest(null))
+      .finally(() => setDigestLoading(false));
+  };
+
+  const gerarDigestAgora = () => {
+    setDigestGerando(true);
+    fetch('/api/jobs/admin/digest-semanal/gerar-agora', { method: 'POST' })
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((data: WeeklyDigestDto) => setDigest(data))
+      .catch(() => {})
+      .finally(() => setDigestGerando(false));
+  };
+
   useEffect(() => {
     onRefreshAiStatus();
     fetch('/api/jobs/admin/fontes-saude')
@@ -60,6 +92,7 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
       .then((data: FonteSaude[]) => setFontesSaude(data))
       .catch(() => setFontesSaude([]))
       .finally(() => setFontesSaudeLoading(false));
+    carregarDigest();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -472,6 +505,39 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
           )}
           {gmail.error && <p className="agenda-error">{gmail.error}</p>}
         </div>
+
+        {aiStatus.enabled && (
+          <div className="settings-section">
+            <h3 className="settings-section-title">🗞️ Resumo semanal</h3>
+            <p className="agenda-hint">
+              Gerado automaticamente toda segunda-feira às 8h (1 chamada de IA por semana) — o que entrou,
+              o que está parado e prazos fechando. Pode gerar na hora pra não esperar até lá.
+            </p>
+            {digestLoading ? (
+              <p className="agenda-hint">Carregando...</p>
+            ) : digest ? (
+              <>
+                <p className="agenda-hint settings-usage-hint">
+                  📅 {digest.vagasNovas} nova(s) · 🐢 {digest.vagasParadas} parada(s) · ⏳ {digest.prazosProximos} com prazo próximo
+                  {digest.geradoEm && ` · gerado ${relativeTime(new Date(digest.geradoEm).getTime())}`}
+                </p>
+                <div className="profile-file-card" style={{ alignItems: 'flex-start' }}>
+                  <span className="profile-file-icon">🗞️</span>
+                  <div className="profile-file-info">
+                    <span className="profile-file-name" style={{ whiteSpace: 'pre-wrap', fontWeight: 400 }}>
+                      {digest.conteudo}
+                    </span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="agenda-hint">Nenhum resumo gerado ainda.</p>
+            )}
+            <button type="button" className="btn btn-ghost" onClick={gerarDigestAgora} disabled={digestGerando}>
+              {digestGerando ? 'Gerando...' : '🗞️ Gerar resumo agora'}
+            </button>
+          </div>
+        )}
 
         <div className="settings-section">
           <h3 className="settings-section-title">📡 Saúde das fontes</h3>
