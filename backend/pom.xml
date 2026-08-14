@@ -18,6 +18,11 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- Fase 15.1 — 1.19.8 (o padrão gerenciado pelo Spring Boot 3.3.0)
+             não fala corretamente com versões recentes do Docker Desktop
+             (resposta 400 vazia da named pipe) — bump manual pra versão
+             com esse compat corrigido. -->
+        <testcontainers.version>1.20.4</testcontainers.version>
     </properties>
 
     <dependencies>
@@ -66,6 +71,29 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Fase 15.1 — os 54 testes existentes usam repositório mockado
+             (Mockito), nenhum exercita uma query real, um índice ou uma
+             migração Flyway contra um Postgres de verdade. spring-boot-
+             testcontainers dá o @ServiceConnection que substitui o
+             datasource pelo container automaticamente, sem precisar
+             configurar application-test.yml na mão. Versão gerenciada pelo
+             BOM do spring-boot-dependencies (propriedade
+             testcontainers.version), mesmo padrão do Flyway acima. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
