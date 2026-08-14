@@ -5,6 +5,15 @@ services:
       POSTGRES_DB: jobradar
       POSTGRES_USER: jobradar
       POSTGRES_PASSWORD: jobradar123
+    # Fase 12.7 — pg_stat_statements precisa ser pré-carregado no boot do
+    # Postgres (shared_preload_libraries); CREATE EXTENSION sozinho não
+    # basta, e diferente da maioria das extensões não dá pra ativar depois
+    # sem reiniciar o servidor. Com isso, todo diagnóstico de banco daqui
+    # pra frente vira "qual query custa mais no total" (dado real, via
+    # pg_stat_statements) em vez de EXPLAIN manual em cima de suspeita —
+    # foi assim que as 19 queries do /stats (Fase 12.5) só apareceram por
+    # eu ter procurado, não porque alguma ferramenta apontou.
+    command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:

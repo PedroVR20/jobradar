@@ -10,10 +10,13 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -54,10 +57,44 @@ public class GeminiService {
     private String model;
 
     private final ObjectMapper mapper = new ObjectMapper();
-    private final RestTemplate restTemplate = new RestTemplate();
+
+    // Fase 11.4 — new RestTemplate() sem configuração nenhuma usa timeout
+    // INFINITO por padrão (SimpleClientHttpRequestFactory não define um
+    // connect/read timeout sozinho). Numa chamada dentro de um request HTTP
+    // que uma pessoa está esperando (carta, match-score, chat, verificação
+    // de duplicata), uma única chamada travada na rede — não só o pool de
+    // keys com problema, ver Fase 11.2 — já bastava pra segurar a resposta
+    // indefinidamente. 5s pra conectar (a API do Google normalmente responde
+    // isso em bem menos) e 20s pra ler a resposta (geração de texto/JSON
+    // longo pode legitimamente demorar mais que embedding ou um 403 rápido).
+    private static final int CONNECT_TIMEOUT_MS = 5_000;
+    private static final int READ_TIMEOUT_MS = 20_000;
+    private final RestTemplate restTemplate = buildRestTemplate();
+
+    private static RestTemplate buildRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(CONNECT_TIMEOUT_MS);
+        factory.setReadTimeout(READ_TIMEOUT_MS);
+        return new RestTemplate(factory);
+    }
 
     private List<KeySlot> pool = List.of();
     private final AtomicInteger cursor = new AtomicInteger(0);
+
+    // Fase 11.2 — antes disso um 401/403 (key rejeitada — inválida, revogada,
+    // sem permissão) não deixava NENHUM rastro no KeySlot: o rodízio pulava
+    // pra próxima key na mesma passada (comportamento certo), mas a PRÓXIMA
+    // chamada ao Gemini tentava essa mesma key rejeitada de novo, do zero.
+    // Com um /duplicates fazendo até 20 chamadas de IA por request e 1 de 29
+    // keys revogada, isso são até 20 tentativas desperdiçadas por request só
+    // nessa key — sem contar as outras que também podem estar revogadas.
+    // rejectedUntil funciona como o dailyExhaustedOn, mas sem reset automático
+    // à meia-noite (a causa não é cota, não expira sozinha) — em vez disso
+    // reexpira depois de RETEST_INTERVAL, curto o bastante pra notar se
+    // alguém consertar a key (nova permissão no projeto Google Cloud) sem
+    // precisar reiniciar o backend, longo o bastante pra não desperdiçar
+    // tentativa em toda chamada enquanto ela continuar quebrada.
+    private static final Duration RETEST_INTERVAL = Duration.ofHours(1);
 
     // Estado por key: só guardamos os últimos 6 caracteres em memória, pra
     // identificar qual key é qual nos logs sem nunca logar/expor a key inteira.
@@ -65,6 +102,7 @@ public class GeminiService {
         final String key;
         final String tail;
         volatile LocalDate dailyExhaustedOn = null;
+        volatile Instant rejectedUntil = null;
         final AtomicInteger requestsToday = new AtomicInteger(0);
         volatile LocalDate counterDate = LocalDate.now();
 
@@ -85,6 +123,14 @@ public class GeminiService {
         boolean isExhaustedToday() {
             resetIfNewDay();
             return dailyExhaustedOn != null && dailyExhaustedOn.equals(LocalDate.now());
+        }
+
+        boolean isRejected() {
+            return rejectedUntil != null && Instant.now().isBefore(rejectedUntil);
+        }
+
+        void markRejected() {
+            rejectedUntil = Instant.now().plus(RETEST_INTERVAL);
         }
     }
 
@@ -150,12 +196,19 @@ public class GeminiService {
         }).sum();
     }
 
-    public record KeyPoolStatus(int total, int availableToday, int exhaustedToday) {}
+    // Fase 11.3 — rejectedNow separado de exhaustedToday: cota esgotada é
+    // esperado e passa sozinho à meia-noite; key rejeitada (401/403) é uma
+    // configuração quebrada que não se resolve com o tempo — antes disso o
+    // painel de ⚙️ Configurações reportava "29 de 29 disponíveis" com o log
+    // acumulando dezenas de 403 na mesma janela, porque só olhava cota.
+    public record KeyPoolStatus(int total, int availableToday, int exhaustedToday, int rejectedNow) {}
 
     public KeyPoolStatus getKeyPoolStatus() {
         int total = pool.size();
         long exhausted = pool.stream().filter(KeySlot::isExhaustedToday).count();
-        return new KeyPoolStatus(total, total - (int) exhausted, (int) exhausted);
+        long rejected = pool.stream().filter(KeySlot::isRejected).count();
+        int available = total - (int) exhausted - (int) rejected;
+        return new KeyPoolStatus(total, Math.max(0, available), (int) exhausted, (int) rejected);
     }
 
     /**
@@ -260,6 +313,11 @@ public class GeminiService {
         String ultimoErro = "Não foi possível gerar o embedding agora.";
         for (int i = 0; i < size; i++) {
             KeySlot slot = pool.get(Math.floorMod(cursor.getAndIncrement(), size));
+            // Fase 11.2 — key inválida é inválida em QUALQUER endpoint do
+            // Gemini, não só generateContent; embedContent tem cota própria
+            // (comentário acima) mas 401/403 aqui é o mesmo "essa key não
+            // presta", vale pular igual ao pool principal.
+            if (slot.isRejected()) continue;
             try {
                 String url = "https://generativelanguage.googleapis.com/v1beta/models/"
                         + EMBEDDING_MODEL + ":embedContent?key=" + slot.key;
@@ -278,7 +336,9 @@ public class GeminiService {
                 return new EmbedResult(vetor, null);
             } catch (HttpClientErrorException e) {
                 log.warn("Gemini embedContent: key ...{} falhou ({}): {}", slot.tail, e.getStatusCode(), e.getMessage());
-                ultimoErro = "Gemini recusou a requisição de embedding (erro " + e.getStatusCode().value() + ").";
+                int status = e.getStatusCode().value();
+                if (status == 401 || status == 403) slot.markRejected();
+                ultimoErro = "Gemini recusou a requisição de embedding (erro " + status + ").";
             } catch (RestClientException e) {
                 ultimoErro = "Gemini indisponível no momento (rede/timeout).";
             } catch (Exception e) {
@@ -432,7 +492,7 @@ public class GeminiService {
         }
         int idx = Math.floorMod(cursor.getAndIncrement(), pool.size());
         KeySlot slot = pool.get(idx);
-        if (slot.isExhaustedToday()) {
+        if (slot.isExhaustedToday() || slot.isRejected()) {
             return chat(systemInstruction, contents, tools, includeThoughts);
         }
 
@@ -582,6 +642,16 @@ public class GeminiService {
 
     // ===================== Núcleo compartilhado: rodízio de keys =====================
 
+    // Fase 11.4 — teto pro CONJUNTO do rodízio, não só por chamada. O
+    // timeout por chamada (CONNECT_TIMEOUT_MS/READ_TIMEOUT_MS) limita uma
+    // tentativa individual, mas com várias keys no pool o rodízio ainda
+    // podia somar minutos tentando cada uma em sequência (pool.size() ×
+    // READ_TIMEOUT_MS no pior caso — 29 keys × 20s = quase 10 minutos).
+    // Interrompe o rodízio se já gastou tempo demais, mesmo com keys ainda
+    // não tentadas nesta passada — devolve o último erro real em vez de
+    // continuar insistindo.
+    private static final Duration POOL_BUDGET = Duration.ofSeconds(25);
+
     private PoolResult attemptWithPool(Map<String, Object> body) {
         if (!isEnabled()) {
             return new PoolResult(null, "Recurso de IA não configurado — defina GEMINI_API_KEY ou GEMINI_API_KEYS no .env", false);
@@ -590,11 +660,17 @@ public class GeminiService {
         int size = pool.size();
         Attempt last = null;
         int tentativas = 0;
+        Instant inicio = Instant.now();
 
         for (int i = 0; i < size; i++) {
+            if (Duration.between(inicio, Instant.now()).compareTo(POOL_BUDGET) > 0) {
+                log.warn("Gemini: rodízio interrompido por orçamento de tempo ({} tentativas em {}s)",
+                        tentativas, POOL_BUDGET.toSeconds());
+                break;
+            }
             int idx = Math.floorMod(cursor.getAndIncrement(), size);
             KeySlot slot = pool.get(idx);
-            if (slot.isExhaustedToday()) continue;
+            if (slot.isExhaustedToday() || slot.isRejected()) continue;
 
             tentativas++;
             slot.requestsToday.incrementAndGet();
@@ -612,6 +688,7 @@ public class GeminiService {
                 continue; // rate limit por minuto — tenta a próxima key na mesma passada
             }
             if (attempt.keyRejected()) {
+                slot.markRejected(); // Fase 11.2 — tira do rodízio por RETEST_INTERVAL, não só nesta passada
                 continue; // key específica recusada (401/403) — outras do pool podem estar ok
             }
             // erro que não é de rate limit nem de key específica (rede,
@@ -621,7 +698,16 @@ public class GeminiService {
         }
 
         if (tentativas == 0) {
-            // todas as keys já estavam marcadas como esgotadas hoje antes de tentar
+            // todas as keys já estavam fora do rodízio antes de tentar — por
+            // cota (reseta sozinho amanhã) ou por rejeição (Fase 11.2, não
+            // reseta sozinho tão cedo). Mensagens diferentes de propósito:
+            // "espera até amanhã" é falso conselho pra quem só tem key inválida.
+            boolean todasRejeitadas = pool.stream().allMatch(KeySlot::isRejected);
+            if (todasRejeitadas) {
+                return new PoolResult(null,
+                        "Nenhuma das " + size + " keys do Gemini configuradas está aceita agora (erro de "
+                                + "autenticação/permissão). Confira se GEMINI_API_KEYS ainda tem chaves válidas.", false);
+            }
             return new PoolResult(null, dailyLimitMessage(size), true);
         }
         if (last != null && last.dailyLimit() && size > 1) {

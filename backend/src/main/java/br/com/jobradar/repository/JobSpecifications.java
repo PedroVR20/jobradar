@@ -3,6 +3,7 @@ package br.com.jobradar.repository;
 import br.com.jobradar.model.Job;
 import org.springframework.data.jpa.domain.Specification;
 
+import java.text.Normalizer;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -12,21 +13,48 @@ import java.util.List;
  * em vez de {@code findAll()} + {@code stream().filter(...)} em Java.
  *
  * <p>Migração PARCIAL de propósito: só os filtros de comparação direta
- * (fonte, senioridade, modalidade, data, e os status booleanos do funil)
- * vieram pra cá — são baratos e inequívocos em SQL. A busca textual
- * multi-termo insensível a acento ({@code matchesSearch} no controller) e a
- * comparação de estado ignorando acento continuam em Java, porque fazer isso
- * certo em SQL exigiria a extensão {@code unaccent} do Postgres (não
- * instalada hoje) — sem isso, dá pra migrar errado de um jeito sutil (ex:
- * "São Paulo" parar de bater com "sao paulo") sem ninguém notar até
- * reclamarem. Mesmo assim, GET /api/jobs (endpoint mais chamado do app,
- * toda troca de filtro) já sai bem mais leve: os filtros daqui costumam
- * cortar a imensa maioria das ~4800 vagas ANTES de qualquer coisa rodar em
- * memória Java.</p>
+ * (fonte, senioridade, modalidade, data, estado, e os status booleanos do
+ * funil) vieram pra cá — são baratos e inequívocos em SQL. A busca textual
+ * multi-termo insensível a acento ({@code matchesSearch} no controller)
+ * continua em Java: "java senior" exigindo TODOS os termos em título+
+ * empresa+tags é mais natural como filtro pós-carga do que um WHERE com N
+ * termos dinâmicos. O filtro de estado (abaixo) MIGROU pra SQL na Fase
+ * 12.1 — motivo: tinha um índice (Fase 6.2, {@code idx_jobs_state}) que a
+ * aplicação nunca alcançava porque o filtro real rodava em Java, então o
+ * índice existia só de enfeite (confirmado: zero leituras no
+ * pg_stat_user_indexes). Agora usa a extensão {@code unaccent} do Postgres
+ * (instalada via V2__indices_fase_12.sql) pra continuar ignorando acento
+ * ("sao paulo" acha "São Paulo") sem regredir esse comportamento.</p>
  */
 public final class JobSpecifications {
 
     private JobSpecifications() {
+    }
+
+    // Mesma técnica usada em vários outros pontos do projeto (JobController,
+    // JobQueryService) — Normalizer decompõe e descarta os diacríticos.
+    // Duplicado aqui de propósito, mesmo precedente já registrado no
+    // projeto: é um helper pequeno o bastante que uma dependência entre
+    // classes só pra reusá-lo custaria mais do que vale.
+    private static String normalizeIgnorandoAcento(String texto) {
+        String decomposto = Normalizer.normalize(texto.toLowerCase(), Normalizer.Form.NFD);
+        return decomposto.replaceAll("\\p{M}", "");
+    }
+
+    // O alvo é normalizado em JAVA (mesma função usada em todo o projeto,
+    // determinística) — só a COLUNA precisa de unaccent() em SQL, porque é
+    // ela que tem acento gravado no banco. Chama immutable_unaccent (não
+    // unaccent puro) — mesmo wrapper criado em V2__indices_fase_12.sql, que
+    // existe porque o unaccent() de fábrica é STABLE, não IMMUTABLE, e por
+    // isso não pode ser usado num índice de expressão. Índice funcional
+    // criado nessa migração é sobre exatamente esta expressão
+    // (lower(immutable_unaccent(state))) — precisa bater com o SQL gerado
+    // aqui pra o planner conseguir usar o índice.
+    public static Specification<Job> byState(String state) {
+        if (state == null || state.isBlank()) return null;
+        String alvo = normalizeIgnorandoAcento(state);
+        return (root, query, cb) -> cb.equal(
+                cb.lower(cb.function("immutable_unaccent", String.class, root.get("state"))), alvo);
     }
 
     public static Specification<Job> bySource(String source) {

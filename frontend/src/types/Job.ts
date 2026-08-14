@@ -43,7 +43,7 @@ export interface AiStatus {
   requestsToday: number | null;
   // Presente só quando há mais de uma GEMINI_API_KEYS configurada — o
   // backend faz rodízio automático entre elas quando uma bate no limite.
-  keyPool: { total: number; availableToday: number; exhaustedToday: number } | null;
+  keyPool: { total: number; availableToday: number; exhaustedToday: number; rejectedNow: number } | null;
 }
 
 // GET /api/jobs/{id}/salary-estimate — dado real do banco, não IA
@@ -517,16 +517,13 @@ export interface Stats {
   // a maioria das recusas nunca foi aplicada de verdade.
   recusadasDeAplicadas: number;
   hojeCount: number;
-  porFonte: {
-    REMOTIVE: number;
-    ARBEITNOW: number;
-    WWR: number;
-    GUPY: number;
-    EURECA: number;
-    QUEROVAGASTECH: number;
-    NERDIN: number;
-  };
-  porSenioridade: Record<Seniority, number>;
+  // Fase 12.5 — virou GROUP BY dinâmico no backend em vez de uma lista fixa
+  // de fontes/senioridades hardcoded: uma fonte com 0 vagas simplesmente
+  // não aparece como chave (em vez de aparecer com valor 0), e uma fonte
+  // nova (Greenhouse, SINE Aberto — invisíveis aqui antes por não estarem
+  // na lista fixa) aparece sozinha sem precisar editar tipo nem backend.
+  porFonte: Record<string, number>;
+  porSenioridade: Partial<Record<Seniority, number>>;
 }
 
 export interface Metrics {

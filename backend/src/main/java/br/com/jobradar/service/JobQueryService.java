@@ -23,14 +23,17 @@ import java.util.List;
  *
  * <p>A paginação acontece DEPOIS do filtro/ordenação em memória (não é um
  * {@code LIMIT}/{@code OFFSET} de SQL) — de propósito: busca textual
- * multi-termo, comparação de estado sem acento e o ranking pessoal (Fase
- * 3.1) são calculados em Java, não em SQL (ver comentário em
- * {@link JobSpecifications} sobre por que — precisaria da extensão
- * {@code unaccent} do Postgres pra fazer certo em SQL). Paginar ANTES
- * desses filtros devolveria página incompleta/errada. O ganho real da Fase
- * 6.3 é outro: não é o backend que economiza trabalho, é a REDE — antes o
- * catálogo inteiro filtrado (4,37 MB medidos sem filtro nenhum) viajava
- * pra tela mostrar 30 itens; agora só a página pedida vai pela rede.</p>
+ * multi-termo e o ranking pessoal (Fase 3.1) são calculados em Java, não em
+ * SQL. Paginar ANTES desses filtros devolveria página incompleta/errada. O
+ * ganho real da Fase 6.3 é outro: não é o backend que economiza trabalho, é
+ * a REDE — antes o catálogo inteiro filtrado (4,37 MB medidos sem filtro
+ * nenhum) viajava pra tela mostrar 30 itens; agora só a página pedida vai
+ * pela rede.</p>
+ *
+ * <p>Fase 12.1 — o filtro de ESTADO saiu daqui e virou {@code WHERE} de SQL
+ * (ver {@link JobSpecifications#byState}): tinha um índice desde a Fase 6.2
+ * que nunca era alcançado justamente porque o filtro rodava em Java — agora
+ * o índice funcional criado na Fase 12 bate com a query de verdade.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -73,6 +76,7 @@ public class JobQueryService {
                 JobSpecifications.bySource(f.source()),
                 JobSpecifications.bySeniorityIn(f.seniority()),
                 JobSpecifications.byWorkplaceType(f.workplaceType()),
+                JobSpecifications.byState(f.state()), // Fase 12.1 — antes rodava em Java, ver Javadoc da classe
                 JobSpecifications.postedAfter(postedAfter),
                 f.onlyNew() ? JobSpecifications.onlyNew() : null,
                 f.onlySeen() ? JobSpecifications.onlySeen() : null,
@@ -89,8 +93,6 @@ public class JobQueryService {
         Comparator<Job> comparadorDeConteudo = "personal".equals(f.sort()) ? comparatorPersonal() : comparatorFor(f.sort());
 
         List<Job> filtradosEOrdenados = jobs.stream()
-                .filter(j -> f.state() == null || f.state().isBlank()
-                        || (j.getState() != null && normalize(f.state()).equals(normalize(j.getState()))))
                 .filter(j -> matchesSearch(j, f.search()))
                 .filter(j -> matchesAnyTechStack(j, f.techStack()))
                 .sorted(pinnedFirst.thenComparing(comparadorDeConteudo))

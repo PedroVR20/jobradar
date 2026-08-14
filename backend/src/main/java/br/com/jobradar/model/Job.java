@@ -10,14 +10,28 @@ import java.time.LocalDateTime;
 // fonte/estado, corte de prazo) tinha índice — em ~5900 linhas o seq scan
 // ainda é barato, mas o custo de criar agora é de segundos e evita que
 // isso vire gargalo real conforme o catálogo cresce.
+//
+// Fase 12 — a lista abaixo é só DOCUMENTAÇÃO agora, não fonte de verdade:
+// desde a Fase 5.3 (Flyway) o schema real é criado por
+// db/migration/V*.sql, e o Hibernate em modo `validate` não confere nem
+// cria índice nenhum (só tabela/coluna/tipo) — um @Index daqui sem a
+// migração correspondente simplesmente não existe no banco. A verdade de
+// hoje, criada em V2__indices_fase_12.sql:
+//   - idx_jobs_seen_true_rejected: parcial (WHERE seen = true), não mais
+//     composto sem condição — o composto media 97% de seletividade pro
+//     caso mais comum (aba Novas, seen=false) e o planner corretamente
+//     nunca usava; a fatia de vaga JÁ VISTA é que é rara e vale indexar.
+//   - idx_jobs_state: virou funcional, sobre lower(unaccent(state)) — o
+//     índice antigo em state cru nunca era alcançado porque o filtro de
+//     estado sempre rodou em Java (Fase 5.5, ignora acento); Fase 12.1
+//     moveu esse filtro pra SQL (ver JobSpecifications.byState), e agora
+//     o índice bate com a expressão que a query de verdade usa.
+//   - idx_jobs_fetched_at (novo): usada em /stats, /new-since e limpeza
+//     periódica, esquecida na Fase 6.2 original.
+//   - idx_jobs_posted_at, idx_jobs_source, idx_jobs_expires_at: mantidas
+//     como estavam.
 @Entity
-@Table(name = "jobs", indexes = {
-        @Index(name = "idx_jobs_seen_rejected", columnList = "seen, rejected"),
-        @Index(name = "idx_jobs_posted_at", columnList = "postedAt"),
-        @Index(name = "idx_jobs_source", columnList = "source"),
-        @Index(name = "idx_jobs_state", columnList = "state"),
-        @Index(name = "idx_jobs_expires_at", columnList = "expiresAt"),
-})
+@Table(name = "jobs")
 @Data
 @Builder
 @NoArgsConstructor

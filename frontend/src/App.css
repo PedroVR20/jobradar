@@ -1685,6 +1685,24 @@ a:hover { text-decoration: underline; }
   vertical-align: middle;
 }
 
+/* Fase 11.1 — verificação por IA das duplicatas virou sob demanda (o botão
+   embutido é o mesmo estilo do badge que ele substitui até ser clicado). */
+.duplicate-verify-btn {
+  margin-left: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.duplicate-verify-btn:hover:not(:disabled) { background: var(--accent-soft, rgba(99, 102, 241, 0.1)); }
+.duplicate-verify-btn:disabled { opacity: 0.6; cursor: default; }
+.duplicate-verify-error { margin: 4px 0 0; font-size: 0.76rem; }
+
 .btn-ai {
   background: #2dd4bf22;
   color: #2dd4bf;
@@ -1742,6 +1760,9 @@ a:hover { text-decoration: underline; }
   border-color: #ef444444;
 }
 .key-pool-exhausted { opacity: 0.85; font-weight: 400; }
+/* Fase 11.3 — cor mais forte que "esgotada": recusa é config quebrada, não
+   cota que passa sozinha amanhã. */
+.key-pool-rejected { color: var(--red); font-weight: 600; }
 
 /* Fase 2.7 — painel de saúde das fontes (Configurações) */
 .fontes-saude-table {

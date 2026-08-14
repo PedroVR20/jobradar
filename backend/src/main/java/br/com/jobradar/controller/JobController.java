@@ -2,6 +2,7 @@ package br.com.jobradar.controller;
 
 import br.com.jobradar.dto.JobPageResult;
 import br.com.jobradar.model.Job;
+import br.com.jobradar.repository.ChaveContagemProjection;
 import br.com.jobradar.repository.JobEventRepository;
 import br.com.jobradar.repository.JobRepository;
 import br.com.jobradar.repository.JobSpecifications;
@@ -198,25 +199,33 @@ public class JobController {
         // este campo pra qualquer conta que precise só da recusa "dentro"
         // do funil de aplicadas (bug reportado: "-21 aplicadas" na tela).
         stats.put("recusadasDeAplicadas", jobRepository.countByAppliedTrueAndRejectedTrue());
-        stats.put("hojeCount", jobRepository
-                .findByFetchedAtAfter(LocalDateTime.now().minusHours(24)).size());
-        stats.put("porFonte", Map.of(
-                "REMOTIVE", jobRepository.countBySource("REMOTIVE"),
-                "ARBEITNOW", jobRepository.countBySource("ARBEITNOW"),
-                "WWR", jobRepository.countBySource("WWR"),
-                "GUPY", jobRepository.countBySource("GUPY"),
-                "EURECA", jobRepository.countBySource("EURECA"),
-                "QUEROVAGASTECH", jobRepository.countBySource("QUEROVAGASTECH"),
-                "NERDIN", jobRepository.countBySource("NERDIN")
-        ));
-        stats.put("porSenioridade", Map.of(
-                SeniorityClassifier.ESTAGIO, jobRepository.countBySeniority(SeniorityClassifier.ESTAGIO),
-                SeniorityClassifier.JUNIOR, jobRepository.countBySeniority(SeniorityClassifier.JUNIOR),
-                SeniorityClassifier.PLENO, jobRepository.countBySeniority(SeniorityClassifier.PLENO),
-                SeniorityClassifier.SENIOR, jobRepository.countBySeniority(SeniorityClassifier.SENIOR),
-                SeniorityClassifier.NAO_INFORMADO, jobRepository.countBySeniority(SeniorityClassifier.NAO_INFORMADO)
-        ));
+        // Fase 12.6 — era findByFetchedAtAfter(...).size(): materializava as
+        // ~635 entidades das últimas 24h inteiras (todos os campos, uma a
+        // uma via Hibernate) só pra jogar fora e contar o tamanho da lista.
+        // countByFetchedAtAfter já existe e já é usado 34 linhas acima
+        // (getNewSince) — era literalmente a mesma pergunta respondida de
+        // dois jeitos diferentes no mesmo arquivo.
+        stats.put("hojeCount", jobRepository.countByFetchedAtAfter(LocalDateTime.now().minusHours(24)));
+        // Fase 12.5 — eram 7 + 5 = 12 chamadas de countBySource/countBySeniority,
+        // uma por valor FIXO escrito no código. Além de 12 queries virarem 2,
+        // a lista fixa já estava desatualizada: Greenhouse e SINE Aberto
+        // (Fase 2) nunca apareciam no painel porque não estavam nesse
+        // Map.of() — a versão por GROUP BY inclui toda fonte que existir
+        // no banco de verdade, sem precisar editar este método de novo.
+        stats.put("porFonte", contagemPorChave(jobRepository.contagemPorSource()));
+        stats.put("porSenioridade", contagemPorChave(jobRepository.contagemPorSenioridade()));
         return stats;
+    }
+
+    // Linha com chave nula (seniority nunca classificada, ex: vaga manual
+    // antiga) é descartada — mesmo comportamento de antes, quando essas
+    // linhas também não caíam em nenhuma das 5 chaves fixas do Map.of().
+    private Map<String, Long> contagemPorChave(List<ChaveContagemProjection> linhas) {
+        Map<String, Long> resultado = new HashMap<>();
+        for (ChaveContagemProjection linha : linhas) {
+            if (linha.getChave() != null) resultado.put(linha.getChave(), linha.getTotal());
+        }
+        return resultado;
     }
 
     /**
@@ -281,13 +290,16 @@ public class JobController {
      * mesma empresa (normalizada) + título com alta similaridade de palavras.
      * Só sinaliza pra revisão manual: não deleta nem mescla nada sozinho.
      * GET /api/jobs/duplicates
+     *
+     * Fase 11.1 — a verificação por IA saiu daqui. Antes o endpoint fazia até
+     * {@code MAX_VERIFICACOES_IA} chamadas SÍNCRONAS ao Gemini dentro do
+     * request — com uma key recusada no pool (ver GeminiService), cada uma
+     * dessas chamadas percorria as 29 keys de novo, e o endpoint media mais
+     * de 120s sem responder (confirmado: dois timeouts reais, um de 60s e
+     * um de 120s). O Jaccard sozinho (agrupamento por similaridade de
+     * palavras) é local e rápido — devolve na hora. A segunda opinião da IA
+     * virou sob demanda, grupo a grupo, ver {@link #verificarDuplicataComIa}.
      */
-    // Limite de grupos verificados por IA por chamada — o Jaccard já reduz
-    // milhares de vagas a um punhado de grupos candidatos, mas ainda assim
-    // pode passar disso, e cada verificação é uma chamada ao Gemini (free
-    // tier tem limite de requisições por minuto).
-    private static final int MAX_VERIFICACOES_IA = 20;
-
     @GetMapping("/duplicates")
     public List<Map<String, Object>> getDuplicates() {
         // Fase 1.6 — filtro "não recusada" empurrado pro WHERE do SQL (via
@@ -304,7 +316,6 @@ public class JobController {
         }
 
         List<Map<String, Object>> grupos = new ArrayList<>();
-        int verificacoesIa = 0;
         for (List<Job> candidatos : porEmpresa.values()) {
             if (candidatos.size() < 2) continue;
 
@@ -335,19 +346,6 @@ public class JobController {
                 }
                 if (componente.size() < 2) continue;
 
-                // segunda opinião via IA — descarta grupos que o Jaccard achou parecidos
-                // por palavra mas que são vagas de times/produtos genuinamente diferentes.
-                // Sem IA disponível, ou depois do limite de verificações por chamada,
-                // mantém o comportamento anterior (só o veredito do Jaccard).
-                boolean aiVerificado = false;
-                if (verificacoesIa < MAX_VERIFICACOES_IA) {
-                    List<String> titulos = componente.stream().map(Job::getTitle).toList();
-                    boolean confirmado = aiDuplicateVerifierService.confirmar(componente.get(0).getCompany(), titulos);
-                    verificacoesIa++;
-                    if (!confirmado) continue; // IA disse que são vagas diferentes
-                    aiVerificado = true;
-                }
-
                 List<Map<String, Object>> vagas = componente.stream()
                         .map(j -> {
                             Map<String, Object> m = new HashMap<>();
@@ -362,12 +360,35 @@ public class JobController {
                 Map<String, Object> grupo = new HashMap<>();
                 grupo.put("company", componente.get(0).getCompany());
                 grupo.put("jobs", vagas);
-                grupo.put("aiVerificado", aiVerificado);
+                grupo.put("aiVerificado", false); // sempre false aqui agora — ver verificarDuplicataComIa
                 grupos.add(grupo);
             }
         }
 
         return grupos;
+    }
+
+    public record VerificarDuplicataRequest(String company, List<String> titles) {}
+
+    /**
+     * Segunda opinião da IA sobre UM grupo específico já sinalizado pelo
+     * Jaccard — chamada sob demanda pelo frontend (botão por grupo), nunca
+     * em laço automático dentro de {@link #getDuplicates}. 503 sem IA
+     * configurada; 200 com {@code mesmaVaga: false} quando a IA identifica
+     * que são vagas genuinamente diferentes (o frontend remove o grupo da
+     * lista nesse caso).
+     * POST /api/jobs/duplicates/verify  Body: { "company": "...", "titles": ["...", "..."] }
+     */
+    @PostMapping("/duplicates/verify")
+    public ResponseEntity<Map<String, Object>> verificarDuplicataComIa(@RequestBody VerificarDuplicataRequest req) {
+        if (!geminiService.isEnabled()) {
+            return ResponseEntity.status(503).body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+        }
+        if (req == null || req.titles() == null || req.titles().size() < 2) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Informe pelo menos 2 títulos pra comparar."));
+        }
+        boolean mesmaVaga = aiDuplicateVerifierService.confirmar(req.company(), req.titles());
+        return ResponseEntity.ok(Map.of("mesmaVaga", mesmaVaga));
     }
 
     private static final Set<String> COMPANY_SUFFIXES = Set.of(
@@ -719,6 +740,10 @@ public class JobController {
             keyPool.put("total", pool.total());
             keyPool.put("availableToday", pool.availableToday());
             keyPool.put("exhaustedToday", pool.exhaustedToday());
+            // Fase 11.3 — separado de exhaustedToday: key rejeitada (401/403)
+            // não é cota, não passa sozinho à meia-noite. Sem isso o painel
+            // dizia "29 de 29 disponíveis" com o log cheio de 403.
+            keyPool.put("rejectedNow", pool.rejectedNow());
             status.put("keyPool", keyPool);
         } else {
             status.put("keyPool", null);

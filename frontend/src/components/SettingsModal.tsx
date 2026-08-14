@@ -263,6 +263,12 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
               {aiStatus.keyPool.exhaustedToday > 0 && (
                 <span className="key-pool-exhausted"> · {aiStatus.keyPool.exhaustedToday} esgotada(s)</span>
               )}
+              {aiStatus.keyPool.rejectedNow > 0 && (
+                // Fase 11.3 — diferente de "esgotada" (cota, some sozinho amanhã):
+                // recusada é autenticação/permissão quebrada, não se resolve com
+                // o tempo. Cor de aviso mais forte (--red) de propósito.
+                <span className="key-pool-rejected"> · {aiStatus.keyPool.rejectedNow} recusada(s)</span>
+              )}
             </div>
           )}
 

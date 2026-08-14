@@ -119,4 +119,18 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
             ORDER BY j.source
             """)
     List<FonteSaudeProjection> saudeDasFontes();
+
+    /**
+     * Fase 12.5 — substitui as 7 chamadas de {@code countBySource(fixo)} que
+     * {@code JobController.getStats/porFonte} fazia (uma por fonte
+     * hardcoded na lista). Uma query com GROUP BY responde a mesma pergunta
+     * pra TODAS as fontes de uma vez, incluindo fonte nova que o Map.of()
+     * fixo não sabia que existia.
+     */
+    @Query("SELECT j.source AS chave, COUNT(j) AS total FROM Job j GROUP BY j.source")
+    List<ChaveContagemProjection> contagemPorSource();
+
+    /** Fase 12.5 — mesma ideia de {@link #contagemPorSource()}, pra senioridade. */
+    @Query("SELECT j.seniority AS chave, COUNT(j) AS total FROM Job j GROUP BY j.seniority")
+    List<ChaveContagemProjection> contagemPorSenioridade();
 }
