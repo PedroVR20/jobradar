@@ -10,6 +10,18 @@
 -- estado. Daqui pra frente, toda mudança de schema é um V2__, V3__, etc.
 -- novo — não editar este arquivo depois de aplicado.
 --
+-- Fase 15.1 — exceção à regra acima: as 5 linhas `ALTER TABLE ... OWNER TO
+-- jobradar` que o pg_dump gerou foram removidas. Achado pelo primeiro
+-- teste de integração do projeto (JobRepositoryIntegrationTest, via
+-- Testcontainers): num banco novo de verdade (CI, Testcontainers, um dev
+-- configurando do zero) a role que se conecta quase nunca se chama
+-- "jobradar" — só em produção, onde esse dono nunca é conferido mesmo
+-- (baseline-on-migrate pula a execução real do script, ver acima). Editar
+-- é seguro porque o Flyway nunca valida o conteúdo deste arquivo contra o
+-- histórico de produção (a entrada gravada lá é do tipo BASELINE, não
+-- associada ao script real) — só afeta banco que roda o script de verdade,
+-- que é exatamente onde o dono errado quebrava.
+--
 -- PostgreSQL database dump
 --
 
@@ -46,7 +58,6 @@ CREATE TABLE public.gmail_tokens (
 );
 
 
-ALTER TABLE public.gmail_tokens OWNER TO jobradar;
 
 --
 -- Name: job_embeddings; Type: TABLE; Schema: public; Owner: jobradar
@@ -58,7 +69,6 @@ CREATE TABLE public.job_embeddings (
 );
 
 
-ALTER TABLE public.job_embeddings OWNER TO jobradar;
 
 --
 -- Name: job_events; Type: TABLE; Schema: public; Owner: jobradar
@@ -72,7 +82,6 @@ CREATE TABLE public.job_events (
 );
 
 
-ALTER TABLE public.job_events OWNER TO jobradar;
 
 --
 -- Name: job_events_id_seq; Type: SEQUENCE; Schema: public; Owner: jobradar
@@ -124,7 +133,6 @@ CREATE TABLE public.jobs (
 );
 
 
-ALTER TABLE public.jobs OWNER TO jobradar;
 
 --
 -- Name: jobs_id_seq; Type: SEQUENCE; Schema: public; Owner: jobradar
@@ -154,7 +162,6 @@ CREATE TABLE public.weekly_digests (
 );
 
 
-ALTER TABLE public.weekly_digests OWNER TO jobradar;
 
 --
 -- Name: gmail_tokens gmail_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: jobradar
