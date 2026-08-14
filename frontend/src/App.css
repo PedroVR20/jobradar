@@ -810,6 +810,8 @@ a:hover { text-decoration: underline; }
 /* Fase 4.4 — skeleton loaders */
 .skeleton-card { cursor: default; gap: 0.7rem; display: flex; flex-direction: column; }
 .skeleton-lines { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
+.skeleton-lines-block { display: flex; flex-direction: column; gap: 0.7rem; padding: 1.5rem 0; }
+.skeleton-lines-block .skeleton-line { height: 14px; }
 .skeleton-badges { display: flex; gap: 0.4rem; }
 .skeleton-block {
   background: linear-gradient(90deg, var(--bg-card2) 25%, rgba(var(--overlay-rgb),0.06) 50%, var(--bg-card2) 75%);

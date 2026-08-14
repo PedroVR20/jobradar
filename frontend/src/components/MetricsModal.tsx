@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Metrics } from '../types/Job';
+import { SkeletonLines } from './SkeletonCard';
 
 interface Props {
   onClose: () => void;
@@ -30,7 +31,7 @@ export function MetricsModal({ onClose }: Props) {
         </div>
 
         {loading ? (
-          <p className="agenda-hint">Carregando...</p>
+          <SkeletonLines count={5} />
         ) : !metrics || metrics.totalAplicadas === 0 ? (
           <p className="agenda-hint">Ainda não há vagas aplicadas pra gerar métricas.</p>
         ) : (

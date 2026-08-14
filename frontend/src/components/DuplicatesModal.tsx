@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { DuplicateGroup, sourceMeta } from '../types/Job';
+import { SkeletonLines } from './SkeletonCard';
 
 interface Props {
   onClose: () => void;
@@ -39,7 +40,7 @@ export function DuplicatesModal({ onClose, onReject }: Props) {
         </p>
 
         {!groups ? (
-          <p className="agenda-hint">Carregando...</p>
+          <SkeletonLines count={4} />
         ) : groups.length === 0 ? (
           <p className="agenda-hint">Nenhuma duplicata encontrada. 🎉</p>
         ) : (

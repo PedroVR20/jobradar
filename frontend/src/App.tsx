@@ -8,6 +8,7 @@ import { FilterBar } from './components/FilterBar';
 import { ViewTabs } from './components/ViewTabs';
 import { JobCard } from './components/JobCard';
 import { EmptyState } from './components/EmptyState';
+import { SkeletonGrid } from './components/SkeletonCard';
 import { AddJobModal } from './components/AddJobModal';
 import { AgendaStatusBar } from './components/AgendaStatusBar';
 import { MetricsModal } from './components/MetricsModal';
@@ -371,10 +372,7 @@ export default function App() {
         )}
 
         {loading ? (
-          <div className="loading-box">
-            <div className="spinner" />
-            <p>Carregando vagas...</p>
-          </div>
+          <SkeletonGrid />
         ) : jobs.length === 0 ? (
           <EmptyState
             filters={filters}

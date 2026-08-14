@@ -34,3 +34,14 @@ export function SkeletonGrid({ count = 9 }: { count?: number }) {
     </div>
   );
 }
+
+/** Genérico pra loading de modal (métricas, duplicatas etc) — algumas linhas shimmer no lugar de "Carregando...". */
+export function SkeletonLines({ count = 4 }: { count?: number }) {
+  return (
+    <div className="skeleton-lines-block" role="status" aria-label="Carregando">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="skeleton-block skeleton-line skeleton-line--full" style={{ width: `${85 - i * 8}%` }} />
+      ))}
+    </div>
+  );
+}
