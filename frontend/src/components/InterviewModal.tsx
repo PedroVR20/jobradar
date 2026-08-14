@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Job } from '../types/Job';
 import { useAgenda } from '../hooks/useAgenda';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 interface Props {
   job: Job;
@@ -12,6 +13,7 @@ interface Props {
 const NOTIFY_BEFORE_MINUTES = 120; // 2h antes — entrevista pede aviso mais próximo que o follow-up genérico
 
 export function InterviewModal({ job, onClose, onSuccess }: Props) {
+  useEscapeToClose(onClose);
   const { isConnected, savedEmail, login, createTask, linkInterviewTask } = useAgenda();
 
   const [step, setStep] = useState<'connect' | 'schedule'>(isConnected() ? 'schedule' : 'connect');

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Job, PersonalizedSalaryEstimate, SalaryEstimate } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 interface Props {
   job: Job;
@@ -13,6 +14,7 @@ function fmt(n: number | undefined): string {
 }
 
 export function SalaryEstimateModal({ job, onClose }: Props) {
+  useEscapeToClose(onClose);
   const { profile } = useCandidateProfile();
   const [estimate, setEstimate] = useState<SalaryEstimate | null>(null);
   const [loading, setLoading] = useState(true);

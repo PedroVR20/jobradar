@@ -210,6 +210,7 @@ function NotesPreview({ notes, onToggle, onOpenEditor }: {
               type="button"
               className={`notes-checklist-item ${marcado ? 'notes-checklist-item--done' : ''}`}
               onClick={() => onToggle(i)}
+              aria-pressed={marcado}
             >
               <span className="notes-checklist-box">{marcado ? '✓' : ''}</span>
               <span className="notes-checklist-label">{m[3] || '(item vazio)'}</span>

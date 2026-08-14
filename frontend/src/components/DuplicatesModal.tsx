@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { DuplicateGroup, sourceMeta } from '../types/Job';
 import { SkeletonLines } from './SkeletonCard';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 interface Props {
   onClose: () => void;
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function DuplicatesModal({ onClose, onReject }: Props) {
+  useEscapeToClose(onClose);
   const [groups, setGroups] = useState<DuplicateGroup[] | null>(null);
 
   useEffect(() => {

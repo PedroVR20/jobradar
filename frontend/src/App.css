@@ -72,6 +72,20 @@ body {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
+/* Fase 4.6 — foco visível garantido pra navegação por teclado. Vários
+   inputs/botões no arquivo removem o outline nativo (outline:none) pra
+   estilizar só com border-color — a troca de borda sozinha nem sempre é
+   contraste suficiente, e alguns elementos ficavam sem NENHUM indicador
+   de foco. !important é deliberado aqui: é uma rede de segurança de
+   acessibilidade que precisa vencer qualquer outline:none espalhado
+   pelo CSS, não é uma escolha visual comum. Só ativa com :focus-visible
+   (teclado/programático) — não aparece em clique de mouse, então não
+   "suja" a interface pra quem navega só com o cursor. */
+:focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px !important;
+}
+
 /* ============================
    LAYOUT
    ============================ */

@@ -4,6 +4,7 @@ import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { GitHubFetchError, useGitHubProfile } from '../hooks/useGitHubProfile';
 import { useGmail } from '../hooks/useGmail';
 import { RetrainModal } from './RetrainModal';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 interface Props {
   aiStatus: AiStatus;
@@ -60,6 +61,7 @@ interface WeeklyDigestDto {
 const DIAS_ALERTA_FONTE_PARADA = 10;
 
 export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose }: Props) {
+  useEscapeToClose(onClose);
   const [fontesSaude, setFontesSaude] = useState<FonteSaude[]>([]);
   const [fontesSaudeLoading, setFontesSaudeLoading] = useState(true);
 

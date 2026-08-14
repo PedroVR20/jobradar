@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Job } from '../types/Job';
 import { useAgenda, AgendaTaskPayload } from '../hooks/useAgenda';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 interface Props {
   job: Job;
@@ -27,6 +28,7 @@ function buildPayload(job: Job, title: string, withDeadline: boolean): AgendaTas
 }
 
 export function AgendaModal({ job, onClose, onSuccess }: Props) {
+  useEscapeToClose(onClose);
   const { isConnected, savedEmail, login, createTask, linkTask } = useAgenda();
 
   // Etapa: 'connect' → 'confirm' → 'sending'

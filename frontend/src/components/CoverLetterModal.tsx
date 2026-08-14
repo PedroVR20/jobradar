@@ -5,6 +5,7 @@ import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { combineWithGitHub, useGitHubProfile } from '../hooks/useGitHubProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { AiFeedbackBox } from './AiFeedbackBox';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 interface Props {
   job: Job;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export function CoverLetterModal({ job, onClose }: Props) {
+  useEscapeToClose(onClose);
   const { profile } = useCandidateProfile();
   const { summary: githubSummary } = useGitHubProfile();
   const { buildContext } = useAiFeedback('cover-letter');

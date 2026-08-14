@@ -1,5 +1,6 @@
 import { useState, FormEvent } from 'react';
 import { JobStatus, ManualJobPayload, WorkplaceType, statusMeta, workplaceMeta } from '../types/Job';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 interface Props {
   onClose: () => void;
@@ -19,6 +20,7 @@ const emptyForm = {
 };
 
 export function AddJobModal({ onClose, onSubmit }: Props) {
+  useEscapeToClose(onClose);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

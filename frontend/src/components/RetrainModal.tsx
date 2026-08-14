@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { RetrainResult } from '../types/Job';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 interface Props {
   onClose: () => void;
@@ -29,6 +30,7 @@ function diffBadge(before: number, after: number, higherIsBetter: boolean): stri
 // SalaryModelTrainerService no backend (Ridge regression em Java puro,
 // entra em uso na hora, sem precisar reconstruir o container).
 export function RetrainModal({ onClose }: Props) {
+  useEscapeToClose(onClose);
   const [code, setCode] = useState('');
   const [step, setStep] = useState<Step>('code');
   const [error, setError] = useState('');

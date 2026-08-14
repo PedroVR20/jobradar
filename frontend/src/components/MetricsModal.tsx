@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Metrics } from '../types/Job';
 import { SkeletonLines } from './SkeletonCard';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 interface Props {
   onClose: () => void;
 }
 
 export function MetricsModal({ onClose }: Props) {
+  useEscapeToClose(onClose);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [loading, setLoading] = useState(true);
 
