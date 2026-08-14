@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useJobs } from './hooks/useJobs';
 import { AgendaTaskStatus, useAgenda } from './hooks/useAgenda';
 import { useAiStatus } from './hooks/useAiStatus';
+import { useTheme } from './hooks/useTheme';
 import { StatsBar } from './components/StatsBar';
 import { FilterBar } from './components/FilterBar';
 import { ViewTabs } from './components/ViewTabs';
@@ -77,6 +78,7 @@ export default function App() {
     useJobs(filters);
   const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
   const aiStatus = useAiStatus();
+  const { theme, toggle: toggleTheme } = useTheme();
   const { profile: candidateProfile } = useCandidateProfile();
   // Badge "🎯 X% match" nos cards de vagas NOVAS — só busca quando há perfil
   // salvo e a aba atual é a de novas (não faz sentido gastar a chamada pras
@@ -257,6 +259,14 @@ export default function App() {
             <p className="app-subtitle">Vagas de programação remotas na Europa + vagas no Brasil (Gupy) · Atualizado a cada 2 horas</p>
           </div>
           <div className="header-actions">
+            <button
+              className="btn btn-ghost theme-toggle-btn"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}
+              aria-label={theme === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
+            >
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
             <AgendaStatusBar syncing={syncingAgenda} onSync={handleAgendaSync} />
             <button className="btn btn-ghost" onClick={() => setShowMetrics(true)}>
               📊 Métricas

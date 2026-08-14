@@ -16,6 +16,41 @@
   --red:       #ef4444;
   --radius:    10px;
   --shadow:    0 1px 3px rgba(0,0,0,0.4);
+  /* Fase 4.1 — tint neutro pra hover/badge sutil (ex: background: rgba(var(--overlay-rgb),0.039)
+     em cima do card escuro). Precisa inverter no tema claro: branco
+     translúcido sobre fundo já claro é praticamente invisível — vira preto
+     translúcido lá embaixo em vez de trocar cada regra uma por uma. */
+  --overlay-rgb: 255,255,255;
+}
+
+/* Fase 4.1 — tema claro. Segue a preferência do sistema por padrão
+   (prefers-color-scheme) E aceita escolha manual via [data-theme] no
+   <html> (ver useTheme.ts) — o :not([data-theme="dark"]) garante que
+   quem escolheu escuro manualmente não seja atropelado pelo SO estar em
+   modo claro. A paleta clara segue a mesma lógica visual do GitHub
+   (neutros levemente azulados, não branco puro) pra ficar familiar sem
+   fugir muito da linguagem visual escura original. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg:        #f6f8fa;
+    --bg-card:   #ffffff;
+    --bg-card2:  #eef1f4;
+    --border:    #d0d7de;
+    --text:      #1f2328;
+    --text-muted:#57606a;
+    --shadow:    0 1px 3px rgba(31,35,40,0.12);
+    --overlay-rgb: 0,0,0;
+  }
+}
+:root[data-theme="light"] {
+  --bg:        #f6f8fa;
+  --bg-card:   #ffffff;
+  --bg-card2:  #eef1f4;
+  --border:    #d0d7de;
+  --text:      #1f2328;
+  --text-muted:#57606a;
+  --shadow:    0 1px 3px rgba(31,35,40,0.12);
+  --overlay-rgb: 0,0,0;
 }
 
 body {
@@ -220,7 +255,7 @@ a:hover { text-decoration: underline; }
   transition: background 0.15s, color 0.15s;
   white-space: nowrap;
 }
-.view-tab:hover { background: #ffffff08; color: var(--text); }
+.view-tab:hover { background: rgba(var(--overlay-rgb),0.031); color: var(--text); }
 .view-tab--active {
   background: var(--accent);
   color: #fff;
@@ -230,12 +265,12 @@ a:hover { text-decoration: underline; }
 .view-tab-count {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
-  background: rgba(255,255,255,0.15);
+  background: rgba(var(--overlay-rgb),0.15);
   padding: 1px 7px;
   border-radius: 10px;
 }
 .view-tab:not(.view-tab--active) .view-tab-count {
-  background: #ffffff0f;
+  background: rgba(var(--overlay-rgb),0.059);
 }
 
 .view-tab--drop-hover {
@@ -423,7 +458,7 @@ a:hover { text-decoration: underline; }
   font-weight: 700;
   padding: 3px 10px;
   border-radius: 5px;
-  background: #ffffff0a;
+  background: rgba(var(--overlay-rgb),0.039);
   color: var(--text-muted);
   border: 1px dashed var(--border);
 }
@@ -485,7 +520,7 @@ a:hover { text-decoration: underline; }
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .card-menu-btn:hover {
-  background: #ffffff10;
+  background: rgba(var(--overlay-rgb),0.063);
   color: var(--text);
   border-color: var(--border);
 }
@@ -619,10 +654,10 @@ a:hover { text-decoration: underline; }
   padding: 3px 10px;
   border-radius: 5px;
 }
-.badge-deadline--ok      { background: #ffffff0a; color: var(--text-muted); border: 1px solid var(--border); }
+.badge-deadline--ok      { background: rgba(var(--overlay-rgb),0.039); color: var(--text-muted); border: 1px solid var(--border); }
 .badge-deadline--soon    { background: #f59e0b22; color: var(--yellow); border: 1px solid #f59e0b44; }
 .badge-deadline--urgent  { background: #ef444422; color: var(--red); border: 1px solid #ef444444; animation: pulse 2s infinite; }
-.badge-deadline--closed  { background: #ffffff0a; color: var(--text-muted); border: 1px solid var(--border); text-decoration: line-through; }
+.badge-deadline--closed  { background: rgba(var(--overlay-rgb),0.039); color: var(--text-muted); border: 1px solid var(--border); text-decoration: line-through; }
 
 .card-tags {
   display: flex;
@@ -637,7 +672,7 @@ a:hover { text-decoration: underline; }
   font-family: 'JetBrains Mono', monospace;
 }
 .tag--tech   { background: #6366f122; color: #818cf8; border: 1px solid #6366f144; }
-.tag--normal { background: #ffffff0a; color: var(--text-muted); border: 1px solid var(--border); }
+.tag--normal { background: rgba(var(--overlay-rgb),0.039); color: var(--text-muted); border: 1px solid var(--border); }
 
 .card-actions {
   display: flex;
@@ -659,7 +694,7 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s;
 }
-.load-more-btn:hover { border-color: var(--accent); background: #ffffff08; }
+.load-more-btn:hover { border-color: var(--accent); background: rgba(var(--overlay-rgb),0.031); }
 
 /* ============================
    BUTTONS
@@ -1468,7 +1503,7 @@ a:hover { text-decoration: underline; }
   border-bottom: 1px solid var(--border);
   cursor: grab;
   user-select: none;
-  background: #ffffff05;
+  background: rgba(var(--overlay-rgb),0.02);
 }
 .pill-confirm-header:active { cursor: grabbing; }
 
@@ -1522,7 +1557,7 @@ a:hover { text-decoration: underline; }
   gap: 0.5rem;
   padding: 0.75rem 1.25rem 1rem;
   border-top: 1px solid var(--border);
-  background: #ffffff03;
+  background: rgba(var(--overlay-rgb),0.012);
 }
 
 /* ============================
@@ -1709,7 +1744,7 @@ a:hover { text-decoration: underline; }
   gap: 4px;
   text-align: center;
   cursor: pointer;
-  background: #ffffff05;
+  background: rgba(var(--overlay-rgb),0.02);
   transition: border-color 0.15s, background 0.15s;
 }
 .profile-dropzone:hover { border-color: var(--accent); background: #6366f10c; }
