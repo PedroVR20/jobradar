@@ -8,6 +8,9 @@ interface Props {
   total: number;
   states: string[];
   sources: string[];
+  // Fase 4.5 — modo compacto do grid de vagas.
+  compact: boolean;
+  onToggleCompact: () => void;
 }
 
 const LS_KEY = 'jobradar:tech-pills';
@@ -39,7 +42,7 @@ function saveSavedFilters(list: SavedFilter[]) {
   localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(list));
 }
 
-export function FilterBar({ filters, onChange, onClear, total, states, sources }: Props) {
+export function FilterBar({ filters, onChange, onClear, total, states, sources, compact, onToggleCompact }: Props) {
   const set = (partial: Partial<Filters>) => onChange({ ...filters, ...partial });
 
   const [pills, setPills] = useState<string[]>(loadPills);
@@ -336,6 +339,15 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources }
         )}
 
         <span className="result-count">{total} vagas</span>
+        <button
+          type="button"
+          className={`btn btn-ghost compact-toggle-btn ${compact ? 'compact-toggle-btn--active' : ''}`}
+          onClick={onToggleCompact}
+          title={compact ? 'Ver vagas em cards completos' : 'Ver vagas em lista compacta (uma linha cada)'}
+          aria-pressed={compact}
+        >
+          {compact ? '☰ Cards' : '≡ Compacto'}
+        </button>
       </div>
 
       {/* Modal de confirmação — arrastável */}

@@ -367,6 +367,9 @@ a:hover { text-decoration: underline; }
   white-space: nowrap;
   font-family: 'JetBrains Mono', monospace;
 }
+/* Fase 4.5 */
+.compact-toggle-btn { font-size: 0.78rem; padding: 6px 10px; }
+.compact-toggle-btn--active { border-color: var(--accent); color: var(--accent); }
 
 /* ============================
    JOBS GRID
@@ -376,11 +379,16 @@ a:hover { text-decoration: underline; }
   grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
   gap: 1rem;
 }
+/* Fase 4.5 — modo compacto: uma coluna só (cada linha já é bem mais baixa
+   que um card cheio, não precisa de múltiplas colunas pra aproveitar
+   espaço horizontal — ficaria com linhas bem curtas e espalhadas). */
+.jobs-grid--compact { grid-template-columns: 1fr; gap: 0.4rem; }
 
 /* ============================
    JOB CARD
    ============================ */
 .job-card {
+  position: relative; /* pro botão de recolher (▲) do modo compacto, ver Fase 4.5 */
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -399,6 +407,72 @@ a:hover { text-decoration: underline; }
 .job-card--rejected { border-left: 3px solid var(--text-muted); opacity: 0.6; }
 .job-card[draggable="true"] { cursor: grab; }
 .job-card[draggable="true"]:active { cursor: grabbing; opacity: 0.6; }
+
+/* Fase 4.5 — modo compacto: uma linha por vaga em vez do card cheio.
+   position:relative pro botão de recolher (▲) do card expandido individual
+   se posicionar no canto sem interferir no header normal. */
+.job-card--compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+}
+.job-card--compact:hover { border-color: var(--accent); }
+.company-avatar--compact { width: 28px; height: 28px; flex-shrink: 0; }
+.job-card-compact-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 0.1rem;
+}
+.job-card-compact-title {
+  font-weight: 600;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-card-compact-company {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.badge-match--compact, .badge-salary--compact {
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.badge-match--compact { background: rgba(var(--overlay-rgb),0.06); color: var(--accent); border: 1px solid var(--accent); }
+.badge-salary--compact { background: rgba(16,185,129,0.12); color: var(--green); }
+.job-card-compact-status {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.job-card-collapse-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.job-card-collapse-btn:hover { color: var(--text); border-color: var(--accent); }
 
 .card-header {
   display: flex;

@@ -61,6 +61,9 @@ const defaultFilters: Filters = {
 
 const PAGE_SIZE = 30;
 const LAST_VISIT_KEY = 'jobradar:last-visit';
+// Fase 4.5 — modo compacto do grid de vagas, mesmo padrão de persistência
+// do modo compacto do Hunter (localStorage, lido uma vez no mount).
+const COMPACT_CARDS_KEY = 'jobradar:compact-cards';
 
 export default function App() {
   const [filters, setFilters] = useState<Filters>(defaultFilters);
@@ -71,6 +74,16 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showJarvis, setShowJarvis] = useState(false);
   const [showTriage, setShowTriage] = useState(false);
+  const [compactCards, setCompactCards] = useState(() => {
+    try { return localStorage.getItem(COMPACT_CARDS_KEY) === '1'; } catch { return false; }
+  });
+  const toggleCompactCards = () => {
+    setCompactCards(c => {
+      const next = !c;
+      try { localStorage.setItem(COMPACT_CARDS_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  };
   // Pulso temporário no card real da vaga que o Hunter acabou de mudar
   // (marcarStatusDeVaga/atualizarNotaDeVaga) — ver job-card--highlighted no
   // App.css. Desliga sozinho depois de alguns segundos.
@@ -362,6 +375,8 @@ export default function App() {
           total={jobs.length}
           states={states}
           sources={sources}
+          compact={compactCards}
+          onToggleCompact={toggleCompactCards}
         />
 
         {/* Content */}
@@ -383,7 +398,7 @@ export default function App() {
           />
         ) : (
           <>
-            <div className="jobs-grid">
+            <div className={`jobs-grid ${compactCards ? 'jobs-grid--compact' : ''}`}>
               {visibleJobs.map(job => (
                 <JobCard
                   key={job.id}
@@ -399,6 +414,7 @@ export default function App() {
                   sortMode={filters.sort}
                   highlighted={job.id === highlightedJobId}
                   matchPercent={filters.viewMode === 'novas' ? matchScores[String(job.id)] : undefined}
+                  compact={compactCards}
                 />
               ))}
             </div>

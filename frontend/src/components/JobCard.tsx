@@ -30,6 +30,11 @@ interface Props {
   // onde faz sentido triar; badge só aparece a partir de um mínimo de
   // sobreposição, senão viraria ruído em quase toda vaga.
   matchPercent?: number;
+  // Fase 4.5 — modo compacto (lista densa: título/empresa/match/salário
+  // numa linha só, mesmo padrão do modo compacto que o Hunter já tem).
+  // Cada card ainda pode ser clicado pra expandir individualmente sem sair
+  // do modo compacto — não precisa trocar de tela pra ver os detalhes.
+  compact?: boolean;
 }
 
 const techTags = [
@@ -234,7 +239,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode, highlighted, matchPercent }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode, highlighted, matchPercent, compact }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -255,6 +260,12 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const isPlainApplied = job.applied && !job.inProgress && !job.rejected;
   const status = currentStatus(job);
   const daysLeft = job.rejected && job.rejectedAt ? daysUntilDeletion(job.rejectedAt) : null;
+
+  // Fase 4.5 — no modo compacto, cada card individual pode ser expandido
+  // sem precisar sair do modo (clicar de novo recolhe). Fora do modo
+  // compacto isso não é usado — o card sempre mostra tudo.
+  const [expanded, setExpanded] = useState(false);
+  const showFull = !compact || expanded;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
@@ -339,6 +350,45 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
     }
   };
 
+  // Fase 4.5 — modo compacto: uma linha por vaga (título, empresa, match,
+  // salário) em vez do card cheio — clicar expande SÓ esse card, sem sair
+  // do modo. Reaproveita as mesmas classes de estado (job-card--new etc)
+  // pra manter as cores de destaque consistentes com o card completo.
+  if (!showFull) {
+    return (
+      <div
+        className={`job-card job-card--compact ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''}`}
+        id={`job-card-${job.id}`}
+        role="button"
+        tabIndex={0}
+        onClick={() => setExpanded(true)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(true); } }}
+      >
+        <div className="company-avatar company-avatar--compact" style={{ borderColor: src.color + '44' }}>
+          {job.companyLogoUrl && !logoError ? (
+            <img
+              src={job.companyLogoUrl}
+              alt=""
+              className="company-logo"
+              onError={() => setLogoError(true)}
+            />
+          ) : (
+            <span className="company-initials" style={{ color: src.color }}>{companyInitials(job.company)}</span>
+          )}
+        </div>
+        <div className="job-card-compact-main">
+          <span className="job-card-compact-title">{job.title}</span>
+          <span className="job-card-compact-company">{job.company}</span>
+        </div>
+        {matchPercent != null && matchPercent >= 50 && (
+          <span className="badge-match badge-match--compact">🎯 {matchPercent}%</span>
+        )}
+        {job.salary && <span className="badge-salary badge-salary--compact">💰 {job.salary}</span>}
+        <span className="job-card-compact-status">{statusMeta[status]}</span>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''}`}
@@ -347,6 +397,17 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
       onDragStart={job.applied ? handleDragStart : undefined}
       title={job.applied ? 'Arraste pra outra aba, ou use o menu ⋮' : undefined}
     >
+      {compact && (
+        <button
+          type="button"
+          className="job-card-collapse-btn"
+          onClick={() => setExpanded(false)}
+          aria-label="Recolher vaga"
+          title="Recolher"
+        >
+          ▲
+        </button>
+      )}
       {/* Header */}
       <div className="card-header">
         <div className="card-header-left">
