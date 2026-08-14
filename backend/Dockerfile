@@ -11,17 +11,20 @@ FROM amazoncorretto:21-alpine
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8080
-# -Xmx explícito (real fix pontual, não definitivo — ver comentário em
-# JobRepository/JobController sobre o próximo passo de verdade): sem isso
-# o JVM heurística pra 25% da memória DETECTADA DO HOST (não do limite do
-# container), e listagens sem paginação (ex: GET /api/jobs?onlyNew=true)
-# carregam toda vaga NOVA inteira — incluindo o campo embedding (~alguns
-# KB cada, populado em massa pelo backfill da Fase 1.1) — de uma vez.
-# Com o catálogo tendo crescido bastante nesta sessão (Greenhouse +
-# backfills), isso estourou o heap default e travou o backend
-# (OutOfMemoryError sem crash-loop, container ficava "Up" mas travado).
-# 2g é folga real dado que o host/container têm memória de sobra — não
-# resolve o problema de fundo (que é a query não paginada carregando
-# coluna que a listagem nem usa), só evita o crash até isso ser corrigido
-# de verdade.
-ENTRYPOINT ["java", "-Xmx2g", "-Xms512m", "-jar", "app.jar"]
+# Fase 6.6 — -Xmx2g (Fase 1) foi tampão de emergência pro OOM real de
+# então: o campo embedding (~39 mil caracteres/vaga) vivia dentro de Job e
+# QUALQUER listagem sem paginação (ex: GET /api/jobs?onlyNew=true, ou o
+# findAll() de /export) arrastava ele junto pra cada linha. A causa raiz
+# foi corrigida de verdade desde então — embedding saiu do Job pra tabela
+# própria (Fase 6.1) e virou bytea compacto (Fase 6.5), e a listagem
+# principal ganhou paginação de verdade (Fase 6.3) — então 2g parou de
+# ser necessário, só reservava memória que os outros containers (postgres,
+# frontend) também disputam no mesmo host/VM.
+#
+# Medido antes de reverter (não assumido): jcmd GC.heap_info depois de
+# bater repetidamente em /api/jobs/export?format=json (o pior caso que
+# sobrou sem paginação, ~5900 vagas de uma vez) — heap usado ficou em
+# ~350 MB, bem abaixo mesmo do heap committed de ~860 MB. 1g dá quase 3x
+# de folga sobre o pico medido, o suficiente pro catálogo crescer bastante
+# antes de precisar revisar de novo.
+ENTRYPOINT ["java", "-Xmx1g", "-Xms512m", "-jar", "app.jar"]
