@@ -794,6 +794,22 @@ a:hover { text-decoration: underline; }
   white-space: normal;
   line-height: 1.3;
 }
+
+/* Fase 16.9 — menu "⋯" do header, reaproveita .card-menu-dropdown/
+   .card-menu-item (mesmo padrão do "⋮" de cada card e do menu de IA) —
+   só o gatilho é diferente (.header-menu-btn usa o .btn normal com texto
+   "⋯ Mais", não o ícone quadrado 22x22 de .card-menu-btn, que não cabe
+   texto) e o dropdown é um pouco mais largo pros itens mais longos
+   ("🧠 Busca semântica"). z-index mais alto que o header (100) — o menu
+   precisa ficar por cima do resto do header, não atrás dele. */
+.header-menu { position: relative; display: inline-flex; }
+.header-menu-btn .view-tab-count { margin-left: 4px; }
+.header-menu-dropdown {
+  top: calc(100% + 6px);
+  min-width: 220px;
+  z-index: 150;
+  animation: card-menu-in 0.15s ease-out;
+}
 .card-menu-item--icon {
   display: flex;
   align-items: center;

@@ -88,6 +88,24 @@ export default function App() {
   // Fila de verdade: cada toast tem seu próprio id e seu próprio timer.
   const [toasts, setToasts] = useState<{ id: number; msg: string; action?: ToastAction }[]>([]);
   const toastIdRef = useRef(0);
+  // Fase 16.9 — 8 ações no header, todas no mesmo nível visual (Métricas/
+  // Configurações/Triagem/Duplicatas/Busca semântica/Hunter/Adicionar
+  // vaga/tema), sem distinção entre a ação principal (Adicionar vaga) e as
+  // secundárias. As 5 menos frequentes somem num menu "⋯" — mesmo padrão
+  // de menu suspenso que o "⋮" de cada card já usa (.card-menu/
+  // .card-menu-dropdown/.card-menu-item).
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const headerMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showHeaderMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(e.target as Node)) {
+        setShowHeaderMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showHeaderMenu]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -455,25 +473,70 @@ export default function App() {
               {theme === 'dark' ? '☀️' : '🌙'}
             </button>
             <AgendaStatusBar syncing={syncingAgenda} onSync={handleAgendaSync} />
-            <button className="btn btn-ghost" onClick={() => setShowMetrics(true)}>
-              📊 Métricas
-            </button>
-            <button className="btn btn-ghost" onClick={() => setShowSettings(true)}>
-              ⚙️ Configurações
-            </button>
-            <button className="btn btn-ghost" onClick={() => setShowTriage(true)} title="Revisa as vagas novas uma por uma, rapidinho">
-              ⚡ Triagem rápida
-              {/* Fase 8.6 — progresso visível ANTES de abrir, não só dentro do
-                  modal: o tamanho do backlog é informação relevante pra
-                  decidir se vale abrir agora. */}
-              {!!stats?.novas && <span className="view-tab-count">{stats.novas}</span>}
-            </button>
-            <button className="btn btn-ghost" onClick={() => setShowDuplicates(true)} title="Vagas da mesma empresa com título parecido, publicadas em fontes diferentes">
-              🧩 Duplicatas
-            </button>
-            <button className="btn btn-ghost" onClick={() => setShowSemanticSearch(true)} title="Busca por significado, não por texto exato — roda local, sem gastar cota de IA">
-              🧠 Busca semântica
-            </button>
+            <div className="card-menu header-menu" ref={headerMenuRef}>
+              <button
+                type="button"
+                className="btn btn-ghost header-menu-btn"
+                onClick={() => setShowHeaderMenu(o => !o)}
+                aria-haspopup="true"
+                aria-expanded={showHeaderMenu}
+                title="Mais ações"
+              >
+                ⋯ Mais
+                {/* Fase 8.6 — o tamanho do backlog de "Triagem rápida" (que
+                    mudou pra dentro deste menu na Fase 16.9) continua
+                    visível ANTES de abrir qualquer coisa — é informação
+                    relevante pra decidir se vale abrir o menu agora. */}
+                {!!stats?.novas && <span className="view-tab-count">{stats.novas}</span>}
+              </button>
+              {showHeaderMenu && (
+                <div className="card-menu-dropdown header-menu-dropdown" role="menu">
+                  <button
+                    type="button"
+                    className="card-menu-item card-menu-item--icon"
+                    role="menuitem"
+                    onClick={() => { setShowHeaderMenu(false); setShowTriage(true); }}
+                    title="Revisa as vagas novas uma por uma, rapidinho"
+                  >
+                    ⚡ Triagem rápida
+                  </button>
+                  <button
+                    type="button"
+                    className="card-menu-item"
+                    role="menuitem"
+                    onClick={() => { setShowHeaderMenu(false); setShowDuplicates(true); }}
+                    title="Vagas da mesma empresa com título parecido, publicadas em fontes diferentes"
+                  >
+                    🧩 Duplicatas
+                  </button>
+                  <button
+                    type="button"
+                    className="card-menu-item"
+                    role="menuitem"
+                    onClick={() => { setShowHeaderMenu(false); setShowSemanticSearch(true); }}
+                    title="Busca por significado, não por texto exato — roda local, sem gastar cota de IA"
+                  >
+                    🧠 Busca semântica
+                  </button>
+                  <button
+                    type="button"
+                    className="card-menu-item"
+                    role="menuitem"
+                    onClick={() => { setShowHeaderMenu(false); setShowMetrics(true); }}
+                  >
+                    📊 Métricas
+                  </button>
+                  <button
+                    type="button"
+                    className="card-menu-item"
+                    role="menuitem"
+                    onClick={() => { setShowHeaderMenu(false); setShowSettings(true); }}
+                  >
+                    ⚙️ Configurações
+                  </button>
+                </div>
+              )}
+            </div>
             {aiStatus.enabled && (
               <button className="btn jarvis-toggle-btn" onClick={() => setShowJarvis(o => !o)} title="Abrir o Hunter (Ctrl+K)">
                 <HunterIcon size={17} alive /> Hunter
