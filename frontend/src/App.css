@@ -417,6 +417,13 @@ a:hover { text-decoration: underline; }
    que um card cheio, não precisa de múltiplas colunas pra aproveitar
    espaço horizontal — ficaria com linhas bem curtas e espalhadas). */
 .jobs-grid--compact { grid-template-columns: 1fr; gap: 0.4rem; }
+/* Fase 16.7 — refetch em segundo plano (filtro mudou, aba trocou) esmaece
+   o grid JÁ carregado em vez de trocar tudo pelo SkeletonGrid (esse fica
+   só pro carregamento inicial de verdade, ver App.tsx/useJobs.ts) —
+   transição suave, sem o "piscar" de trocar conteúdo real por placeholder
+   e voltar a cada tecla digitada na busca. pointer-events:none evita
+   clicar num card que está prestes a ser substituído pelo resultado novo. */
+.jobs-grid--refetching { opacity: 0.55; pointer-events: none; transition: opacity 0.15s ease; }
 
 /* ============================
    JOB CARD

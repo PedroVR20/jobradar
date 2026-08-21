@@ -125,7 +125,7 @@ export default function App() {
   // App.css. Desliga sozinho depois de alguns segundos.
   const [highlightedJobId, setHighlightedJobId] = useState<number | null>(null);
 
-  const { jobs, stats, states, sources, loading, fetching, error, totalElements, hasMore, loadMore, loadingMore, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reativarVaga, reload } =
+  const { jobs, stats, states, sources, loading, refetching, fetching, error, totalElements, hasMore, loadMore, loadingMore, markSeen, markApplied, markInProgress, setStatus, addManualJob, triggerFetch, togglePin, updateNotes, reativarVaga, reload } =
     useJobs(filters);
   const { isConnected, createTask, linkTask, getLinkedTask, syncTaskStatus, getTaskStatus } = useAgenda();
   const aiStatus = useAiStatus();
@@ -624,7 +624,7 @@ export default function App() {
                 catálogo/paginação crescer a ponto de "carregar mais" virar
                 hábito de centenas de cards na tela, revisitar com medição
                 real primeiro. */}
-            <div className={`jobs-grid ${compactCards ? 'jobs-grid--compact' : ''}`}>
+            <div className={`jobs-grid ${compactCards ? 'jobs-grid--compact' : ''} ${refetching ? 'jobs-grid--refetching' : ''}`}>
               {jobs.map((job, idx) => (
                 <JobCard
                   key={job.id}

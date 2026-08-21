@@ -44,6 +44,17 @@ export function useJobs(filters: Filters) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Fase 16.7 — antes, `loading` virava true em TODO refetch de página 0
+  // (troca de aba, cada tecla digitada na busca depois do debounce, filtro
+  // qualquer) — e App.tsx usava `loading` pra decidir entre grid real e
+  // SkeletonGrid, então a lista inteira "piscava" pro esqueleto e voltava a
+  // cada refetch, mesmo já tendo dado real na tela. `loading` agora só liga
+  // no carregamento INICIAL de verdade (hasLoadedOnce ainda false);
+  // refetches subsequentes ligam `refetching` — App.tsx usa isso pra um
+  // indicador sutil (esmaecer o grid existente), não pra trocar tudo por
+  // esqueleto.
+  const hasLoadedOnce = useRef(false);
+  const [refetching, setRefetching] = useState(false);
 
   // lista de estados/fontes só muda quando novas vagas chegam; carrega uma vez
   useEffect(() => {
@@ -90,7 +101,15 @@ export function useJobs(filters: Filters) {
   // page>0 é "carregar mais": acumula em cima do que já tinha, não substitui.
   const loadJobs = useCallback(async (silent = false, page = 0) => {
     const carregandoMais = page > 0;
-    if (!silent && !carregandoMais) setLoading(true);
+    const primeiraVezDeVerdade = !hasLoadedOnce.current;
+    if (!silent && !carregandoMais) {
+      // Fase 16.7 — só o carregamento INICIAL usa o loading "bloqueante"
+      // (SkeletonGrid substitui tudo, faz sentido não ter nada na tela
+      // ainda). Refetches depois disso (filtro mudou, aba trocou) usam
+      // `refetching` — grid existente continua visível, só esmaecido.
+      if (primeiraVezDeVerdade) setLoading(true);
+      else setRefetching(true);
+    }
     if (carregandoMais) setLoadingMore(true);
     setError(null);
     try {
@@ -109,7 +128,11 @@ export function useJobs(filters: Filters) {
     } catch {
       setError('Erro ao carregar vagas. Verifique se o backend está rodando.');
     } finally {
-      if (!silent && !carregandoMais) setLoading(false);
+      if (!silent && !carregandoMais) {
+        hasLoadedOnce.current = true;
+        setLoading(false);
+        setRefetching(false);
+      }
       if (carregandoMais) setLoadingMore(false);
     }
   }, [buildQuery]);
@@ -263,7 +286,7 @@ export function useJobs(filters: Filters) {
   const hasMore = jobs.length < totalElements;
 
   return {
-    jobs, stats, states, sources, loading, fetching, error,
+    jobs, stats, states, sources, loading, refetching, fetching, error,
     // Fase 6.3 — paginação real: totalElements/hasMore/loadMore/loadingMore
     // são novos, pro frontend saber quanto falta e pedir a próxima página
     // em vez de já ter tudo carregado e só "revelar" mais linhas de uma
