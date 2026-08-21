@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check-bundle-size": "node scripts/check-bundle-size.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",

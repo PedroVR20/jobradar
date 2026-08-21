@@ -46,6 +46,11 @@ jobs:
       # `npm run build` já roda `tsc` antes do `vite build` (ver
       # package.json) — um comando só cobre checagem de tipos + bundle.
       - run: npm run build
+      # Fase 15.2 — guarda de performance: falha o CI se o bundle PRINCIPAL
+      # (o que carrega em toda visita, não os chunks lazy) crescer muito além
+      # do medido hoje — pega uma dependência pesada entrando por acidente
+      # antes de virar "o app ficou lento" descoberto na prática depois.
+      - run: npm run check-bundle-size
 
   docker-build:
     name: Docker — build das duas imagens
