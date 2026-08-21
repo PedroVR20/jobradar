@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { DuplicateGroup, sourceMeta } from '../types/Job';
 import { SkeletonLines } from './SkeletonCard';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   onClose: () => void;
@@ -10,6 +11,7 @@ interface Props {
 
 export function DuplicatesModal({ onClose, onReject }: Props) {
   useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const [groups, setGroups] = useState<DuplicateGroup[] | null>(null);
   // Fase 11.1 — verificação por IA saiu do GET /duplicates (travava o
   // endpoint) e virou sob demanda, por grupo. Estado local só pra saber
@@ -62,10 +64,18 @@ export function DuplicatesModal({ onClose, onReject }: Props) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal duplicates-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal duplicates-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="duplicates-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>🧩</span>
-          <h2>Possíveis duplicatas</h2>
+          <h2 id="duplicates-modal-title">Possíveis duplicatas</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 

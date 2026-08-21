@@ -1,4 +1,5 @@
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   onClose: () => void;
@@ -44,13 +45,22 @@ const GRUPOS: { titulo: string; itens: { teclas: string[]; label: string }[] }[]
 
 export function ShortcutsModal({ onClose }: Props) {
   useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal shortcuts-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal shortcuts-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="shortcuts-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>⌨️</span>
-          <h2>Atalhos de teclado</h2>
+          <h2 id="shortcuts-modal-title">Atalhos de teclado</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 

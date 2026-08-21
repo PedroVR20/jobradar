@@ -3,6 +3,7 @@ import { Job, JobStatus, RejectedReason } from '../types/Job';
 import { JobCard } from './JobCard';
 import { SkeletonLines } from './SkeletonCard';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   onClose: () => void;
@@ -31,6 +32,7 @@ export function SemanticSearchModal({
   onClose, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, candidateProfile,
 }: Props) {
   useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const [consulta, setConsulta] = useState('');
   const [buscando, setBuscando] = useState(false);
   const [resultados, setResultados] = useState<SemanticSearchResult[] | null>(null);
@@ -73,10 +75,18 @@ export function SemanticSearchModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal semantic-search-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal semantic-search-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="semantic-search-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>🧠</span>
-          <h2>Busca por significado</h2>
+          <h2 id="semantic-search-modal-title">Busca por significado</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 
@@ -92,6 +102,7 @@ export function SemanticSearchModal({
             className="search-input semantic-search-input"
             type="text"
             placeholder="ex: infraestrutura em nuvem, front-end com foco em acessibilidade..."
+            aria-label="Buscar vagas por significado"
             value={consulta}
             onChange={e => setConsulta(e.target.value)}
             autoFocus

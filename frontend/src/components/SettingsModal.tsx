@@ -5,6 +5,7 @@ import { GitHubFetchError, useGitHubProfile } from '../hooks/useGitHubProfile';
 import { useGmail } from '../hooks/useGmail';
 import { RetrainModal } from './RetrainModal';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   aiStatus: AiStatus;
@@ -68,6 +69,7 @@ interface WeeklyDigestDto {
 
 export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose }: Props) {
   useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const [fontesSaude, setFontesSaude] = useState<FonteSaude[]>([]);
   const [fontesSaudeLoading, setFontesSaudeLoading] = useState(true);
 
@@ -245,10 +247,18 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
   return (
     <>
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal settings-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal settings-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>⚙️</span>
-          <h2>Configurações</h2>
+          <h2 id="settings-modal-title">Configurações</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 

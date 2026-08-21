@@ -150,10 +150,23 @@ export function TriageModal({ onSeen, onSetStatus, onClose, aiEnabled }: Props) 
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal triage-modal" onClick={e => e.stopPropagation()}>
+      {/* Fase 16.4 — sem useFocusTrap aqui DE PROPÓSITO (diferente dos
+          outros modais): esse modal é 100% dirigido por teclado (seta/y/n/
+          espaço trocam de vaga), e se o foco inicial caísse no botão ✕
+          (primeiro elemento focável), o navegador dispara um clique
+          sintético nele quando o usuário aperta espaço ("pular") — fechando
+          o modal sem querer no primeiro atalho. role/aria-modal continuam
+          (ajuda leitor de tela), só o roubo de foco fica de fora. */}
+      <div
+        className="modal triage-modal"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="triage-modal-title"
+      >
         <div className="modal-header">
           <span>⚡</span>
-          <h2>Triagem rápida</h2>
+          <h2 id="triage-modal-title">Triagem rápida</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 

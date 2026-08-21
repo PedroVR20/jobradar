@@ -6,6 +6,7 @@ import { combineWithGitHub, useGitHubProfile } from '../hooks/useGitHubProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { AiFeedbackBox } from './AiFeedbackBox';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   job: Job;
@@ -84,6 +85,7 @@ function GapItem({ job, gap, candidateProfile, feedbackContext }: GapItemProps) 
 
 export function MatchScoreModal({ job, onClose }: Props) {
   useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const { profile } = useCandidateProfile();
   const { summary: githubSummary } = useGitHubProfile();
   const { buildContext } = useAiFeedback('match-score');
@@ -117,10 +119,18 @@ export function MatchScoreModal({ job, onClose }: Props) {
 
   return createPortal(
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal match-score-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal match-score-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="match-score-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>🎯</span>
-          <h2>Compatibilidade com a vaga</h2>
+          <h2 id="match-score-modal-title">Compatibilidade com a vaga</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 

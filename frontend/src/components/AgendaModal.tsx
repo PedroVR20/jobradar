@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Job } from '../types/Job';
 import { useAgenda, AgendaTaskPayload } from '../hooks/useAgenda';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   job: Job;
@@ -29,6 +30,7 @@ function buildPayload(job: Job, title: string, withDeadline: boolean): AgendaTas
 
 export function AgendaModal({ job, onClose, onSuccess }: Props) {
   useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const { isConnected, savedEmail, login, createTask, linkTask } = useAgenda();
 
   // Etapa: 'connect' → 'confirm' → 'sending'
@@ -79,10 +81,18 @@ export function AgendaModal({ job, onClose, onSuccess }: Props) {
 
   return createPortal(
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal agenda-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal agenda-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="agenda-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>📅</span>
-          <h2>
+          <h2 id="agenda-modal-title">
             {step === 'connect' ? 'Conectar à Agenda' : 'Salvar na Agenda'}
           </h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>

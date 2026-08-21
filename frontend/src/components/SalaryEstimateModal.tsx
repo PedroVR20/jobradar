@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Job, PersonalizedSalaryEstimate, SalaryEstimate } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   job: Job;
@@ -15,6 +16,7 @@ function fmt(n: number | undefined): string {
 
 export function SalaryEstimateModal({ job, onClose }: Props) {
   useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const { profile } = useCandidateProfile();
   const [estimate, setEstimate] = useState<SalaryEstimate | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,10 +63,18 @@ export function SalaryEstimateModal({ job, onClose }: Props) {
 
   return createPortal(
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal salary-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal salary-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="salary-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>💰</span>
-          <h2>Faixa salarial estimada</h2>
+          <h2 id="salary-modal-title">Faixa salarial estimada</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 

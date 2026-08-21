@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { KeyboardEvent, useState } from 'react';
 import { ViewMode, Stats } from '../types/Job';
 
 interface Props {
@@ -44,18 +44,55 @@ function countFor(tab: ViewMode, stats: Stats | null): number | null {
   }
 }
 
+// Fase 16.4 — role="tablist"/"tab" + navegação por seta (padrão ARIA APG
+// pra tabs, ver https://www.w3.org/WAI/ARIA/apg/patterns/tabs/) — antes
+// isso era um <div> de <button>s sem NENHUMA semântica de aba pra leitor de
+// tela (parecia um grupo de botões soltos, não um seletor de visão única
+// entre 8 opções mutuamente exclusivas). Tabindex "roving" (0 só na aba
+// ativa, -1 nas outras) é o padrão pra isso funcionar bem com Tab (só um
+// parada no grupo inteiro) E setas (move dentro do grupo).
 export function ViewTabs({ viewMode, onChange, stats, onDropJob }: Props) {
   const [dragOverTab, setDragOverTab] = useState<ViewMode | null>(null);
 
+  const focusTab = (index: number) => {
+    const el = document.getElementById(`view-tab-${tabs[index].key}`);
+    el?.focus();
+  };
+
+  const handleKeyDown = (e: KeyboardEvent, index: number) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const next = e.key === 'ArrowRight'
+        ? (index + 1) % tabs.length
+        : (index - 1 + tabs.length) % tabs.length;
+      onChange(tabs[next].key);
+      focusTab(next);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      onChange(tabs[0].key);
+      focusTab(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      onChange(tabs[tabs.length - 1].key);
+      focusTab(tabs.length - 1);
+    }
+  };
+
   return (
-    <div className="view-tabs">
-      {tabs.map(tab => {
+    <div className="view-tabs" role="tablist" aria-label="Filtrar vagas por status">
+      {tabs.map((tab, index) => {
         const count = countFor(tab.key, stats);
         const isDropTarget = tab.droppable && !!onDropJob;
+        const active = viewMode === tab.key;
         return (
           <button
             key={tab.key}
-            className={`view-tab ${viewMode === tab.key ? 'view-tab--active' : ''} ${dragOverTab === tab.key ? 'view-tab--drop-hover' : ''}`}
+            id={`view-tab-${tab.key}`}
+            role="tab"
+            aria-selected={active}
+            tabIndex={active ? 0 : -1}
+            onKeyDown={e => handleKeyDown(e, index)}
+            className={`view-tab ${active ? 'view-tab--active' : ''} ${dragOverTab === tab.key ? 'view-tab--drop-hover' : ''}`}
             onClick={() => onChange(tab.key)}
             onDragOver={isDropTarget ? e => { e.preventDefault(); setDragOverTab(tab.key); } : undefined}
             onDragLeave={isDropTarget ? () => setDragOverTab(null) : undefined}

@@ -6,6 +6,7 @@ import { combineWithGitHub, useGitHubProfile } from '../hooks/useGitHubProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { AiFeedbackBox } from './AiFeedbackBox';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   job: Job;
@@ -14,6 +15,7 @@ interface Props {
 
 export function InterviewQuestionsModal({ job, onClose }: Props) {
   useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const { profile } = useCandidateProfile();
   const { summary: githubSummary } = useGitHubProfile();
   const { buildContext } = useAiFeedback('interview-questions');
@@ -45,10 +47,18 @@ export function InterviewQuestionsModal({ job, onClose }: Props) {
 
   return createPortal(
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal interview-questions-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal interview-questions-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="interview-questions-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>❓</span>
-          <h2>Perguntas prováveis de entrevista</h2>
+          <h2 id="interview-questions-modal-title">Perguntas prováveis de entrevista</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 
