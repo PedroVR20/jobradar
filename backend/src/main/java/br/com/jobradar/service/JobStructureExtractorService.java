@@ -13,14 +13,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Fase 9.4 — extrai estrutura da descrição crua da vaga (requisitos
+ * Fase 9.4 + 9.6 — extrai estrutura da descrição crua da vaga (requisitos
  * obrigatórios vs desejáveis, anos de experiência mínimos, escolaridade,
- * benefícios) em vez de deixar o usuário garimpar isso lendo um texto corrido
- * às vezes com centenas de linhas. Sob demanda (não roda pra todo o catálogo
- * no fetch — custaria uma chamada de Gemini POR VAGA existente) e CACHEADO
- * PARA SEMPRE por vaga (ver {@link Job#getEstruturaExtraidaEm()}), diferente
- * de carta/match-score que são recalculados a cada clique — a estrutura de
- * uma vaga não muda, então só vale a pena extrair uma vez.
+ * benefícios — Fase 9.4) E sinais de alerta no texto (Fase 9.6) em vez de
+ * deixar o usuário garimpar isso lendo um texto corrido às vezes com
+ * centenas de linhas. As duas fases viram UMA chamada de Gemini só (mesma
+ * descrição, mesmo texto de entrada — separar dobraria o custo de IA à toa
+ * pra ler a mesma vaga duas vezes). Sob demanda (não roda pra todo o
+ * catálogo no fetch) e CACHEADO PARA SEMPRE por vaga (ver
+ * {@link Job#getEstruturaExtraidaEm()}), diferente de carta/match-score que
+ * são recalculados a cada clique — a descrição de uma vaga não muda, então
+ * só vale a pena extrair uma vez.
  */
 @Service
 @RequiredArgsConstructor
@@ -38,7 +41,8 @@ public class JobStructureExtractorService {
             List<String> requisitosDesejaveis,
             Integer anosExperienciaMin,
             String escolaridadeRequerida,
-            List<String> beneficios
+            List<String> beneficios,
+            List<String> sinaisAlerta
     ) {}
 
     public record ExtractOutcome(EstruturaDescricao estrutura, String errorMessage, boolean rateLimited, boolean cacheHit) {
@@ -67,10 +71,26 @@ public class JobStructureExtractorService {
         }
 
         String prompt = """
-                Extraia a ESTRUTURA da descrição de vaga abaixo. Não invente nada
-                que não esteja escrito — se uma informação não aparece na
-                descrição, devolva null (pro campo escalar) ou array vazio (pra
-                lista).
+                Analise a descrição de vaga abaixo em DUAS partes.
+
+                PARTE 1 — ESTRUTURA: extraia requisitos obrigatórios/desejáveis,
+                anos de experiência mínimos, escolaridade e benefícios. Não
+                invente nada que não esteja escrito — se uma informação não
+                aparece na descrição, devolva null (pro campo escalar) ou array
+                vazio (pra lista).
+
+                PARTE 2 — SINAIS DE ALERTA: aponte sinais CONCRETOS no TEXTO
+                (não especulação sobre a empresa, só o que está escrito) que
+                merecem atenção antes de aplicar — exemplos do tipo de sinal
+                (não é lista fechada): salário omitido apesar do título sugerir
+                senioridade/liderança, escopo de responsabilidades claramente
+                maior que o nível pedido no título, linguagem tipo "hora extra
+                é normal aqui"/"disponibilidade total"/"vestir a camisa"/
+                "trabalhar sob pressão constante", exigência de requisitos
+                desproporcionais pro nível anunciado (ex: "júnior" pedindo 8
+                anos de experiência), contrato ambíguo ou só PJ sem explicar o
+                motivo. Se a descrição não tiver nenhum sinal desses, devolva
+                array vazio — não force um alerta que não existe.
 
                 Vaga: %s @ %s
 
@@ -84,7 +104,8 @@ public class JobStructureExtractorService {
                   "requisitosDesejaveis": ["...", "..."],
                   "anosExperienciaMin": 0,
                   "escolaridadeRequerida": "..." ou null,
-                  "beneficios": ["...", "..."]
+                  "beneficios": ["...", "..."],
+                  "sinaisAlerta": ["...", "..."]
                 }
                 """.formatted(job.getTitle(), job.getCompany(), descricao);
 
@@ -98,22 +119,24 @@ public class JobStructureExtractorService {
             List<String> obrigatorios = toList(node.path("requisitosObrigatorios"));
             List<String> desejaveis = toList(node.path("requisitosDesejaveis"));
             List<String> beneficios = toList(node.path("beneficios"));
+            List<String> sinaisAlerta = toList(node.path("sinaisAlerta"));
             Integer anos = node.path("anosExperienciaMin").isNull() || !node.hasNonNull("anosExperienciaMin")
                     ? null : node.path("anosExperienciaMin").asInt();
             String escolaridade = node.path("escolaridadeRequerida").isNull() ? null : node.path("escolaridadeRequerida").asText(null);
 
             // Persiste no cache — TODA chamada (mesmo com listas vazias) marca
             // estruturaExtraidaEm, pra nunca reprocessar a mesma vaga de novo
-            // só porque a descrição genuinamente não tinha requisito claro.
-            job.setRequisitosObrigatorios(String.join(",", obrigatorios));
-            job.setRequisitosDesejaveis(String.join(",", desejaveis));
+            // só porque a descrição genuinamente não tinha requisito/alerta claro.
+            job.setRequisitosObrigatorios(join(obrigatorios));
+            job.setRequisitosDesejaveis(join(desejaveis));
             job.setAnosExperienciaMin(anos);
             job.setEscolaridadeRequerida(escolaridade);
-            job.setBeneficios(String.join(",", beneficios));
+            job.setBeneficios(join(beneficios));
+            job.setSinaisAlerta(join(sinaisAlerta));
             job.setEstruturaExtraidaEm(LocalDateTime.now());
             jobRepository.save(job);
 
-            return new ExtractOutcome(new EstruturaDescricao(obrigatorios, desejaveis, anos, escolaridade, beneficios), null, false, false);
+            return new ExtractOutcome(new EstruturaDescricao(obrigatorios, desejaveis, anos, escolaridade, beneficios, sinaisAlerta), null, false, false);
         } catch (Exception e) {
             log.warn("Resposta inesperada do Gemini pra extração de estrutura: {}", e.getMessage());
             return new ExtractOutcome(null, "A IA devolveu uma resposta inesperada. Tente de novo.", false, false);
@@ -132,12 +155,25 @@ public class JobStructureExtractorService {
                 splitOrEmpty(job.getRequisitosDesejaveis()),
                 job.getAnosExperienciaMin(),
                 job.getEscolaridadeRequerida(),
-                splitOrEmpty(job.getBeneficios())
+                splitOrEmpty(job.getBeneficios()),
+                splitOrEmpty(job.getSinaisAlerta())
         );
     }
 
-    private List<String> splitOrEmpty(String csv) {
-        if (csv == null || csv.isBlank()) return List.of();
-        return List.of(csv.split(","));
+    // Separador " ||| " (não uma vírgula simples, ao contrário de `tags`) —
+    // esses campos vêm de frases geradas pelo Gemini (ex: "Conhecimento em
+    // SQL, PL/SQL" ou um sinal de alerta como frase inteira), que PODEM
+    // conter vírgula de verdade. Vírgula como separador corromperia o
+    // round-trip (split reconstruiria itens errados); " ||| " é improvável
+    // de aparecer dentro de uma frase natural.
+    private static final String SEPARADOR = " ||| ";
+
+    private String join(List<String> items) {
+        return String.join(SEPARADOR, items);
+    }
+
+    private List<String> splitOrEmpty(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        return List.of(raw.split(java.util.regex.Pattern.quote(SEPARADOR)));
     }
 }

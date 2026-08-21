@@ -205,4 +205,13 @@ public class Job {
     @Column(columnDefinition = "TEXT")
     private String beneficios;
     private LocalDateTime estruturaExtraidaEm;
+
+    // Fase 9.6 — extraído JUNTO com o resto acima (mesma chamada de Gemini,
+    // mesma descrição) — sinais concretos no TEXTO da vaga (não especulação
+    // sobre a empresa) que merecem atenção antes de aplicar: salário vago
+    // apesar do título sugerir senioridade, escopo maior que o nível pedido,
+    // linguagem de "hora extra normal"/"vestir a camisa", etc. Reaproveita
+    // estruturaExtraidaEm como marcador de cache (mesma extração, mesma vez).
+    @Column(columnDefinition = "TEXT")
+    private String sinaisAlerta;
 }

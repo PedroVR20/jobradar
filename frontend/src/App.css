@@ -515,7 +515,23 @@ a:hover { text-decoration: underline; }
 }
 .why-line { font-size: 0.78rem; color: var(--text); margin: 0; line-height: 1.4; }
 .why-line--muted { color: var(--text-muted); }
+.why-line--alerta { color: var(--yellow); }
 .why-loading { font-size: 0.78rem; color: var(--text-muted); margin: 0; }
+
+/* Fase 9.6 — sinais de alerta na descrição */
+.structure-alertas {
+  background: #f59e0b14;
+  border: 1px solid var(--yellow);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+}
+.structure-alertas-list {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  line-height: 1.5;
+}
 
 /* Fase 16.8 — folha de atalhos de teclado */
 .shortcuts-modal {

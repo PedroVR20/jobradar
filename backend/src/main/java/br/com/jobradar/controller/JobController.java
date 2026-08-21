@@ -865,10 +865,11 @@ public class JobController {
     }
 
     /**
-     * Fase 9.4 — estrutura da descrição (requisitos obrigatórios/desejáveis,
-     * anos de experiência, escolaridade, benefícios), extraída via IA e
-     * CACHEADA na própria vaga (ver Job.estruturaExtraidaEm) — chamadas
-     * seguintes pra mesma vaga devolvem do banco, sem gastar IA de novo.
+     * Fase 9.4 + 9.6 — estrutura da descrição (requisitos obrigatórios/
+     * desejáveis, anos de experiência, escolaridade, benefícios) E sinais de
+     * alerta no texto, extraídos via IA numa chamada só e CACHEADOS na
+     * própria vaga (ver Job.estruturaExtraidaEm) — chamadas seguintes pra
+     * mesma vaga devolvem do banco, sem gastar IA de novo.
      * GET /api/jobs/{id}/structure
      */
     @GetMapping("/{id}/structure")
@@ -887,6 +888,7 @@ public class JobController {
             out.put("anosExperienciaMin", outcome.estrutura().anosExperienciaMin());
             out.put("escolaridadeRequerida", outcome.estrutura().escolaridadeRequerida());
             out.put("beneficios", outcome.estrutura().beneficios());
+            out.put("sinaisAlerta", outcome.estrutura().sinaisAlerta());
             out.put("cacheHit", outcome.cacheHit());
             return ResponseEntity.ok(out);
         }).orElse(ResponseEntity.notFound().build());

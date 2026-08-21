@@ -32,11 +32,17 @@ class JobStructureExtractorServiceTest {
     void vagaJaExtraidaAntes_devolveDoCacheSemChamarGeminiOuBuscarDescricao() {
         Job j = job();
         j.setEstruturaExtraidaEm(java.time.LocalDateTime.now());
-        j.setRequisitosObrigatorios("java,spring");
+        j.setRequisitosObrigatorios("java ||| spring");
         j.setRequisitosDesejaveis("docker");
         j.setAnosExperienciaMin(3);
         j.setEscolaridadeRequerida("Superior completo");
-        j.setBeneficios("vale refeicao,plano de saude");
+        j.setBeneficios("vale refeicao ||| plano de saude");
+        // sinal de alerta com vírgula DE PROPÓSITO — é exatamente o caso que
+        // motivou trocar o separador de vírgula pra " ||| " (ver comentário
+        // em JobStructureExtractorService.SEPARADOR): uma frase gerada pelo
+        // Gemini pode conter vírgula, e vírgula-como-separador corromperia
+        // o round-trip.
+        j.setSinaisAlerta("Salário omitido, apesar do título sugerir liderança");
 
         JobStructureExtractorService.ExtractOutcome outcome = service.extrair(j);
 
@@ -44,6 +50,7 @@ class JobStructureExtractorServiceTest {
         assertThat(outcome.cacheHit()).isTrue();
         assertThat(outcome.estrutura().requisitosObrigatorios()).containsExactly("java", "spring");
         assertThat(outcome.estrutura().anosExperienciaMin()).isEqualTo(3);
+        assertThat(outcome.estrutura().sinaisAlerta()).containsExactly("Salário omitido, apesar do título sugerir liderança");
         org.mockito.Mockito.verifyNoInteractions(geminiService, jobDescriptionService, budgetService);
     }
 
@@ -80,7 +87,8 @@ class JobStructureExtractorServiceTest {
                   "requisitosDesejaveis": ["Docker"],
                   "anosExperienciaMin": 3,
                   "escolaridadeRequerida": "Superior completo",
-                  "beneficios": ["Vale refeição", "Plano de saúde"]
+                  "beneficios": ["Vale refeição", "Plano de saúde"],
+                  "sinaisAlerta": ["Salário não informado apesar do título de \\"líder técnico\\""]
                 }
                 """, null, false));
 
@@ -93,10 +101,37 @@ class JobStructureExtractorServiceTest {
         assertThat(outcome.estrutura().anosExperienciaMin()).isEqualTo(3);
         assertThat(outcome.estrutura().escolaridadeRequerida()).isEqualTo("Superior completo");
         assertThat(outcome.estrutura().beneficios()).containsExactly("Vale refeição", "Plano de saúde");
+        assertThat(outcome.estrutura().sinaisAlerta()).containsExactly("Salário não informado apesar do título de \"líder técnico\"");
 
         // Persistiu no próprio Job, marcando o cache pra sempre.
         assertThat(j.getEstruturaExtraidaEm()).isNotNull();
-        assertThat(j.getRequisitosObrigatorios()).isEqualTo("Java,Spring");
+        assertThat(j.getRequisitosObrigatorios()).isEqualTo("Java ||| Spring");
         verify(jobRepository).save(j);
+    }
+
+    @Test
+    void sinalDeAlertaComVirgula_naoQuebraORoundTripAposSalvar() {
+        // Reproduz o bug que o separador " ||| " existe pra evitar: se o
+        // Gemini devolver uma frase com vírgula (comum em linguagem natural)
+        // e o código juntasse/separasse por vírgula, essa MESMA vaga lida de
+        // novo do banco (cache hit) devolveria a frase quebrada em pedaços.
+        when(jobDescriptionService.fetchDescription(anyString())).thenReturn("descricao qualquer");
+        when(budgetService.permitir(AiFeatureBudgetService.STRUCTURE_EXTRACT)).thenReturn(true);
+        when(geminiService.generate(anyString())).thenReturn(new GeminiService.GeminiResult(
+                """
+                {"requisitosObrigatorios": [], "requisitosDesejaveis": [], "anosExperienciaMin": null,
+                 "escolaridadeRequerida": null, "beneficios": [],
+                 "sinaisAlerta": ["Escopo maior que o nível pedido, incluindo gestão de equipe"]}
+                """, null, false));
+
+        Job j = job();
+        service.extrair(j);
+
+        // Simula reler a MESMA vaga do banco (cache hit) — o valor que foi
+        // persistido precisa reconstruir a frase original inteira, não
+        // quebrada na vírgula interna dela.
+        JobStructureExtractorService.ExtractOutcome cached = service.extrair(j);
+        assertThat(cached.cacheHit()).isTrue();
+        assertThat(cached.estrutura().sinaisAlerta()).containsExactly("Escopo maior que o nível pedido, incluindo gestão de equipe");
     }
 }

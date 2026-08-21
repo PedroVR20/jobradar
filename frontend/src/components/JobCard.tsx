@@ -51,13 +51,14 @@ interface WhyExplanation {
   rankingPessoal: { disponivel: boolean; score?: number; motivo?: string; principaisFatores?: { descricao: string; peso: number }[] };
 }
 
-// Fase 9.4 — formato devolvido por GET /api/jobs/{id}/structure.
+// Fase 9.4 + 9.6 — formato devolvido por GET /api/jobs/{id}/structure.
 interface StructureExtraction {
   requisitosObrigatorios: string[];
   requisitosDesejaveis: string[];
   anosExperienciaMin: number | null;
   escolaridadeRequerida: string | null;
   beneficios: string[];
+  sinaisAlerta: string[];
 }
 
 const techTags = [
@@ -739,8 +740,17 @@ function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogg
               {structure.beneficios.length > 0 && (
                 <p className="why-line">🎁 <strong>Benefícios:</strong> {structure.beneficios.join(', ')}</p>
               )}
+              {structure.sinaisAlerta.length > 0 && (
+                <div className="structure-alertas">
+                  <p className="why-line why-line--alerta">⚠️ <strong>Sinais de alerta no texto:</strong></p>
+                  <ul className="structure-alertas-list">
+                    {structure.sinaisAlerta.map(s => <li key={s}>{s}</li>)}
+                  </ul>
+                </div>
+              )}
               {structure.requisitosObrigatorios.length === 0 && structure.requisitosDesejaveis.length === 0
-                && structure.anosExperienciaMin == null && !structure.escolaridadeRequerida && structure.beneficios.length === 0 && (
+                && structure.anosExperienciaMin == null && !structure.escolaridadeRequerida && structure.beneficios.length === 0
+                && structure.sinaisAlerta.length === 0 && (
                 <p className="why-line why-line--muted">A descrição dessa vaga não trouxe nenhum requisito estruturado claro.</p>
               )}
             </>
