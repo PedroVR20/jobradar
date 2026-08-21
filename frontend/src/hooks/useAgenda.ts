@@ -106,12 +106,17 @@ export function useAgenda() {
     }
   };
 
-  const syncTaskStatus = async (jobId: number, status: AgendaTaskStatus): Promise<void> => {
+  // Fase 13.5 — devolve se sincronizou de verdade (antes era Promise<void>,
+  // sempre "sucesso" pra quem chamava, mesmo numa falha real). O fluxo do
+  // Job Radar continua não-bloqueante de propósito (o catch continua não
+  // travando nada) — só que agora quem chama TEM como avisar o usuário em
+  // vez de deixar os dois apps saírem de sincronia sem ninguém perceber.
+  const syncTaskStatus = async (jobId: number, status: AgendaTaskStatus): Promise<boolean> => {
     const token = getToken();
     const taskId = getLinkedTaskId(jobId);
-    if (!token || !taskId) return;
+    if (!token || !taskId) return true; // não vinculado a nenhuma tarefa — não é falha, é n/a
     try {
-      await fetch(`${AGENDA_API}/api/v1/tasks/${taskId}/status`, {
+      const res = await fetch(`${AGENDA_API}/api/v1/tasks/${taskId}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -119,8 +124,9 @@ export function useAgenda() {
         },
         body: JSON.stringify({ status }),
       });
+      return res.ok;
     } catch {
-      // silent — sync failure doesn't affect Job Radar flow
+      return false;
     }
   };
 

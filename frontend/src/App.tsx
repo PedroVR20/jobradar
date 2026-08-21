@@ -150,9 +150,18 @@ export default function App() {
     localStorage.setItem(LAST_VISIT_KEY, String(now));
   }, []);
 
+  // Fase 13.5 — antes disparava e esquecia (syncTaskStatus tinha catch
+  // silencioso e devolvia void, quem chamava nunca sabia se funcionou).
+  // O toast principal da ação (ex: "Vaga marcada como aplicada!") continua
+  // disparando na hora, sem esperar isso — só avisa, à parte, se a
+  // sincronia com a Agenda especificamente falhou, pra não deixar os dois
+  // apps saírem de sincronia sem o usuário nunca descobrir.
   const syncAgendaForStatus = (id: number, status: JobStatus) => {
     const agendaStatus = agendaStatusFor[status];
-    if (agendaStatus) syncTaskStatus(id, agendaStatus);
+    if (!agendaStatus) return;
+    syncTaskStatus(id, agendaStatus).then(ok => {
+      if (!ok) showToast('⚠️ Não consegui sincronizar o status com a Agenda Pessoal — a vaga foi atualizada aqui normalmente.', 6000);
+    });
   };
 
   // Sentido inverso: relê o status de cada tarefa vinculada na Agenda e reflete
