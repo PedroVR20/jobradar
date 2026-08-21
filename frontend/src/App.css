@@ -1038,6 +1038,25 @@ a:hover { text-decoration: underline; }
 }
 .btn-interested:hover:not(:disabled) { background: #a855f733; }
 
+/* Fase 16.2 — hierarquia visual do card: os 7 botões de ação (Ver vaga,
+   Salvar na Agenda, Marcar entrevista, Salário estimado, IA, Marquei como
+   aplicada, Marcar como vista, Marquei interesse) tinham TODOS o mesmo
+   .btn base (padding/font-size/font-weight idênticos) — só a cor mudava,
+   então nada dizia visualmente "essa ação importa mais que aquela".
+   .btn--tertiary reduz peso (padding/fonte menores, opacidade em repouso)
+   pras ações de APOIO — Salvar na Agenda, Marcar entrevista, Salário
+   estimado, IA, Marcar como vista — que são úteis mas não são a DECISÃO
+   real do funil. As decisões de funil (Marquei interesse/aplicada,
+   Recusada, Entrei em processo) mantêm o peso normal do .btn, e "Ver
+   vaga →" continua sendo o único .btn-primary (preenchido, sem
+   modificador) — o olho já vai direto nele primeiro. */
+.btn--tertiary {
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+.btn--tertiary:hover:not(:disabled) { opacity: 1; }
+
 .fetch-btn {
   margin-left: auto;
   background: var(--accent);

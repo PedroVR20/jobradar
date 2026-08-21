@@ -922,9 +922,12 @@ function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogg
         >
           Ver vaga →
         </a>
+        {/* Fase 16.2 — btn--tertiary nas ações de APOIO (úteis, mas não são
+            a decisão de funil que o card existe pra registrar) — ver
+            comentário do modificador no App.css. */}
         {!job.rejected && (
           <button
-            className="btn btn-agenda"
+            className="btn btn-agenda btn--tertiary"
             onClick={() => setAgendaOpen(true)}
             title="Salvar esta vaga como tarefa na Agenda Pessoal"
           >
@@ -933,7 +936,7 @@ function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogg
         )}
         {job.inProgress && !job.rejected && (
           <button
-            className="btn btn-agenda"
+            className="btn btn-agenda btn--tertiary"
             onClick={() => setInterviewOpen(true)}
             title="Agendar entrevista na Agenda Pessoal (prioridade crítica)"
           >
@@ -942,7 +945,7 @@ function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogg
         )}
         {!job.rejected && (
           <button
-            className="btn btn-ghost"
+            className="btn btn-ghost btn--tertiary"
             onClick={() => setSalaryOpen(true)}
             title="Estimativa de faixa salarial baseada em vagas parecidas já cadastradas (dado real, não IA)"
           >
@@ -952,7 +955,7 @@ function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogg
         {aiEnabled && !job.rejected && (
           <div className="card-menu ai-menu" ref={aiMenuRef}>
             <button
-              className="btn btn-ai"
+              className="btn btn-ai btn--tertiary"
               onClick={() => setAiMenuOpen(open => !open)}
               title="Recursos de IA pra essa vaga"
             >
@@ -995,7 +998,7 @@ function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogg
         )}
         {!job.seen && !job.applied && (
           <button
-            className="btn btn-ghost"
+            className="btn btn-ghost btn--tertiary"
             onClick={() => onSeen(job.id)}
           >
             👁 Marcar como vista
