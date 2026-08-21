@@ -27,6 +27,24 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
 
+# Fase 15.4 — observabilidade via Actuator. Só health/info/metrics expostos
+# (não env/beans/configprops — vazariam a DATASOURCE_PASSWORD e as
+# GEMINI_API_KEYS em texto claro num endpoint HTTP sem autenticação; esse é
+# um app pessoal sem camada de auth na frente do backend, então o que NÃO
+# expõe é tão importante quanto o que expõe). health com detalhes sempre
+# visíveis (não só "UP"/"DOWN") pra dar diagnóstico real (DB caiu? disco
+# cheio?) sem precisar entrar no container pra olhar log.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+
 server:
   port: 8080
   tomcat:

@@ -40,15 +40,17 @@ services:
     # -Xmx2g/sem-teto que já causou OOM real antes (ver comentário no
     # Dockerfile).
     mem_limit: 1536m
-    # Sem Actuator ainda (Fase 15.4 do plano, pendente) — usa um endpoint
-    # leve que já existe e bate no banco (prova que a conexão está de pé,
-    # não só que o processo Java subiu).
+    # Fase 15.4 — trocado de um endpoint de negócio (/api/jobs/sources) pro
+    # /actuator/health de verdade: o indicador de banco (HikariCP) já vem de
+    # graça com o starter, então isso prova a conexão com o Postgres de pé
+    # (não só que o processo Java subiu) sem precisar de um endpoint
+    # emprestado que não foi feito pra isso.
     # 127.0.0.1 explícito, não "localhost" — descoberto testando de verdade:
     # wget tenta o endereço IPv6 (::1) primeiro em Alpine, e nginx/o próprio
     # Java só escutam em IPv4 (0.0.0.0) por padrão, dando "connection
     # refused" mesmo com o serviço de pé e respondendo.
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/api/jobs/sources"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/actuator/health"]
       interval: 15s
       timeout: 5s
       retries: 5
