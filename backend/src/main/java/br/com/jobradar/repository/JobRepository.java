@@ -45,6 +45,12 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
 
     List<Job> findBySeniorityIsNull();
 
+    // Fase 10 — usado pra reclassificar vagas já marcadas NAO_INFORMADO
+    // depois que o SeniorityClassifier ganha um padrão novo (ex: "aprendiz",
+    // "especialista", "pl" abreviado) — diferente de findBySeniorityIsNull(),
+    // que só pega vaga nunca classificada (coluna NULL de verdade).
+    List<Job> findBySeniority(String seniority);
+
     // Fase 7.1+7.6 — backfill único de relevância/empresa normalizada nas
     // vagas que existiam antes dessas colunas entrarem (companyNormalized é
     // preenchido junto com foraDeArea sempre no mesmo lugar, então checar só

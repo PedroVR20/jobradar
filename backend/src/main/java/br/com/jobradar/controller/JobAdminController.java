@@ -9,6 +9,7 @@ import br.com.jobradar.service.JobEmbeddingService;
 import br.com.jobradar.service.SalaryEstimateService;
 import br.com.jobradar.service.SalaryModelTrainerService;
 import br.com.jobradar.service.SalaryPredictionService;
+import br.com.jobradar.service.SeniorityClassifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +47,7 @@ public class JobAdminController {
     private final SalaryPredictionService salaryPredictionService;
     private final SalaryModelTrainerService salaryModelTrainerService;
     private final BackupService backupService;
+    private final SeniorityClassifier seniorityClassifier;
 
     // Gate simples (não é segurança de verdade — app pessoal local) pra não
     // ter um botão de "retreinar" clicável sem querer. Vazio == recurso
@@ -145,6 +147,35 @@ public class JobAdminController {
         });
         return ResponseEntity.accepted().body(Map.of(
                 "iniciado", true, "totalVagas", total, "provider", embeddingProvider.getProviderName()));
+    }
+
+    /**
+     * Fase 10 — reclassifica toda vaga já marcada NAO_INFORMADO (não é o
+     * mesmo que {@link JobAggregatorService}'s backfill periódico, que só
+     * pega {@code seniority IS NULL} — NAO_INFORMADO já é um valor
+     * GRAVADO na coluna, então nunca reaparece nesse backfill sozinho).
+     * Necessário sempre que {@link SeniorityClassifier} ganha um padrão
+     * novo (ver histórico do commit — "aprendiz", "especialista", "pl"
+     * abreviado resolveram ~428 das ~3.520 vagas que estavam
+     * NAO_INFORMADO). Não usa IA nenhuma — é regex puro, síncrono e rápido
+     * o bastante (milhares de vagas em segundos) pra não precisar rodar em
+     * background feito o backfill de embedding.
+     * POST /api/jobs/admin/reclassify-seniority
+     */
+    @PostMapping("/admin/reclassify-seniority")
+    public ResponseEntity<Map<String, Object>> reclassifySeniority() {
+        List<Job> candidatas = jobRepository.findBySeniority(SeniorityClassifier.NAO_INFORMADO);
+        int mudaram = 0;
+        for (Job job : candidatas) {
+            String novo = seniorityClassifier.classify(job.getTitle(), job.getTags());
+            if (!novo.equals(SeniorityClassifier.NAO_INFORMADO)) {
+                job.setSeniority(novo);
+                mudaram++;
+            }
+        }
+        jobRepository.saveAll(candidatas);
+        log.info("=== Reclassificação de senioridade: {} de {} vagas NAO_INFORMADO resolvidas ===", mudaram, candidatas.size());
+        return ResponseEntity.ok(Map.of("totalVerificadas", candidatas.size(), "reclassificadas", mudaram));
     }
 
     /**
