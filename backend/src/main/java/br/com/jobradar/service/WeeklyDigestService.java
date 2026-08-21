@@ -39,6 +39,7 @@ public class WeeklyDigestService {
     private final JobRepository jobRepository;
     private final WeeklyDigestRepository weeklyDigestRepository;
     private final GeminiService geminiService;
+    private final AiFeatureBudgetService aiFeatureBudgetService;
 
     private static final Long DIGEST_ID = 1L;
     private static final int DIAS_PARADA = 10;
@@ -83,7 +84,12 @@ public class WeeklyDigestService {
                 .toList();
 
         String prompt = montarPrompt(novasEstaSemana, paradas, prazosProximos);
-        GeminiService.GeminiResult resultado = geminiService.generate(prompt);
+        // Fase 9.8 — orçamento diário (folgado, 10/dia — isso aqui já é
+        // 1x/semana automático + eventual clique manual, o teto é só rede
+        // de segurança contra clique repetido acidental no botão).
+        GeminiService.GeminiResult resultado = aiFeatureBudgetService.permitir(AiFeatureBudgetService.WEEKLY_DIGEST)
+                ? geminiService.generate(prompt)
+                : new GeminiService.GeminiResult(null, aiFeatureBudgetService.mensagemLimiteAtingido(AiFeatureBudgetService.WEEKLY_DIGEST), false);
 
         String conteudo = resultado.ok()
                 ? resultado.text()

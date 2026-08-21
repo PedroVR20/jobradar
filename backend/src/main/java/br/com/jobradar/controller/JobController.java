@@ -7,6 +7,7 @@ import br.com.jobradar.repository.JobEventRepository;
 import br.com.jobradar.repository.JobRepository;
 import br.com.jobradar.repository.JobSpecifications;
 import br.com.jobradar.service.AiDuplicateVerifierService;
+import br.com.jobradar.service.AiFeatureBudgetService;
 import br.com.jobradar.service.CompanyNormalizer;
 import br.com.jobradar.service.GeminiService;
 import br.com.jobradar.service.JarvisAssistantService;
@@ -62,6 +63,7 @@ public class JobController {
     private final PersonalRankingService personalRankingService;
     private final JobQueryService jobQueryService;
     private final JobEmbeddingService jobEmbeddingService;
+    private final AiFeatureBudgetService aiFeatureBudgetService;
 
     /**
      * Lista todas as vagas com filtros opcionais
@@ -832,6 +834,11 @@ public class JobController {
         } else {
             status.put("keyPool", null);
         }
+        // Fase 9.8 — orçamento diário por funcionalidade, separado do
+        // keyPool acima (que é sobre a COTA das keys, não sobre quanto uma
+        // funcionalidade específica já usou hoje). Sempre visível, mesmo
+        // sem IA ativa (contador zerado é informação válida também).
+        status.put("aiBudget", aiFeatureBudgetService.status());
         return status;
     }
 

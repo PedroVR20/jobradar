@@ -23,6 +23,7 @@ public class InterviewQuestionsService {
 
     private final GeminiService geminiService;
     private final JobDescriptionService jobDescriptionService;
+    private final AiFeatureBudgetService aiFeatureBudgetService;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public record QuestionsOutcome(List<String> questions, String errorMessage, boolean rateLimited) {
@@ -32,6 +33,10 @@ public class InterviewQuestionsService {
     }
 
     public QuestionsOutcome gerar(Job job, String perfilCandidato, String feedbackContext) {
+        // Fase 9.8 — orçamento diário.
+        if (!aiFeatureBudgetService.permitir(AiFeatureBudgetService.INTERVIEW_QUESTIONS)) {
+            return new QuestionsOutcome(null, aiFeatureBudgetService.mensagemLimiteAtingido(AiFeatureBudgetService.INTERVIEW_QUESTIONS), false);
+        }
         StringBuilder contexto = new StringBuilder();
         contexto.append("Vaga: ").append(job.getTitle()).append(" @ ").append(job.getCompany()).append("\n");
         if (job.getSeniority() != null) contexto.append("Nível: ").append(job.getSeniority()).append("\n");

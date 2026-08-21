@@ -71,16 +71,31 @@ google:
     # a origem do frontend, não do backend.
     frontend-origin: ${FRONTEND_ORIGIN:http://localhost:3000}
 
-# Fase 8/9 — quem calcula embedding de vaga: "local" (padrão, Hunter-Embed
-# próprio via HunterEmbeddingProvider) ou "gemini" (volta pro GeminiService,
-# se o serviço local tiver algum problema). Ver EmbeddingProvider.
+# hunter: — um bloco SÓ (YAML não mescla chave de nível raiz repetida,
+# a segunda ocorrência silenciosamente apagaria a primeira — dois blocos
+# hunter: separados aqui já foi um bug real evitado ANTES de commitar,
+# achado relendo o arquivo depois de somar a Fase 9.8 em cima da 8/9).
 hunter:
+  # Fase 8/9 — quem calcula embedding de vaga: "local" (padrão, Hunter-Embed
+  # próprio via HunterEmbeddingProvider) ou "gemini" (volta pro GeminiService,
+  # se o serviço local tiver algum problema). Ver EmbeddingProvider.
   embedding:
     provider: ${HUNTER_EMBEDDING_PROVIDER:local}
     # host.docker.internal — o serviço roda fora do Docker, direto no WSL2
     # (GPU sem fricção com o Docker Desktop no Windows), confirmado alcançável
     # a partir do container backend. Ver HunterEmbeddingProvider.
     url: ${HUNTER_EMBEDDING_URL:http://host.docker.internal:8091}
+  # Fase 9.8 — teto diário de chamadas de IA generativa POR FUNCIONALIDADE
+  # (rede de segurança além do rodízio de keys do GeminiService, que protege
+  # a COTA mas não protege uma funcionalidade específica de consumir
+  # desproporcionalmente o que é compartilhado). Ver AiFeatureBudgetService.
+  ai-budget:
+    cover-letter: ${HUNTER_BUDGET_COVER_LETTER:150}
+    match-score: ${HUNTER_BUDGET_MATCH_SCORE:150}
+    learning-plan: ${HUNTER_BUDGET_LEARNING_PLAN:100}
+    interview-questions: ${HUNTER_BUDGET_INTERVIEW_QUESTIONS:100}
+    duplicate-verify: ${HUNTER_BUDGET_DUPLICATE_VERIFY:200}
+    weekly-digest: ${HUNTER_BUDGET_WEEKLY_DIGEST:10}
 
 app:
   foco:

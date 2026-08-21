@@ -24,6 +24,7 @@ public class LearningPlanService {
 
     private final GeminiService geminiService;
     private final JobDescriptionService jobDescriptionService;
+    private final AiFeatureBudgetService aiFeatureBudgetService;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public record LearningPlan(String resumo, String tempoEstimado, List<String> passos) {}
@@ -37,6 +38,10 @@ public class LearningPlanService {
     public PlanOutcome gerar(Job job, String gap, String perfilCandidato, String feedbackContext) {
         if (gap == null || gap.isBlank()) {
             return new PlanOutcome(null, "Ponto a desenvolver não informado.", false);
+        }
+        // Fase 9.8 — orçamento diário.
+        if (!aiFeatureBudgetService.permitir(AiFeatureBudgetService.LEARNING_PLAN)) {
+            return new PlanOutcome(null, aiFeatureBudgetService.mensagemLimiteAtingido(AiFeatureBudgetService.LEARNING_PLAN), false);
         }
 
         StringBuilder contexto = new StringBuilder();

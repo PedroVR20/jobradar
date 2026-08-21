@@ -23,6 +23,7 @@ public class MatchScoreService {
 
     private final GeminiService geminiService;
     private final JobDescriptionService jobDescriptionService;
+    private final AiFeatureBudgetService aiFeatureBudgetService;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public record MatchResult(int score, List<String> pontosFortes, List<String> pontosFaltando, String resumo) {}
@@ -38,6 +39,12 @@ public class MatchScoreService {
             return new MatchOutcome(null,
                     "Salve seu perfil/currículo em ⚙️ Configurações primeiro (ou cole na hora), pra IA ter o que comparar.",
                     false);
+        }
+        // Fase 9.8 — orçamento diário. Checa antes de buscar a descrição da
+        // vaga (custo evitável) — cobre tanto o clique direto quanto
+        // compatibilidadeComVagasDoFunil no chat, que chama este mesmo método.
+        if (!aiFeatureBudgetService.permitir(AiFeatureBudgetService.MATCH_SCORE)) {
+            return new MatchOutcome(null, aiFeatureBudgetService.mensagemLimiteAtingido(AiFeatureBudgetService.MATCH_SCORE), false);
         }
 
         StringBuilder contexto = new StringBuilder();
