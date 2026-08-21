@@ -64,7 +64,10 @@ const ALL_STATUSES: JobStatus[] = ['NOVA', 'VISTA', 'INTERESSADO', 'APLICADA', '
 // vaga antiga não tem histórico retroativo.
 interface JobEventDto { status: JobStatus; occurredAt: string }
 
-function currentStatus(job: Job): JobStatus {
+// Fase 10.1 — exportadas (eram module-private) só pra cobertura de teste
+// direto (ver JobCard.logic.test.ts) sem precisar montar o componente
+// inteiro pra testar uma regra de precedência de status.
+export function currentStatus(job: Job): JobStatus {
   if (job.rejected) return 'RECUSADA';
   if (job.inProgress) return 'ANDAMENTO';
   if (job.applied) return 'APLICADA';
@@ -73,7 +76,7 @@ function currentStatus(job: Job): JobStatus {
   return 'NOVA';
 }
 
-function daysUntilDeletion(rejectedAt: string): number {
+export function daysUntilDeletion(rejectedAt: string): number {
   const rejectedDate = new Date(rejectedAt);
   const deleteDate = new Date(rejectedDate.getTime() + DIAS_PARA_EXCLUIR_RECUSADAS * 86400000);
   const today = new Date();

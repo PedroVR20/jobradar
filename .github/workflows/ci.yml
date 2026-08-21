@@ -51,6 +51,8 @@ jobs:
       # do medido hoje — pega uma dependência pesada entrando por acidente
       # antes de virar "o app ficou lento" descoberto na prática depois.
       - run: npm run check-bundle-size
+      # Fase 10.1 — primeiros testes de frontend (Vitest + Testing Library).
+      - run: npm test
 
   docker-build:
     name: Docker — build das duas imagens
