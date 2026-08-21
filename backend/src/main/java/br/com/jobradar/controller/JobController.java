@@ -20,7 +20,12 @@ import br.com.jobradar.service.SeniorityClassifier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.BufferedWriter;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.time.DayOfWeek;
 import java.time.Duration;
@@ -694,56 +699,84 @@ public class JobController {
         return dto;
     }
 
+    private static final String[] EXPORT_CSV_COLUNAS = {
+            "id", "title", "company", "url", "source", "seniority", "salary", "workplaceType",
+            "state", "city", "postedAt", "seen", "interested", "applied", "inProgress", "rejected",
+            "pinned", "notes", "tags"
+    };
+
     /**
      * Backup/export de todas as vagas — GET /api/jobs/export?format=json|csv
      * (padrão json). Sem filtro nenhum: é o banco inteiro, pensado pra
      * "salva tudo antes de mexer" ou levar os dados pra outra ferramenta,
      * não pra visualização filtrada (isso já é o GET / normal).
+     *
+     * <p>Fase 15.3 — antes montava TRÊS cópias inteiras do catálogo na
+     * memória ao mesmo tempo (lista de entidades do findAll(), lista de
+     * {@code Map<String,Object>} do toDto, e o {@code byte[]} serializado)
+     * antes de mandar o primeiro byte pro cliente — o mesmo padrão que
+     * causou o OutOfMemoryError real da Fase 6 (ver ARCHITECTURE.md).
+     * {@link StreamingResponseBody} escreve linha a linha DIRETO no
+     * OutputStream da resposta HTTP: só a linha atual (mais o
+     * {@code JsonGenerator}/{@code Writer} com seu buffer interno pequeno,
+     * não o payload inteiro) vive na memória a qualquer momento — tira o
+     * teto que crescia junto com o catálogo. {@code jobRepository.findAll()}
+     * continua carregando as ENTIDADES inteiras de uma vez (streaming de
+     * verdade no nível do JDBC/cursor do Postgres ficaria pra uma fase
+     * futura, exige @Transactional + fetch-size configurado com cuidado) —
+     * essa parte não piora nem melhora em relação a antes, o que muda aqui
+     * é parar de DUPLICAR esse custo em cima com DTO+bytes inteiros.</p>
      */
     @GetMapping("/export")
-    public ResponseEntity<byte[]> export(@RequestParam(required = false, defaultValue = "json") String format) {
-        List<Map<String, Object>> vagas = jobRepository.findAll().stream()
-                .sorted(Comparator.comparing(Job::getId))
-                .map(this::toDto)
-                .toList();
+    public ResponseEntity<StreamingResponseBody> export(@RequestParam(required = false, defaultValue = "json") String format) {
         String stamp = LocalDate.now().toString();
+        boolean csv = "csv".equalsIgnoreCase(format);
 
-        if ("csv".equalsIgnoreCase(format)) {
-            String[] colunas = {
-                    "id", "title", "company", "url", "source", "seniority", "salary", "workplaceType",
-                    "state", "city", "postedAt", "seen", "interested", "applied", "inProgress", "rejected",
-                    "pinned", "notes", "tags"
-            };
-            StringBuilder sb = new StringBuilder();
-            sb.append(String.join(",", colunas)).append('\n');
-            for (Map<String, Object> v : vagas) {
-                for (int i = 0; i < colunas.length; i++) {
-                    if (i > 0) sb.append(',');
-                    Object val = v.get(colunas[i]);
-                    String texto = val instanceof List<?> lista ? String.join(";", lista.stream().map(String::valueOf).toList())
-                            : (val != null ? String.valueOf(val) : "");
-                    sb.append('"').append(texto.replace("\"", "\"\"")).append('"');
+        StreamingResponseBody body = outputStream -> {
+            List<Job> todas = jobRepository.findAll().stream()
+                    .sorted(Comparator.comparing(Job::getId))
+                    .toList();
+
+            if (csv) {
+                try (Writer w = new BufferedWriter(new OutputStreamWriter(outputStream, StandardCharsets.UTF_8))) {
+                    w.write(String.join(",", EXPORT_CSV_COLUNAS));
+                    w.write('\n');
+                    for (Job job : todas) {
+                        Map<String, Object> v = toDto(job);
+                        for (int i = 0; i < EXPORT_CSV_COLUNAS.length; i++) {
+                            if (i > 0) w.write(',');
+                            Object val = v.get(EXPORT_CSV_COLUNAS[i]);
+                            String texto = val instanceof List<?> lista
+                                    ? String.join(";", lista.stream().map(String::valueOf).toList())
+                                    : (val != null ? String.valueOf(val) : "");
+                            w.write('"');
+                            w.write(texto.replace("\"", "\"\""));
+                            w.write('"');
+                        }
+                        w.write('\n');
+                    }
                 }
-                sb.append('\n');
+                return;
             }
-            byte[] bytes = sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            return ResponseEntity.ok()
-                    .header("Content-Type", "text/csv; charset=UTF-8")
-                    .header("Content-Disposition", "attachment; filename=\"job-radar-export-" + stamp + ".csv\"")
-                    .body(bytes);
-        }
 
-        try {
-            byte[] bytes = new com.fasterxml.jackson.databind.ObjectMapper()
-                    .writerWithDefaultPrettyPrinter()
-                    .writeValueAsBytes(vagas);
-            return ResponseEntity.ok()
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Content-Disposition", "attachment; filename=\"job-radar-export-" + stamp + ".json\"")
-                    .body(bytes);
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError().build();
-        }
+            try (com.fasterxml.jackson.core.JsonGenerator gen = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .getFactory()
+                    .createGenerator(outputStream, com.fasterxml.jackson.core.JsonEncoding.UTF8)) {
+                gen.useDefaultPrettyPrinter();
+                gen.writeStartArray();
+                for (Job job : todas) {
+                    gen.writeObject(toDto(job));
+                }
+                gen.writeEndArray();
+            }
+        };
+
+        String contentType = csv ? "text/csv; charset=UTF-8" : "application/json; charset=UTF-8";
+        String filename = "job-radar-export-" + stamp + (csv ? ".csv" : ".json");
+        return ResponseEntity.ok()
+                .header("Content-Type", contentType)
+                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                .body(body);
     }
 
     /**
