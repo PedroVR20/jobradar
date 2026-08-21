@@ -535,6 +535,11 @@ export interface Stats {
   // qualquer conta "aplicadas - recusadas", senão dá número negativo quando
   // a maioria das recusas nunca foi aplicada de verdade.
   recusadasDeAplicadas: number;
+  // Fase 16.1 — contagem DIRETA de cada aba (mesma Specification que a
+  // listagem real usa), pra ViewTabs não aproximar mais por subtração
+  // (total - outros campos), que já deu badge errado por até 5x.
+  vistasAba: number;
+  aplicadasAba: number;
   hojeCount: number;
   // Fase 12.5 — virou GROUP BY dinâmico no backend em vez de uma lista fixa
   // de fontes/senioridades hardcoded: uma fonte com 0 vagas simplesmente

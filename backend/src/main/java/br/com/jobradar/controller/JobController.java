@@ -212,11 +212,31 @@ public class JobController {
     public Map<String, Object> getStats() {
         Map<String, Object> stats = new HashMap<>();
         stats.put("total", jobRepository.count());
-        stats.put("novas", jobRepository.countBySeenFalse());
+        // Fase 16.1 — era countBySeenFalse() puro: contava vaga arquivada
+        // (nunca vista, mas fora do funil ativo há tempo) e vaga vencida
+        // como "nova", e não excluía vaga recusada direto da aba Novas sem
+        // nunca ter sido marcada como vista. Resultado real medido: badge
+        // mostrava 5.787 com a aba de verdade (mesma Specification que
+        // JobQueryService usa) devolvendo 3.594 — 61% a mais. Esse número
+        // também alimentava o badge de "⚡ Triagem rápida" (App.tsx) e o
+        // card "🔴 NÃO VISTAS" (StatsBar) — os três ficam corretos de graça
+        // agora, mesma fonte da verdade que a listagem real usa.
+        stats.put("novas", jobRepository.count(
+                JobSpecifications.combine(JobSpecifications.onlyNew(), JobSpecifications.notExpired(), JobSpecifications.notArchived())));
         stats.put("interessadas", jobRepository.countByInterestedTrue());
         stats.put("aplicadas", jobRepository.countByAppliedTrue());
         stats.put("emAndamento", jobRepository.countByAppliedTrueAndInProgressTrue());
         stats.put("recusadas", jobRepository.countByRejectedTrue());
+        // Fase 16.1 — contagem DIRETA de cada aba (mesma Specification que
+        // JobQueryService.listar usa pra filtrar), pro frontend parar de
+        // aproximar "Já vistas"/"Aplicadas" por subtração (total - outros
+        // campos) — ViewTabs.tsx media 153 na aba "Já vistas" com a
+        // listagem real devolvendo 31 (5x a mais) por causa exatamente
+        // dessa aproximação.
+        stats.put("vistasAba", jobRepository.count(
+                JobSpecifications.combine(JobSpecifications.onlySeen(), JobSpecifications.notExpired(), JobSpecifications.notArchived())));
+        stats.put("aplicadasAba", jobRepository.count(
+                JobSpecifications.combine(JobSpecifications.onlyApplied(), JobSpecifications.notArchived())));
         // Diferente de "recusadas" acima (TODA vaga recusada, aplicada ou
         // não) — esse é só a recusa de quem realmente tinha sido aplicada.
         // "aplicadas" - "recusadas" (o campo de cima) dava número negativo
@@ -224,8 +244,12 @@ public class JobController {
         // este campo pra qualquer conta que precise só da recusa "dentro"
         // do funil de aplicadas (bug reportado: "-21 aplicadas" na tela).
         stats.put("recusadasDeAplicadas", jobRepository.countByAppliedTrueAndRejectedTrue());
-        // Fase 7.2 — alimenta o badge da aba "Vencidas".
-        stats.put("vencidas", jobRepository.countByExpiresAtBeforeAndAppliedFalseAndRejectedFalse(LocalDate.now()));
+        // Fase 7.2 — alimenta o badge da aba "Vencidas". Fase 16.1: soma
+        // notArchived() — vaga arquivada (nunca engajada) pode ter
+        // expiresAt vencido igual, e a aba de verdade já exclui arquivada
+        // de qualquer aba que não seja a própria Arquivadas.
+        stats.put("vencidas", jobRepository.count(
+                JobSpecifications.combine(JobSpecifications.onlyExpired(), JobSpecifications.notArchived())));
         // Fase 7.3+8.4 — alimenta o badge da aba "Arquivadas".
         stats.put("arquivadas", jobRepository.countByArchivedTrue());
         // Fase 12.6 — era findByFetchedAtAfter(...).size(): materializava as

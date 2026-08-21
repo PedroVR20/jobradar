@@ -25,15 +25,20 @@ const tabs: { key: ViewMode; label: string; droppable?: boolean }[] = [
   { key: 'arquivadas', label: '🗄️ Arquivadas' },
 ];
 
+// Fase 16.1 — cada aba lê a contagem DIRETA que o backend já calcula com a
+// mesma Specification que a listagem de verdade usa (ver JobController.
+// getStats) — antes "Aplicadas" e "Já vistas" eram aproximadas por
+// subtração de outros campos, e a aproximação de "Já vistas" chegou a
+// mostrar 5x o valor real (153 no badge, 31 na listagem).
 function countFor(tab: ViewMode, stats: Stats | null): number | null {
   if (!stats) return null;
   switch (tab) {
     case 'novas': return stats.novas;
     case 'interessado': return stats.interessadas;
-    case 'aplicadas': return Math.max(0, stats.aplicadas - stats.emAndamento - stats.recusadasDeAplicadas);
+    case 'aplicadas': return stats.aplicadasAba;
     case 'andamento': return stats.emAndamento;
     case 'recusadas': return stats.recusadas;
-    case 'vistas': return Math.max(0, stats.total - stats.novas - stats.interessadas - stats.aplicadas);
+    case 'vistas': return stats.vistasAba;
     case 'vencidas': return stats.vencidas;
     case 'arquivadas': return stats.arquivadas;
   }
