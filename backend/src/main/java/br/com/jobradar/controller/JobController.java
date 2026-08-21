@@ -8,6 +8,7 @@ import br.com.jobradar.repository.JobRepository;
 import br.com.jobradar.repository.JobSpecifications;
 import br.com.jobradar.service.AiDuplicateVerifierService;
 import br.com.jobradar.service.AiFeatureBudgetService;
+import br.com.jobradar.service.AiTriageService;
 import br.com.jobradar.service.CompanyNormalizer;
 import br.com.jobradar.service.GeminiService;
 import br.com.jobradar.service.JarvisAssistantService;
@@ -69,6 +70,7 @@ public class JobController {
     private final JobQueryService jobQueryService;
     private final JobEmbeddingService jobEmbeddingService;
     private final AiFeatureBudgetService aiFeatureBudgetService;
+    private final AiTriageService aiTriageService;
 
     /**
      * Lista todas as vagas com filtros opcionais
@@ -822,6 +824,42 @@ public class JobController {
         percentPorId.forEach((id, pct) -> scores.put(String.valueOf(id), pct));
         out.put("scores", scores);
         return out;
+    }
+
+    /**
+     * Fase 9.1 — pré-triagem assistida em lote: 1 chamada de IA cobre até
+     * {@link AiTriageService#MAX_LOTE} vagas de uma vez (não 1 chamada por
+     * vaga), devolvendo um veredito (RECOMENDADA/TALVEZ/DESCARTAR) + motivo
+     * curto por vaga. Usado pela "Triagem rápida" como sinal a mais ao lado
+     * do pré-filtro heurístico — não decide nada sozinho, o usuário ainda
+     * confirma cada vaga manualmente.
+     * POST /api/jobs/triage-batch  body: {"jobIds": [1,2,3], "profile": "..."}
+     */
+    @PostMapping("/triage-batch")
+    public ResponseEntity<Map<String, Object>> triarLote(@RequestBody Map<String, Object> body) {
+        @SuppressWarnings("unchecked")
+        List<Integer> idsRaw = (List<Integer>) body.getOrDefault("jobIds", List.of());
+        String profile = (String) body.get("profile");
+
+        List<Job> jobs = idsRaw.stream()
+                .map(id -> jobRepository.findById(id.longValue()))
+                .filter(java.util.Optional::isPresent)
+                .map(java.util.Optional::get)
+                .toList();
+
+        AiTriageService.TriageOutcome outcome = aiTriageService.triarLote(jobs, profile);
+        if (!outcome.ok()) {
+            Map<String, Object> erro = new HashMap<>();
+            erro.put("error", outcome.errorMessage());
+            erro.put("rateLimited", outcome.rateLimited());
+            return ResponseEntity.status(outcome.rateLimited() ? 429 : 400).body(erro);
+        }
+
+        Map<String, Object> out = new HashMap<>();
+        out.put("veredictos", outcome.veredictos().stream()
+                .map(v -> Map.of("jobId", v.jobId(), "veredito", v.veredito().name(), "motivo", v.motivo()))
+                .toList());
+        return ResponseEntity.ok(out);
     }
 
     /**

@@ -7,7 +7,20 @@ interface Props {
   onSeen: (id: number) => Promise<void> | void;
   onSetStatus: (id: number, status: JobStatus) => Promise<void> | void;
   onClose: () => void;
+  // Fase 9.1 — o botão de pré-triagem assistida só aparece com Gemini
+  // configurado (mesmo gate que os outros botões de IA por vaga).
+  aiEnabled: boolean;
 }
+
+// Fase 9.1 — resposta de POST /api/jobs/triage-batch.
+type TriageVeredito = 'RECOMENDADA' | 'TALVEZ' | 'DESCARTAR';
+interface TriageVerdict { jobId: number; veredito: TriageVeredito; motivo: string }
+
+const VEREDITO_META: Record<TriageVeredito, { label: string; className: string }> = {
+  RECOMENDADA: { label: '✅ Recomendada', className: 'triage-veredito--recomendada' },
+  TALVEZ: { label: '🤔 Talvez', className: 'triage-veredito--talvez' },
+  DESCARTAR: { label: '🚫 Descartar', className: 'triage-veredito--descartar' },
+};
 
 // Modo "Triagem rápida" — resposta ao gargalo real do app: milhares de vagas
 // NOVAS acumuladas que ninguém revisa uma por uma na lista normal (rolar uma
@@ -31,13 +44,21 @@ interface Props {
 // vaga disponível — a tela nunca chegava a mostrar um card. `size=300`
 // porque triagem é uma sessão de decisão em lote, não precisa de mais que
 // isso de uma vez (dá pra reabrir pra continuar).
-export function TriageModal({ onSeen, onSetStatus, onClose }: Props) {
+export function TriageModal({ onSeen, onSetStatus, onClose, aiEnabled }: Props) {
   const { profile } = useCandidateProfile();
   const { scores, loading: scoring, refresh } = useQuickMatchScores();
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [rankingPersonalDisponivel, setRankingPersonalDisponivel] = useState(false);
   const [index, setIndex] = useState(0);
   const [decided, setDecided] = useState(0);
+
+  // Fase 9.1 — pré-triagem assistida em lote: veredictos guardados por
+  // jobId (não recalcula ao voltar/avançar entre vagas já trioadas nessa
+  // sessão) e um erro específico dessa ação (não reaproveita nenhum outro
+  // estado de erro do modal, é uma falha independente das outras).
+  const [veredictos, setVeredictos] = useState<Record<number, TriageVerdict>>({});
+  const [triandoLote, setTriandoLote] = useState(false);
+  const [triageError, setTriageError] = useState('');
 
   useEffect(() => {
     fetch('/api/jobs/personal-ranking-status')
@@ -92,6 +113,40 @@ export function TriageModal({ onSeen, onSetStatus, onClose }: Props) {
   }, [atual, acabou]);
 
   const matchPercent = atual ? scores[String(atual.id)] : undefined;
+  const veredictoAtual = atual ? veredictos[atual.id] : undefined;
+
+  // Fase 9.1 — pega até MAX_LOTE (20, espelha AiTriageService.MAX_LOTE)
+  // vagas a partir da posição atual que AINDA não têm veredito guardado
+  // (evita re-triar vaga que já foi avaliada nessa sessão e gastar
+  // orçamento de IA à toa).
+  const triarProximoLote = async () => {
+    if (!profile.trim()) return;
+    const proximas = ordenadas.slice(index).filter(j => !(j.id in veredictos)).slice(0, 20);
+    if (proximas.length === 0) return;
+
+    setTriandoLote(true);
+    setTriageError('');
+    try {
+      const res = await fetch('/api/jobs/triage-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobIds: proximas.map(j => j.id), profile }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setTriageError(data?.error ?? 'Não consegui rodar a pré-triagem agora.');
+        return;
+      }
+      const data = await res.json();
+      const novos: Record<number, TriageVerdict> = {};
+      (data.veredictos as TriageVerdict[]).forEach(v => { novos[v.jobId] = v; });
+      setVeredictos(prev => ({ ...prev, ...novos }));
+    } catch {
+      setTriageError('Erro de conexão com o backend.');
+    } finally {
+      setTriandoLote(false);
+    }
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -123,10 +178,33 @@ export function TriageModal({ onSeen, onSetStatus, onClose }: Props) {
               )}
             </div>
 
+            {aiEnabled && profile.trim() && (
+              <div className="triage-batch-row">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={triarProximoLote}
+                  disabled={triandoLote}
+                  title="Pede pro Gemini uma opinião rápida (recomendada/talvez/descartar) pras próximas vagas do lote — você ainda decide cada uma"
+                >
+                  {triandoLote ? '🤖 Triando...' : '🤖 Pré-triagem assistida (próximas 20)'}
+                </button>
+                {triageError && <span className="agenda-error">{triageError}</span>}
+              </div>
+            )}
+
             <div className="triage-card">
               {matchPercent != null && matchPercent >= 50 && (
                 <span className="badge-match" style={{ marginBottom: '0.4rem', display: 'inline-block' }}>
                   🎯 {matchPercent}% match
+                </span>
+              )}
+              {veredictoAtual && (
+                <span
+                  className={`triage-veredito ${VEREDITO_META[veredictoAtual.veredito].className}`}
+                  title={veredictoAtual.motivo}
+                >
+                  {VEREDITO_META[veredictoAtual.veredito].label} — {veredictoAtual.motivo}
                 </span>
               )}
               <h3 className="triage-card-title">{atual.title}</h3>

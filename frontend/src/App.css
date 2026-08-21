@@ -3580,6 +3580,27 @@ html.jarvis-resizing .header-inner {
 .triage-done { text-align: center; padding: 2rem 1rem; }
 .triage-done-emoji { font-size: 2.5rem; margin-bottom: 0.5rem; }
 
+/* Fase 9.1 — pré-triagem assistida em lote */
+.triage-batch-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+.triage-veredito {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+}
+.triage-veredito--recomendada { background: #10b98122; color: var(--green); border: 1px solid var(--green); }
+.triage-veredito--talvez { background: #f59e0b22; color: var(--yellow); border: 1px solid var(--yellow); }
+.triage-veredito--descartar { background: #ef444422; color: var(--red); border: 1px solid var(--red); }
+
 /* Mobile */
 @media (max-width: 600px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }

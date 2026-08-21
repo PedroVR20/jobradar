@@ -122,6 +122,10 @@ hunter:
     interview-questions: ${HUNTER_BUDGET_INTERVIEW_QUESTIONS:100}
     duplicate-verify: ${HUNTER_BUDGET_DUPLICATE_VERIFY:200}
     weekly-digest: ${HUNTER_BUDGET_WEEKLY_DIGEST:10}
+    # Fase 9.1 — 1 chamada cobre um LOTE inteiro (até AiTriageService.MAX_LOTE
+    # vagas), por isso o teto é bem menor que os outros (que gastam 1
+    # unidade por vaga individual).
+    batch-triage: ${HUNTER_BUDGET_BATCH_TRIAGE:30}
 
 app:
   foco:

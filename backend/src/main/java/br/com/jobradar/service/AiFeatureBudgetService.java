@@ -47,6 +47,10 @@ public class AiFeatureBudgetService {
     public static final String INTERVIEW_QUESTIONS = "interview-questions";
     public static final String DUPLICATE_VERIFY = "duplicate-verify";
     public static final String WEEKLY_DIGEST = "weekly-digest";
+    // Fase 9.1 — 1 unidade por CHAMADA (cobre até AiTriageService.MAX_LOTE
+    // vagas de uma vez), não por vaga — teto bem menor que os outros de
+    // propósito, já reflete isso.
+    public static final String BATCH_TRIAGE = "batch-triage";
 
     // Valores generosos de propósito — o objetivo aqui não é economizar
     // (as 29 keys já dão bastante folga no free tier), é ter um TETO
@@ -66,6 +70,8 @@ public class AiFeatureBudgetService {
     private int limiteDuplicateVerify;
     @Value("${hunter.ai-budget.weekly-digest:10}")
     private int limiteWeeklyDigest;
+    @Value("${hunter.ai-budget.batch-triage:30}")
+    private int limiteBatchTriage;
 
     private Map<String, Integer> limites;
 
@@ -83,6 +89,7 @@ public class AiFeatureBudgetService {
         m.put(INTERVIEW_QUESTIONS, limiteInterviewQuestions);
         m.put(DUPLICATE_VERIFY, limiteDuplicateVerify);
         m.put(WEEKLY_DIGEST, limiteWeeklyDigest);
+        m.put(BATCH_TRIAGE, limiteBatchTriage);
         return m;
     }
 

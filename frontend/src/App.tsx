@@ -473,6 +473,7 @@ export default function App() {
           onClose={() => { setShowTriage(false); reload(); }}
           onSeen={markSeen}
           onSetStatus={handleSetStatus}
+          aiEnabled={aiStatus.enabled}
         />
       )}
 
