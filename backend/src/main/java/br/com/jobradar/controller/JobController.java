@@ -11,6 +11,7 @@ import br.com.jobradar.service.CompanyNormalizer;
 import br.com.jobradar.service.GeminiService;
 import br.com.jobradar.service.JarvisAssistantService;
 import br.com.jobradar.service.JobAggregatorService;
+import br.com.jobradar.service.JobEmbeddingService;
 import br.com.jobradar.service.JobQueryService;
 import br.com.jobradar.service.JobStatusService;
 import br.com.jobradar.service.PersonalRankingService;
@@ -60,6 +61,7 @@ public class JobController {
     private final JobStatusService jobStatusService;
     private final PersonalRankingService personalRankingService;
     private final JobQueryService jobQueryService;
+    private final JobEmbeddingService jobEmbeddingService;
 
     /**
      * Lista todas as vagas com filtros opcionais
@@ -761,6 +763,44 @@ public class JobController {
         percentPorId.forEach((id, pct) -> scores.put(String.valueOf(id), pct));
         out.put("scores", scores);
         return out;
+    }
+
+    public record SemanticSearchResult(Job job, int similaridadePercent) {}
+
+    /**
+     * Fase 9.2 — busca semântica NA TELA PRINCIPAL, fora do chat do Hunter.
+     * A busca em si (JobEmbeddingService.buscar) já existia desde a Fase 6
+     * e o chat já usava (ferramenta buscarVagasPorSignificado) — faltava só
+     * um jeito de chegar nela sem precisar conversar. Não gasta cota do
+     * Gemini: o embedding é calculado pelo Hunter-Embed local (ver
+     * EmbeddingProvider/HunterEmbeddingProvider, Fase 8/9 da migração).
+     *
+     * <p>Candidatas = mesma regra de "vaga ativa" que {@link #getDuplicates},
+     * não recusada e não arquivada — não faz sentido a busca por significado
+     * devolver vaga que o usuário já descartou ou que saiu do funil ativo.</p>
+     * GET /api/jobs/semantic-search?consulta=...&limite=20
+     */
+    @GetMapping("/semantic-search")
+    public ResponseEntity<Map<String, Object>> semanticSearch(
+            @RequestParam String consulta,
+            @RequestParam(required = false) Integer limite) {
+        if (consulta == null || consulta.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Informe o que procurar."));
+        }
+        int limiteFinal = limite != null ? Math.min(30, Math.max(1, limite)) : 15;
+
+        List<Job> candidatas = jobRepository.findAll(
+                JobSpecifications.combine(JobSpecifications.notRejected(), JobSpecifications.notArchived()));
+        List<JobEmbeddingService.Match> matches = jobEmbeddingService.buscar(consulta, candidatas, limiteFinal);
+
+        List<SemanticSearchResult> resultados = matches.stream()
+                .map(m -> new SemanticSearchResult(m.job(), (int) Math.round(m.similaridade() * 100)))
+                .toList();
+
+        Map<String, Object> out = new HashMap<>();
+        out.put("consulta", consulta);
+        out.put("resultados", resultados);
+        return ResponseEntity.ok(out);
     }
 
     /**

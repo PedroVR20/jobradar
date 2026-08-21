@@ -16,6 +16,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { JarvisPanel } from './components/JarvisPanel';
 import { TriageModal } from './components/TriageModal';
 import { DuplicatesModal } from './components/DuplicatesModal';
+import { SemanticSearchModal } from './components/SemanticSearchModal';
 import { HunterIcon } from './components/HunterIcon';
 import { useCandidateProfile } from './hooks/useCandidateProfile';
 import { useQuickMatchScores } from './hooks/useQuickMatchScores';
@@ -78,6 +79,8 @@ export default function App() {
   // sido importado/renderizado em lugar nenhum do app — botão morto, tela
   // inacessível. Faltava só isso: um jeito de abrir.
   const [showDuplicates, setShowDuplicates] = useState(false);
+  // Fase 9.2 — busca por significado fora do chat do Hunter.
+  const [showSemanticSearch, setShowSemanticSearch] = useState(false);
   // Fase 8.3 — navegação por teclado no grid principal (a Triagem rápida,
   // Lote 9, já tinha atalho de teclado pro fluxo "uma vaga por vez"; isso
   // aqui é o mesmo princípio pro grid normal, onde o padrão até agora era
@@ -281,7 +284,7 @@ export default function App() {
   // cards; x seleciona (alimenta a barra de ações em lote, Fase 8.2); y/n/v
   // agem direto na vaga focada; Enter abre a vaga. Desativado com QUALQUER
   // modal aberto (o próprio modal tem seus atalhos) ou digitando num campo.
-  const anyModalOpen = showAddModal || showMetrics || showSettings || showJarvis || showTriage || showDuplicates;
+  const anyModalOpen = showAddModal || showMetrics || showSettings || showJarvis || showTriage || showDuplicates || showSemanticSearch;
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (anyModalOpen) return;
@@ -361,6 +364,9 @@ export default function App() {
             <button className="btn btn-ghost" onClick={() => setShowDuplicates(true)} title="Vagas da mesma empresa com título parecido, publicadas em fontes diferentes">
               🧩 Duplicatas
             </button>
+            <button className="btn btn-ghost" onClick={() => setShowSemanticSearch(true)} title="Busca por significado, não por texto exato — roda local, sem gastar cota de IA">
+              🧠 Busca semântica
+            </button>
             {aiStatus.enabled && (
               <button className="btn jarvis-toggle-btn" onClick={() => setShowJarvis(o => !o)} title="Abrir o Hunter (Ctrl+K)">
                 <HunterIcon size={17} alive /> Hunter
@@ -403,6 +409,20 @@ export default function App() {
         <DuplicatesModal
           onClose={() => { setShowDuplicates(false); reload(); }}
           onReject={id => handleSetStatus(id, 'RECUSADA')}
+        />
+      )}
+
+      {showSemanticSearch && (
+        <SemanticSearchModal
+          onClose={() => { setShowSemanticSearch(false); reload(); }}
+          onSeen={markSeen}
+          onApplied={handleApplied}
+          onInProgress={handleInProgress}
+          onSetStatus={handleSetStatus}
+          onTogglePin={togglePin}
+          onUpdateNotes={updateNotes}
+          onToast={showToast}
+          aiEnabled={aiStatus.enabled}
         />
       )}
 
