@@ -1139,7 +1139,26 @@ a:hover { text-decoration: underline; }
   font-size: 0.875rem;
   box-shadow: 0 4px 12px rgba(0,0,0,0.5);
   animation: slideIn 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: space-between;
 }
+/* Fase 16.5 — botão "Desfazer" dentro do toast */
+.toast-undo-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.toast-undo-btn:hover { background: var(--accent); color: #fff; }
 @keyframes slideIn {
   from { transform: translateY(20px); opacity: 0; }
   to   { transform: translateY(0);    opacity: 1; }

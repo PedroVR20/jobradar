@@ -6,7 +6,7 @@ import { useTheme } from './hooks/useTheme';
 import { StatsBar } from './components/StatsBar';
 import { FilterBar } from './components/FilterBar';
 import { ViewTabs } from './components/ViewTabs';
-import { JobCard } from './components/JobCard';
+import { JobCard, currentStatus } from './components/JobCard';
 import { EmptyState } from './components/EmptyState';
 import { SkeletonGrid } from './components/SkeletonCard';
 import { AddJobModal } from './components/AddJobModal';
@@ -62,6 +62,11 @@ const defaultFilters: Filters = {
   techStack: [],
 };
 
+// Fase 16.5 — "Desfazer" no toast: uma ação secundária opcional (label +
+// callback), renderizada como botão dentro do toast. Clicar nela roda o
+// callback E fecha o toast na hora (não precisa esperar o timer).
+interface ToastAction { label: string; onClick: () => void }
+
 const LAST_VISIT_KEY = 'jobradar:last-visit';
 // Fase 15.5 — evita repetir o mesmo aviso de fonte parada toda vez que o
 // app é aberto/recarregado no mesmo dia (o sinal não muda de uma hora pra
@@ -81,7 +86,7 @@ export default function App() {
   // o SEGUNDO antes da hora, mesmo os dois sendo mensagens diferentes.
   // Quanto mais rápido a pessoa trabalhava, mais mensagem sumia no meio.
   // Fila de verdade: cada toast tem seu próprio id e seu próprio timer.
-  const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([]);
+  const [toasts, setToasts] = useState<{ id: number; msg: string; action?: ToastAction }[]>([]);
   const toastIdRef = useRef(0);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
@@ -140,10 +145,14 @@ export default function App() {
   // Fase 13.2 — vira prop de callback em componentes com React.memo
   // (JobCard etc); useCallback com deps vazias porque só toca toastIdRef
   // (ref, estável) e setToasts (setState, sempre estável).
-  const showToast = useCallback((msg: string, durationMs = 3000) => {
+  const showToast = useCallback((msg: string, durationMs = 3000, action?: ToastAction) => {
     const id = ++toastIdRef.current;
-    setToasts(prev => [...prev, { id, msg }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), durationMs);
+    setToasts(prev => [...prev, { id, msg, action }]);
+    // Fase 16.5 — toast com "Desfazer" fica mais tempo na tela (o padrão de
+    // 3s some rápido demais pra reagir a uma ação que já foi feita; sem
+    // action, mantém a duração pedida por quem chamou).
+    const duracaoEfetiva = action ? Math.max(durationMs, 6000) : durationMs;
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duracaoEfetiva);
   }, []);
 
   // Avisa quantas vagas novas chegaram desde a última vez que o app foi aberto
@@ -272,13 +281,29 @@ export default function App() {
     }
   }, [triggerFetch, showToast]);
 
+  // Fase 16.5 — "Desfazer" reaproveita setStatus com o status ANTERIOR
+  // (calculado via currentStatus, mesma função que decide o badge no card)
+  // em vez de guardar um snapshot do Job inteiro — setStatus já reescreve
+  // TODOS os campos relevantes (seen/interested/applied/inProgress/
+  // rejected/rejectedAt/rejectedReason) de uma vez, então voltar pro
+  // status anterior já reconstrói o estado certo sem precisar duplicar
+  // esse mapeamento aqui.
   const handleApplied = useCallback(async (id: number) => {
+    const anterior = jobs.find(j => j.id === id);
+    const statusAnterior = anterior ? currentStatus(anterior) : null;
     await markApplied(id);
     syncAgendaForStatus(id, 'APLICADA');
-    showToast('✅ Vaga marcada como aplicada!');
-  }, [markApplied, syncAgendaForStatus, showToast]);
+    showToast(
+      '✅ Vaga marcada como aplicada!',
+      3000,
+      statusAnterior ? { label: 'Desfazer', onClick: () => setStatus(id, statusAnterior) } : undefined
+    );
+  }, [jobs, markApplied, syncAgendaForStatus, showToast, setStatus]);
 
   const handleInProgress = useCallback(async (id: number) => {
+    const anterior = jobs.find(j => j.id === id);
+    const statusAnterior = anterior ? currentStatus(anterior) : null;
+    const undoAction = statusAnterior ? { label: 'Desfazer', onClick: () => setStatus(id, statusAnterior) } : undefined;
     await markInProgress(id);
     if (isConnected()) {
       const job = jobs.find(j => j.id === id);
@@ -294,14 +319,14 @@ export default function App() {
         });
         if (result !== 'unauthorized' && result !== 'error') {
           linkTask(id, result.id, dueAt);
-          showToast('🔄 Em Andamento — 📅 follow up criado na Agenda!');
+          showToast('🔄 Em Andamento — 📅 follow up criado na Agenda!', 3000, undoAction);
           return;
         }
       }
     }
     syncAgendaForStatus(id, 'ANDAMENTO');
-    showToast('🔄 Vaga movida pra "Em Andamento"!');
-  }, [markInProgress, isConnected, jobs, createTask, linkTask, syncAgendaForStatus, showToast]);
+    showToast('🔄 Vaga movida pra "Em Andamento"!', 3000, undoAction);
+  }, [markInProgress, isConnected, jobs, createTask, linkTask, syncAgendaForStatus, showToast, setStatus]);
 
   // Fase 8.2 — estendido pra todas as abas de status (antes só
   // aplicadas/andamento/recusadas aceitavam soltar) em vez de introduzir
@@ -320,10 +345,21 @@ export default function App() {
   }, [handleInProgress, handleApplied, setStatus, syncAgendaForStatus]);
 
   const handleSetStatus = useCallback(async (id: number, status: JobStatus, motivo?: RejectedReason) => {
+    const anterior = jobs.find(j => j.id === id);
+    const statusAnterior = anterior ? currentStatus(anterior) : null;
     await setStatus(id, status, motivo);
     syncAgendaForStatus(id, status);
-    showToast(`Vaga movida pra "${statusMeta[status]}"!`);
-  }, [setStatus, syncAgendaForStatus, showToast]);
+    showToast(
+      `Vaga movida pra "${statusMeta[status]}"!`,
+      3000,
+      // Já ESTAVA nesse status (ex: clicou RECUSADA de novo) não tem o que
+      // desfazer — não oferece o botão nesse caso, seria um "desfazer" que
+      // não muda nada.
+      statusAnterior && statusAnterior !== status
+        ? { label: 'Desfazer', onClick: () => setStatus(id, statusAnterior) }
+        : undefined
+    );
+  }, [jobs, setStatus, syncAgendaForStatus, showToast]);
 
   const handleAddManual = useCallback(async (payload: ManualJobPayload) => {
     const job = await addManualJob(payload);
@@ -628,7 +664,21 @@ export default function App() {
           sem apagar os outros) + aria-live pra leitor de tela anunciar. */}
       <div className="toast-stack" aria-live="polite" aria-atomic="false">
         {toasts.map(t => (
-          <div key={t.id} className="toast">{t.msg}</div>
+          <div key={t.id} className="toast">
+            <span>{t.msg}</span>
+            {t.action && (
+              <button
+                type="button"
+                className="toast-undo-btn"
+                onClick={() => {
+                  t.action?.onClick();
+                  setToasts(prev => prev.filter(x => x.id !== t.id));
+                }}
+              >
+                {t.action.label}
+              </button>
+            )}
+          </div>
         ))}
       </div>
     </div>
