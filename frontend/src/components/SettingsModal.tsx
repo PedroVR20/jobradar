@@ -1,5 +1,5 @@
 import { ChangeEvent, DragEvent, FormEvent, useEffect, useRef, useState } from 'react';
-import { AiStatus } from '../types/Job';
+import { AiStatus, DIAS_ALERTA_FONTE_PARADA } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { GitHubFetchError, useGitHubProfile } from '../hooks/useGitHubProfile';
 import { useGmail } from '../hooks/useGmail';
@@ -65,11 +65,6 @@ interface WeeklyDigestDto {
   vagasParadas?: number;
   prazosProximos?: number;
 }
-
-// Acima disso, o badge de alerta acende — sinal de "pode ter parado", não
-// confirmação (algumas fontes genuinamente postam pouco, ver comentário
-// do endpoint no JobController).
-const DIAS_ALERTA_FONTE_PARADA = 10;
 
 export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose }: Props) {
   useEscapeToClose(onClose);

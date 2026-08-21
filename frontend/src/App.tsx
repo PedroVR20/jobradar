@@ -21,7 +21,7 @@ import { ShortcutsModal } from './components/ShortcutsModal';
 import { HunterIcon } from './components/HunterIcon';
 import { useCandidateProfile } from './hooks/useCandidateProfile';
 import { useQuickMatchScores } from './hooks/useQuickMatchScores';
-import { Filters, JobStatus, ManualJobPayload, RejectedReason, statusMeta, ViewMode } from './types/Job';
+import { DIAS_ALERTA_FONTE_PARADA, Filters, JobStatus, ManualJobPayload, RejectedReason, statusMeta, ViewMode } from './types/Job';
 import './App.css';
 
 const FOLLOWUP_DAYS = 7;
@@ -63,6 +63,11 @@ const defaultFilters: Filters = {
 };
 
 const LAST_VISIT_KEY = 'jobradar:last-visit';
+// Fase 15.5 — evita repetir o mesmo aviso de fonte parada toda vez que o
+// app é aberto/recarregado no mesmo dia (o sinal não muda de uma hora pra
+// outra, só verifica de novo — mesma ideia do LAST_VISIT_KEY acima, guarda
+// a DATA (não timestamp) do último aviso mostrado).
+const LAST_SOURCE_HEALTH_ALERT_KEY = 'jobradar:last-source-health-alert-date';
 // Fase 4.5 — modo compacto do grid de vagas, mesmo padrão de persistência
 // do modo compacto do Hunter (localStorage, lido uma vez no mount).
 const COMPACT_CARDS_KEY = 'jobradar:compact-cards';
@@ -165,6 +170,32 @@ export default function App() {
     }
     localStorage.setItem(LAST_VISIT_KEY, String(now));
   }, []);
+
+  // Fase 15.5 — alerta de degradação silenciosa: uma fonte de vaga que
+  // quebrou (scraping mudou, API saiu do ar) nunca lança erro pro usuário
+  // ver — o painel "Saúde das fontes" em Configurações (Fase 2.7) já
+  // sinalizava isso, mas só pra quem abrisse Configurações por conta
+  // própria. Isso aqui avisa de forma proativa, uma vez por dia, sem
+  // precisar ir procurar. Mesmo sinal que o SourceFreshnessHealthIndicator
+  // expõe em /actuator/health, pro lado de quem monitora o backend de fora.
+  useEffect(() => {
+    const hoje = new Date().toISOString().slice(0, 10);
+    if (localStorage.getItem(LAST_SOURCE_HEALTH_ALERT_KEY) === hoje) return;
+
+    fetch('/api/jobs/admin/fontes-saude')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((fontes: { fonte: string; diasSemVagaNova: number | null }[]) => {
+        const paradas = fontes.filter(f => f.diasSemVagaNova !== null && f.diasSemVagaNova > DIAS_ALERTA_FONTE_PARADA);
+        if (paradas.length === 0) return;
+        const nomes = paradas.map(f => f.fonte).join(', ');
+        showToast(
+          `⚠️ ${paradas.length} fonte${paradas.length === 1 ? '' : 's'} sem vaga nova há mais de ${DIAS_ALERTA_FONTE_PARADA} dias: ${nomes} — veja em ⚙️ Configurações`,
+          10000
+        );
+        localStorage.setItem(LAST_SOURCE_HEALTH_ALERT_KEY, hoje);
+      })
+      .catch(() => {}); // silencioso de propósito — é um aviso extra, não pode travar o carregamento do app
+  }, [showToast]);
 
   // Fase 13.5 — antes disparava e esquecia (syncTaskStatus tinha catch
   // silencioso e devolvia void, quem chamava nunca sabia se funcionou).

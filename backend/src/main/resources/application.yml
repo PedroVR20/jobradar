@@ -44,6 +44,14 @@ management:
       show-details: always
       probes:
         enabled: true
+      status:
+        # Fase 15.5 — DEGRADED é status customizado do
+        # SourceFreshnessHealthIndicator (fonte de vaga parada — sinal de
+        # NEGÓCIO, não de infra). Entra na ordem entre UP e DOWN pra
+        # aparecer no status agregado sem mapear pra HTTP 503 (só
+        # DOWN/OUT_OF_SERVICE mapeiam por padrão) — não derruba o
+        # healthcheck do Docker por causa de um scraper quebrado.
+        order: DOWN, OUT_OF_SERVICE, DEGRADED, UNKNOWN, UP
 
 server:
   port: 8080

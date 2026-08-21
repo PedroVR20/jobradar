@@ -584,6 +584,14 @@ export const statusMeta: Record<JobStatus, string> = {
 // Vagas recusadas somem sozinhas depois de tantos dias (espelha o backend)
 export const DIAS_PARA_EXCLUIR_RECUSADAS = 7;
 
+// Fase 2.7/15.5 — acima disso, uma fonte de vaga (Gupy, Nerdin, etc) sem
+// vaga nova é tratada como "possivelmente parada" (badge vermelho em
+// Configurações + toast proativo no carregamento, ver App.tsx). Espelha
+// DIAS_ALERTA_FONTE_PARADA em SourceFreshnessHealthIndicator no backend —
+// os dois lados concordam hoje; não há endpoint compartilhado de config
+// pra evitar essa duplicação, então se um mudar o outro precisa acompanhar.
+export const DIAS_ALERTA_FONTE_PARADA = 10;
+
 export interface Filters {
   source: string;
   search: string;
