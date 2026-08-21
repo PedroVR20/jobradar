@@ -1,6 +1,12 @@
 services:
   postgres:
     image: postgres:16-alpine
+    # Fase 10.6 — teto de memória por serviço, faltava desde sempre (o
+    # -Xmx1g do backend já era medido — Fase 6.6 — mas sem mem_limit no
+    # Compose, nada impedia o container de estourar isso e brigar por
+    # memória com os outros dois no mesmo host). ~6.700 vagas é pequeno
+    # pra Postgres — 512m é folgado sem reservar memória à toa.
+    mem_limit: 512m
     environment:
       POSTGRES_DB: jobradar
       POSTGRES_USER: jobradar
@@ -28,6 +34,25 @@ services:
     build: ./backend
     ports:
       - "${BACKEND_PORT:-8080}:8080"
+    # Fase 10.6 — heap é -Xmx1g (Fase 6.6, medido), mas off-heap (metaspace,
+    # stack de threads, code cache do JIT, buffers diretos) soma por cima —
+    # 1,5g dá a folga de sempre (~1,5x o heap) sem repetir o exagero do
+    # -Xmx2g/sem-teto que já causou OOM real antes (ver comentário no
+    # Dockerfile).
+    mem_limit: 1536m
+    # Sem Actuator ainda (Fase 15.4 do plano, pendente) — usa um endpoint
+    # leve que já existe e bate no banco (prova que a conexão está de pé,
+    # não só que o processo Java subiu).
+    # 127.0.0.1 explícito, não "localhost" — descoberto testando de verdade:
+    # wget tenta o endereço IPv6 (::1) primeiro em Alpine, e nginx/o próprio
+    # Java só escutam em IPv4 (0.0.0.0) por padrão, dando "connection
+    # refused" mesmo com o serviço de pé e respondendo.
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/api/jobs/sources"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     environment:
       # Aponta pro serviço "postgres" na rede interna do Compose — usa sempre a porta
       # interna do container (5432), independente do host-side POSTGRES_PORT acima.
@@ -91,10 +116,23 @@ services:
 
   frontend:
     build: ./frontend
+    # nginx servindo estático + proxy — leve, não tem margem real pra
+    # crescer sozinho (o peso do app inteiro é os bundles JS já servidos
+    # como arquivo, não memória de processo).
+    mem_limit: 256m
+    # 127.0.0.1 explícito — mesmo motivo do healthcheck do backend acima
+    # (wget tenta ::1 primeiro, nginx só escuta em 0.0.0.0).
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     ports:
       - "${FRONTEND_PORT:-3000}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   pgdata:
