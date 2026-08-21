@@ -1,4 +1,4 @@
-import { DragEvent, useEffect, useRef, useState } from 'react';
+import { DragEvent, memo, useEffect, useRef, useState } from 'react';
 import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, RejectedReason, rejectedReasonMeta, SortOption, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
 import { AgendaModal } from './AgendaModal';
 import { InterviewModal } from './InterviewModal';
@@ -253,7 +253,14 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onReativar, onToast, aiEnabled, sortMode, highlighted, matchPercent, compact, keyboardFocused, candidateProfile }: Props) {
+// Fase 13.2 — grid principal costuma renderizar 20-50+ cards de uma vez;
+// sem memo, QUALQUER mudança de estado no App.tsx (foco por teclado, toast,
+// abrir um modal não relacionado) re-renderiza todo card na tela, não só o
+// que mudou. React.memo faz shallow-compare de props e pula o card que não
+// mudou — só funciona de verdade se os handlers vierem estáveis via
+// useCallback do lado de fora (senão toda prop de função "muda" a cada
+// render do pai e o memo não pega nada).
+function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onReativar, onToast, aiEnabled, sortMode, highlighted, matchPercent, compact, keyboardFocused, candidateProfile }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -980,3 +987,5 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
     </div>
   );
 }
+
+export const JobCard = memo(JobCardImpl);

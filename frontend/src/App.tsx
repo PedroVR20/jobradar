@@ -132,11 +132,14 @@ export default function App() {
   const [syncingAgenda, setSyncingAgenda] = useState(false);
   const reconciledRef = useRef(false);
 
-  const showToast = (msg: string, durationMs = 3000) => {
+  // Fase 13.2 — vira prop de callback em componentes com React.memo
+  // (JobCard etc); useCallback com deps vazias porque só toca toastIdRef
+  // (ref, estável) e setToasts (setState, sempre estável).
+  const showToast = useCallback((msg: string, durationMs = 3000) => {
     const id = ++toastIdRef.current;
     setToasts(prev => [...prev, { id, msg }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), durationMs);
-  };
+  }, []);
 
   // Avisa quantas vagas novas chegaram desde a última vez que o app foi aberto
   // (não uma janela fixa tipo "últimas 4h" — se você ficar 2 dias sem abrir,
@@ -169,13 +172,13 @@ export default function App() {
   // disparando na hora, sem esperar isso — só avisa, à parte, se a
   // sincronia com a Agenda especificamente falhou, pra não deixar os dois
   // apps saírem de sincronia sem o usuário nunca descobrir.
-  const syncAgendaForStatus = (id: number, status: JobStatus) => {
+  const syncAgendaForStatus = useCallback((id: number, status: JobStatus) => {
     const agendaStatus = agendaStatusFor[status];
     if (!agendaStatus) return;
     syncTaskStatus(id, agendaStatus).then(ok => {
       if (!ok) showToast('⚠️ Não consegui sincronizar o status com a Agenda Pessoal — a vaga foi atualizada aqui normalmente.', 6000);
     });
-  };
+  }, [syncTaskStatus, showToast]);
 
   // Sentido inverso: relê o status de cada tarefa vinculada na Agenda e reflete
   // no Job Radar quando o usuário mexeu no Kanban por lá em vez de por aqui.
@@ -199,12 +202,12 @@ export default function App() {
     return changed;
   }, [jobs, isConnected, getLinkedTask, getTaskStatus, setStatus]);
 
-  const handleAgendaSync = async () => {
+  const handleAgendaSync = useCallback(async () => {
     setSyncingAgenda(true);
     const changed = await reconcileWithAgenda();
     setSyncingAgenda(false);
     showToast(changed > 0 ? `🔄 ${changed} vaga(s) sincronizada(s) com a Agenda` : '✅ Tudo sincronizado com a Agenda');
-  };
+  }, [reconcileWithAgenda, showToast]);
 
   // roda a reconciliação automaticamente uma vez, assim que as vagas carregam
   useEffect(() => {
@@ -229,22 +232,22 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const handleFetch = async () => {
+  const handleFetch = useCallback(async () => {
     try {
       const novas = await triggerFetch();
       showToast(novas > 0 ? `🎯 ${novas} novas vagas encontradas!` : '✅ Nenhuma vaga nova no momento');
     } catch (e) {
       showToast(`⚠️ ${e instanceof Error ? e.message : 'Erro ao buscar vagas.'}`, 8000);
     }
-  };
+  }, [triggerFetch, showToast]);
 
-  const handleApplied = async (id: number) => {
+  const handleApplied = useCallback(async (id: number) => {
     await markApplied(id);
     syncAgendaForStatus(id, 'APLICADA');
     showToast('✅ Vaga marcada como aplicada!');
-  };
+  }, [markApplied, syncAgendaForStatus, showToast]);
 
-  const handleInProgress = async (id: number) => {
+  const handleInProgress = useCallback(async (id: number) => {
     await markInProgress(id);
     if (isConnected()) {
       const job = jobs.find(j => j.id === id);
@@ -267,13 +270,13 @@ export default function App() {
     }
     syncAgendaForStatus(id, 'ANDAMENTO');
     showToast('🔄 Vaga movida pra "Em Andamento"!');
-  };
+  }, [markInProgress, isConnected, jobs, createTask, linkTask, syncAgendaForStatus, showToast]);
 
   // Fase 8.2 — estendido pra todas as abas de status (antes só
   // aplicadas/andamento/recusadas aceitavam soltar) em vez de introduzir
   // seleção em lote por checkbox: arrastar e soltar já existia, só faltava
   // funcionar em toda aba pra cobrir o mesmo caso de uso.
-  const handleDropJob = async (jobId: number, tab: ViewMode) => {
+  const handleDropJob = useCallback(async (jobId: number, tab: ViewMode) => {
     if (tab === 'andamento') await handleInProgress(jobId);
     else if (tab === 'aplicadas') await handleApplied(jobId);
     else if (tab === 'interessado') await setStatus(jobId, 'INTERESSADO');
@@ -283,22 +286,22 @@ export default function App() {
       await setStatus(jobId, 'RECUSADA');
       syncAgendaForStatus(jobId, 'RECUSADA');
     }
-  };
+  }, [handleInProgress, handleApplied, setStatus, syncAgendaForStatus]);
 
-  const handleSetStatus = async (id: number, status: JobStatus, motivo?: RejectedReason) => {
+  const handleSetStatus = useCallback(async (id: number, status: JobStatus, motivo?: RejectedReason) => {
     await setStatus(id, status, motivo);
     syncAgendaForStatus(id, status);
     showToast(`Vaga movida pra "${statusMeta[status]}"!`);
-  };
+  }, [setStatus, syncAgendaForStatus, showToast]);
 
-  const handleAddManual = async (payload: ManualJobPayload) => {
+  const handleAddManual = useCallback(async (payload: ManualJobPayload) => {
     const job = await addManualJob(payload);
     if (job) {
       setShowAddModal(false);
       showToast(`✅ "${job.title}" adicionada!`);
     }
     return !!job;
-  };
+  }, [addManualJob, showToast]);
 
   // Fase 8.3 — teclado como caminho principal no grid principal (a Triagem
   // rápida, Lote 9, já tinha isso pro fluxo "uma vaga por vez"; até aqui o

@@ -14,6 +14,21 @@ interface JobPage {
   totalPages: number;
 }
 
+// Extraído de setStatus pra ficar num lugar só o mapeamento status→campos
+// booleanos, reaproveitado pelas ações otimistas abaixo. Módulo-level (não
+// dentro do hook) porque é pura — não depende de nenhum estado do
+// componente, então não precisa entrar em nenhuma lista de deps de useCallback.
+function patchParaStatus(j: Job, status: JobStatus, motivo?: RejectedReason): Partial<Job> {
+  return {
+    NOVA:        { seen: false, interested: false, applied: false,   inProgress: false, rejected: false, rejectedAt: null, rejectedReason: null },
+    VISTA:       { seen: true,  interested: false, applied: false,   inProgress: false, rejected: false, rejectedAt: null, rejectedReason: null },
+    INTERESSADO: { seen: true,  interested: true,  applied: false,   inProgress: false, rejected: false, rejectedAt: null, rejectedReason: null },
+    APLICADA:    { seen: true,  interested: false, applied: true,    inProgress: false, rejected: false, rejectedAt: null, rejectedReason: null },
+    ANDAMENTO:   { seen: true,  interested: false, applied: true,    inProgress: true,  rejected: false, rejectedAt: null, rejectedReason: null },
+    RECUSADA:    { seen: true,  interested: false, applied: j.applied, inProgress: false, rejected: true, rejectedAt: new Date().toISOString(), rejectedReason: motivo ?? null },
+  }[status];
+}
+
 export function useJobs(filters: Filters) {
   // jobs acumula as páginas já carregadas (não é só a página atual) — as
   // atualizações otimistas (marcar vista/aplicada/etc, mais abaixo) mexem
@@ -136,43 +151,36 @@ export function useJobs(filters: Filters) {
     return () => clearTimeout(t);
   }, [loadJobs]);
 
-  const markSeen = async (id: number) => {
+  // Fase 13.2 — todas as ações abaixo (markSeen/setStatus/togglePin/etc)
+  // viram prop de callback no JobCard (ver React.memo em JobCard.tsx). Sem
+  // useCallback aqui, cada render do App.tsx recriava a função inteira e o
+  // memo do card nunca batia — precisa vir estável de dependências reais.
+  const markSeen = useCallback(async (id: number) => {
     await fetch(`${API}/${id}/seen`, { method: 'PATCH' });
     setJobs(prev => prev.map(j => j.id === id ? { ...j, seen: true } : j));
     reloadPaginasCarregadas(); // reflete a mudança de aba (novas → já vistas) e atualiza stats, sem piscar loading
-  };
+  }, [reloadPaginasCarregadas]);
 
-  const markApplied = async (id: number) => {
+  const markApplied = useCallback(async (id: number) => {
     await fetch(`${API}/${id}/applied`, { method: 'PATCH' });
     setJobs(prev => prev.map(j =>
       j.id === id ? { ...j, applied: true, seen: true, interested: false, inProgress: false } : j
     ));
     reloadPaginasCarregadas(); // atualiza stats sem piscar loading
-  };
+  }, [reloadPaginasCarregadas]);
 
-  const markInProgress = async (id: number) => {
+  const markInProgress = useCallback(async (id: number) => {
     await fetch(`${API}/${id}/in-progress`, { method: 'PATCH' });
     setJobs(prev => prev.map(j =>
       j.id === id ? { ...j, applied: true, seen: true, interested: false, inProgress: true } : j
     ));
     reloadPaginasCarregadas(); // atualiza stats sem piscar loading
-  };
-
-  // Extraído de setStatus pra ficar num lugar só o mapeamento status→campos
-  // booleanos, reaproveitado pelas ações otimistas abaixo.
-  const patchParaStatus = (j: Job, status: JobStatus, motivo?: RejectedReason): Partial<Job> => ({
-    NOVA:        { seen: false, interested: false, applied: false,   inProgress: false, rejected: false, rejectedAt: null, rejectedReason: null },
-    VISTA:       { seen: true,  interested: false, applied: false,   inProgress: false, rejected: false, rejectedAt: null, rejectedReason: null },
-    INTERESSADO: { seen: true,  interested: true,  applied: false,   inProgress: false, rejected: false, rejectedAt: null, rejectedReason: null },
-    APLICADA:    { seen: true,  interested: false, applied: true,    inProgress: false, rejected: false, rejectedAt: null, rejectedReason: null },
-    ANDAMENTO:   { seen: true,  interested: false, applied: true,    inProgress: true,  rejected: false, rejectedAt: null, rejectedReason: null },
-    RECUSADA:    { seen: true,  interested: false, applied: j.applied, inProgress: false, rejected: true, rejectedAt: new Date().toISOString(), rejectedReason: motivo ?? null },
-  }[status]);
+  }, [reloadPaginasCarregadas]);
 
   // Move a vaga direto pra um status, independente do atual — usado pelo
   // menu "⋮" do card (alternativa ao drag-and-drop pra pular entre abas).
   // motivo (Fase 8.7) só é relevante com status='RECUSADA'.
-  const setStatus = async (id: number, status: JobStatus, motivo?: RejectedReason) => {
+  const setStatus = useCallback(async (id: number, status: JobStatus, motivo?: RejectedReason) => {
     const query = motivo ? `value=${status}&motivo=${motivo}` : `value=${status}`;
     await fetch(`${API}/${id}/status?${query}`, { method: 'PATCH' });
     // RECUSADA não força applied:true — antes forçava, contando como
@@ -180,11 +188,11 @@ export function useJobs(filters: Filters) {
     // aplicada), inflando as métricas. Mantém o applied que a vaga já tinha.
     setJobs(prev => prev.map(j => j.id === id ? { ...j, ...patchParaStatus(j, status, motivo) } : j));
     reloadPaginasCarregadas(); // reflete a mudança de aba e atualiza stats sem piscar loading
-  };
+  }, [reloadPaginasCarregadas]);
 
   // Adiciona uma vaga manualmente (achada fora das fontes automáticas, tipo
   // Glassdoor/LinkedIn). Retorna a vaga criada/atualizada, ou null em erro.
-  const addManualJob = async (payload: ManualJobPayload): Promise<Job | null> => {
+  const addManualJob = useCallback(async (payload: ManualJobPayload): Promise<Job | null> => {
     const res = await fetch(`${API}/manual`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -196,14 +204,14 @@ export function useJobs(filters: Filters) {
     // fonte digitada pode ser nova (ex: "InfoJobs") — atualiza a lista pro filtro já oferecer na hora
     setSources(prev => prev.includes(job.source) ? prev : [...prev, job.source].sort());
     return job;
-  };
+  }, [loadJobs]);
 
   // Busca manual roda as 7 fontes de forma síncrona no backend (pode passar
   // de 1 minuto, o Nerdin sozinho já levou mais de 1min30 em teste) — se o
   // proxy nginx cortar antes disso (504), a resposta vem como HTML de erro,
   // não JSON. Sem checar res.ok antes de res.json(), isso vira uma exceção
   // não tratada ("Unexpected token '<'") sem nenhum aviso pro usuário.
-  const triggerFetch = async () => {
+  const triggerFetch = useCallback(async () => {
     setFetching(true);
     try {
       const res = await fetch(`${API}/fetch`, { method: 'POST' });
@@ -225,32 +233,32 @@ export function useJobs(filters: Filters) {
     } finally {
       setFetching(false);
     }
-  };
+  }, [loadJobs]);
 
-  const togglePin = async (id: number) => {
+  const togglePin = useCallback(async (id: number) => {
     const res = await fetch(`${API}/${id}/pin`, { method: 'PATCH' });
     const updated = await res.json() as Job;
     // recarrega a lista para respeitar a nova ordenação (pinned-first vem do backend)
     setJobs(prev => prev.map(j => j.id === id ? { ...j, pinned: updated.pinned } : j));
     reloadPaginasCarregadas();
-  };
+  }, [reloadPaginasCarregadas]);
 
   // Fase 7.3+8.4 — tira a vaga do "porão" arquivado e devolve pro funil
   // normal. Reversível de propósito (ver JobController.reativarVaga).
-  const reativarVaga = async (id: number) => {
+  const reativarVaga = useCallback(async (id: number) => {
     await fetch(`${API}/${id}/reativar`, { method: 'POST' });
     setJobs(prev => prev.filter(j => j.id !== id));
     reloadPaginasCarregadas();
-  };
+  }, [reloadPaginasCarregadas]);
 
-  const updateNotes = async (id: number, notes: string) => {
+  const updateNotes = useCallback(async (id: number, notes: string) => {
     await fetch(`${API}/${id}/notes`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ notes }),
     });
     setJobs(prev => prev.map(j => j.id === id ? { ...j, notes: notes.trim() || null } : j));
-  };
+  }, []);
 
   const hasMore = jobs.length < totalElements;
 
