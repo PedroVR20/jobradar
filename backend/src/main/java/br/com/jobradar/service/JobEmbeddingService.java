@@ -1,5 +1,6 @@
 package br.com.jobradar.service;
 
+import br.com.jobradar.llm.EmbeddingProvider;
 import br.com.jobradar.model.Job;
 import br.com.jobradar.model.JobEmbedding;
 import br.com.jobradar.repository.JobEmbeddingRepository;
@@ -20,10 +21,12 @@ import java.util.Map;
  * acha "DevOps/SRE/Cloud", "front" nunca acha "React". Embeddings resolvem
  * isso comparando SIGNIFICADO, não caractere por caractere.
  *
- * <p>Usa o modelo {@code gemini-embedding-001} (ver {@link GeminiService#embedContent}),
- * que tem quota SEPARADA e bem mais folgada que o {@code generateContent}
- * usado pelo chat — por isso essa ferramenta não compete pela cota que já
- * vive esgotada no free tier.</p>
+ * <p>Fase 8/9 — quem calcula o vetor de verdade é {@link EmbeddingProvider}
+ * (não mais {@code GeminiService} direto): por padrão o Hunter-Embed local
+ * (encoder próprio, treinado por destilação a partir dos vetores do Gemini
+ * já salvos aqui — ver {@code HunterEmbeddingProvider}), com o Gemini como
+ * alternativa reativável via {@code hunter.embedding.provider=gemini} se
+ * precisar reverter.</p>
  *
  * <p>Sem extensão pgvector no Postgres: os vetores ficam serializados como
  * bytea (Fase 6.5 — floats empacotados em binário, ver
@@ -38,7 +41,7 @@ import java.util.Map;
 @Slf4j
 public class JobEmbeddingService {
 
-    private final GeminiService geminiService;
+    private final EmbeddingProvider embeddingProvider;
     private final JobRepository jobRepository;
     private final JobEmbeddingRepository jobEmbeddingRepository;
 
@@ -65,8 +68,8 @@ public class JobEmbeddingService {
      * tem que ter sido persistida antes de chamar isso.</p>
      */
     public boolean embedESalvar(Job job) {
-        GeminiService.EmbedResult resultado = geminiService.embedContent(
-                textoDaVaga(job), GeminiService.TASK_TYPE_DOCUMENTO);
+        EmbeddingProvider.EmbedResult resultado = embeddingProvider.embed(
+                textoDaVaga(job), EmbeddingProvider.TASK_TYPE_DOCUMENTO);
         if (!resultado.ok()) {
             log.warn("Não foi possível embeddar a vaga {} ('{}'): {}", job.getId(), job.getTitle(), resultado.errorMessage());
             return false;
@@ -90,7 +93,7 @@ public class JobEmbeddingService {
      * a tabela job_embeddings inteira), via {@code findAllById}.</p>
      */
     public List<Match> buscar(String consulta, List<Job> candidatas, int limite) {
-        GeminiService.EmbedResult consultaEmbed = geminiService.embedContent(consulta, GeminiService.TASK_TYPE_CONSULTA);
+        EmbeddingProvider.EmbedResult consultaEmbed = embeddingProvider.embed(consulta, EmbeddingProvider.TASK_TYPE_CONSULTA);
         if (!consultaEmbed.ok()) {
             log.warn("Busca semântica: não consegui embeddar a consulta '{}': {}", consulta, consultaEmbed.errorMessage());
             return List.of();

@@ -71,6 +71,17 @@ google:
     # a origem do frontend, não do backend.
     frontend-origin: ${FRONTEND_ORIGIN:http://localhost:3000}
 
+# Fase 8/9 — quem calcula embedding de vaga: "local" (padrão, Hunter-Embed
+# próprio via HunterEmbeddingProvider) ou "gemini" (volta pro GeminiService,
+# se o serviço local tiver algum problema). Ver EmbeddingProvider.
+hunter:
+  embedding:
+    provider: ${HUNTER_EMBEDDING_PROVIDER:local}
+    # host.docker.internal — o serviço roda fora do Docker, direto no WSL2
+    # (GPU sem fricção com o Docker Desktop no Windows), confirmado alcançável
+    # a partir do container backend. Ver HunterEmbeddingProvider.
+    url: ${HUNTER_EMBEDDING_URL:http://host.docker.internal:8091}
+
 app:
   foco:
     # Fase 2.6 — estado(s) que ganham uma segunda passada de busca por

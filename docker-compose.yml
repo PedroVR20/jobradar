@@ -65,6 +65,14 @@ services:
       # Opcional — Adzuna BR (Fase 2.2). Gere grátis em developer.adzuna.com.
       ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
       ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
+      # Fase 8/9 — quem calcula embedding de vaga: "local" (Hunter-Embed
+      # próprio, padrão) ou "gemini" (reverte pro GeminiService). O serviço
+      # local roda FORA do Docker, direto no WSL2 (GPU sem fricção com o
+      # Docker Desktop no Windows) — host.docker.internal alcança o host
+      # Windows, que tem o WSL2 fazendo localhost-forwarding da porta do
+      # uvicorn. Ver hunter-llm/embed_server.py e HunterEmbeddingProvider.
+      HUNTER_EMBEDDING_PROVIDER: ${HUNTER_EMBEDDING_PROVIDER:-local}
+      HUNTER_EMBEDDING_URL: ${HUNTER_EMBEDDING_URL:-http://host.docker.internal:8091}
     volumes:
       # Persiste o modelo de salário retreinado fora da imagem — sem isso,
       # um "docker compose up --build" voltaria pro modelo empacotado no jar

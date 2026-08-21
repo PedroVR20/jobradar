@@ -1,10 +1,10 @@
 package br.com.jobradar.controller;
 
+import br.com.jobradar.llm.EmbeddingProvider;
 import br.com.jobradar.model.Job;
 import br.com.jobradar.repository.FonteSaudeProjection;
 import br.com.jobradar.repository.JobRepository;
 import br.com.jobradar.service.BackupService;
-import br.com.jobradar.service.GeminiService;
 import br.com.jobradar.service.JobEmbeddingService;
 import br.com.jobradar.service.SalaryEstimateService;
 import br.com.jobradar.service.SalaryModelTrainerService;
@@ -40,7 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class JobAdminController {
 
     private final JobRepository jobRepository;
-    private final GeminiService geminiService;
+    private final EmbeddingProvider embeddingProvider;
     private final JobEmbeddingService jobEmbeddingService;
     private final SalaryEstimateService salaryEstimateService;
     private final SalaryPredictionService salaryPredictionService;
@@ -71,8 +71,14 @@ public class JobAdminController {
      */
     @PostMapping("/admin/backfill-embeddings")
     public ResponseEntity<Map<String, Object>> backfillEmbeddings() {
-        if (!geminiService.isEnabled()) {
-            return ResponseEntity.status(503).body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
+        // Fase 8 — checava geminiService.isEnabled() antes, o que ficou
+        // errado assim que o provider padrão passou a ser o Hunter-Embed
+        // local (o Gemini pode estar sem key nenhuma e o backfill ainda
+        // funcionar perfeitamente). Checa o provider que está DE VERDADE
+        // ativo agora, seja ele qual for.
+        if (!embeddingProvider.isEnabled()) {
+            return ResponseEntity.status(503).body(Map.of("error",
+                    "Provider de embedding (" + embeddingProvider.getProviderName() + ") indisponível no momento."));
         }
         if (!backfillEmbeddingsEmAndamento.compareAndSet(false, true)) {
             return ResponseEntity.status(409).body(Map.of("error", "Backfill de embeddings já em andamento."));
@@ -94,6 +100,51 @@ public class JobAdminController {
             }
         });
         return ResponseEntity.accepted().body(Map.of("iniciado", true, "vagasSemEmbedding", faltam));
+    }
+
+    /**
+     * Fase 9 — REINDEXA TODO O CATÁLOGO, não só quem está sem embedding
+     * (diferente de /backfill-embeddings acima). Necessário sempre que o
+     * provider de embedding TROCA (ex: Gemini 3072d → Hunter-Embed 512d) —
+     * as vagas já têm vetor salvo, só que na dimensão/espaço do provider
+     * antigo, e {@code buscar()} silenciosamente ignora par com dimensão
+     * diferente (proteção que já existia, ver JobEmbeddingService), então
+     * sem reindexar a busca semântica simplesmente para de achar qualquer
+     * vaga antiga.
+     *
+     * <p>Não usa DELETE/TRUNCATE — {@code embedESalvar} chama
+     * {@code jobEmbeddingRepository.save(...)} com o mesmo id da vaga, que
+     * o JPA trata como UPDATE (upsert por id), sobrescrevendo o vetor
+     * antigo em vez de precisar apagar a linha antes.</p>
+     * POST /api/jobs/admin/reindex-embeddings
+     */
+    @PostMapping("/admin/reindex-embeddings")
+    public ResponseEntity<Map<String, Object>> reindexEmbeddings() {
+        if (!embeddingProvider.isEnabled()) {
+            return ResponseEntity.status(503).body(Map.of("error",
+                    "Provider de embedding (" + embeddingProvider.getProviderName() + ") indisponível no momento."));
+        }
+        if (!backfillEmbeddingsEmAndamento.compareAndSet(false, true)) {
+            return ResponseEntity.status(409).body(Map.of("error", "Já há um backfill/reindex de embeddings em andamento."));
+        }
+        long total = jobRepository.count();
+        backfillExecutor.execute(() -> {
+            try {
+                List<Job> todas = jobRepository.findAll();
+                int ok = 0;
+                for (Job job : todas) {
+                    if (jobEmbeddingService.embedESalvar(job)) {
+                        ok++;
+                    }
+                }
+                log.info("=== Reindex COMPLETO de embeddings concluído ({}): {} de {} vagas ===",
+                        embeddingProvider.getProviderName(), ok, todas.size());
+            } finally {
+                backfillEmbeddingsEmAndamento.set(false);
+            }
+        });
+        return ResponseEntity.accepted().body(Map.of(
+                "iniciado", true, "totalVagas", total, "provider", embeddingProvider.getProviderName()));
     }
 
     /**
