@@ -68,7 +68,15 @@ const COMPACT_CARDS_KEY = 'jobradar:compact-cards';
 
 export default function App() {
   const [filters, setFilters] = useState<Filters>(defaultFilters);
-  const [toast, setToast] = useState<string | null>(null);
+  // Fase 16.5 — era um toast só (string | null): showToast agendava um
+  // setTimeout sem NUNCA cancelar o anterior. Bug real: um aviso de 6-8s
+  // (ex: "🔔 N vagas novas") sobrevivia até um toast de confirmação de 3s
+  // aparecer por cima — quando o timer do PRIMEIRO disparava, ele apagava
+  // o SEGUNDO antes da hora, mesmo os dois sendo mensagens diferentes.
+  // Quanto mais rápido a pessoa trabalhava, mais mensagem sumia no meio.
+  // Fila de verdade: cada toast tem seu próprio id e seu próprio timer.
+  const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([]);
+  const toastIdRef = useRef(0);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -121,8 +129,9 @@ export default function App() {
   const reconciledRef = useRef(false);
 
   const showToast = (msg: string, durationMs = 3000) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), durationMs);
+    const id = ++toastIdRef.current;
+    setToasts(prev => [...prev, { id, msg }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), durationMs);
   };
 
   // Avisa quantas vagas novas chegaram desde a última vez que o app foi aberto
@@ -546,8 +555,13 @@ export default function App() {
         )}
       </main>
 
-      {/* Toast */}
-      {toast && <div className="toast">{toast}</div>}
+      {/* Fase 16.5 — fila (cada toast some sozinho no seu próprio tempo,
+          sem apagar os outros) + aria-live pra leitor de tela anunciar. */}
+      <div className="toast-stack" aria-live="polite" aria-atomic="false">
+        {toasts.map(t => (
+          <div key={t.id} className="toast">{t.msg}</div>
+        ))}
+      </div>
     </div>
   );
 }
