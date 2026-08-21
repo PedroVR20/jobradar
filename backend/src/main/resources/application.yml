@@ -126,6 +126,9 @@ hunter:
     # vagas), por isso o teto é bem menor que os outros (que gastam 1
     # unidade por vaga individual).
     batch-triage: ${HUNTER_BUDGET_BATCH_TRIAGE:30}
+    # Fase 9.4 — cacheado por vaga (Job.estruturaExtraidaEm), então cada
+    # vaga só gasta 1 unidade pra sempre, não repetidamente.
+    structure-extract: ${HUNTER_BUDGET_STRUCTURE_EXTRACT:100}
 
 app:
   foco:

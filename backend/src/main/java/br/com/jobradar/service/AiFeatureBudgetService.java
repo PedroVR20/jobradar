@@ -51,6 +51,10 @@ public class AiFeatureBudgetService {
     // vagas de uma vez), não por vaga — teto bem menor que os outros de
     // propósito, já reflete isso.
     public static final String BATCH_TRIAGE = "batch-triage";
+    // Fase 9.4 — extração de estrutura é cacheada por vaga (ver
+    // Job.estruturaExtraidaEm), então na prática cada vaga só gasta 1
+    // unidade PARA SEMPRE, não repetidamente como carta/match-score.
+    public static final String STRUCTURE_EXTRACT = "structure-extract";
 
     // Valores generosos de propósito — o objetivo aqui não é economizar
     // (as 29 keys já dão bastante folga no free tier), é ter um TETO
@@ -72,6 +76,8 @@ public class AiFeatureBudgetService {
     private int limiteWeeklyDigest;
     @Value("${hunter.ai-budget.batch-triage:30}")
     private int limiteBatchTriage;
+    @Value("${hunter.ai-budget.structure-extract:100}")
+    private int limiteStructureExtract;
 
     private Map<String, Integer> limites;
 
@@ -90,6 +96,7 @@ public class AiFeatureBudgetService {
         m.put(DUPLICATE_VERIFY, limiteDuplicateVerify);
         m.put(WEEKLY_DIGEST, limiteWeeklyDigest);
         m.put(BATCH_TRIAGE, limiteBatchTriage);
+        m.put(STRUCTURE_EXTRACT, limiteStructureExtract);
         return m;
     }
 

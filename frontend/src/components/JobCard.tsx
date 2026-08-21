@@ -51,6 +51,15 @@ interface WhyExplanation {
   rankingPessoal: { disponivel: boolean; score?: number; motivo?: string; principaisFatores?: { descricao: string; peso: number }[] };
 }
 
+// Fase 9.4 — formato devolvido por GET /api/jobs/{id}/structure.
+interface StructureExtraction {
+  requisitosObrigatorios: string[];
+  requisitosDesejaveis: string[];
+  anosExperienciaMin: number | null;
+  escolaridadeRequerida: string | null;
+  beneficios: string[];
+}
+
 const techTags = [
   'java', 'spring', 'react', 'typescript', 'python', 'node',
   'docker', 'kubernetes', 'aws', 'postgresql', 'go', 'rust',
@@ -323,6 +332,35 @@ function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogg
       }
     }
   };
+  // Fase 9.4 — estrutura da descrição (requisitos obrigatórios/desejáveis,
+  // anos de experiência, escolaridade, benefícios), mesmo padrão de
+  // "busca só ao abrir, cacheia depois" do why acima — só que aqui o cache
+  // é no BACKEND também (Job.estruturaExtraidaEm), não só nesse componente.
+  const [structureOpen, setStructureOpen] = useState(false);
+  const [structure, setStructure] = useState<StructureExtraction | null>(null);
+  const [structureLoading, setStructureLoading] = useState(false);
+  const [structureError, setStructureError] = useState('');
+  const toggleStructure = async () => {
+    const abrindo = !structureOpen;
+    setStructureOpen(abrindo);
+    if (abrindo && !structure) {
+      setStructureLoading(true);
+      setStructureError('');
+      try {
+        const res = await fetch(`/api/jobs/${job.id}/structure`);
+        if (res.ok) {
+          setStructure(await res.json());
+        } else {
+          const data = await res.json().catch(() => null);
+          setStructureError(data?.error ?? 'Não consegui extrair a estrutura dessa vaga agora.');
+        }
+      } catch {
+        setStructureError('Erro de conexão com o backend.');
+      } finally {
+        setStructureLoading(false);
+      }
+    }
+  };
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
   const [coverLetterOpen, setCoverLetterOpen] = useState(false);
@@ -485,6 +523,14 @@ function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogg
             {(matchPercent != null || sortMode === 'personal') && (
               <button type="button" className="badge-why" onClick={toggleWhy} title="Por que essa vaga apareceu aqui?">
                 {whyOpen ? '❓ fechar' : '❓ por quê?'}
+              </button>
+            )}
+            {/* Fase 9.4 — só aparece com IA ativa (o backend precisa do
+                Gemini pra extrair — sem isso o botão levaria a um erro
+                garantido em toda vaga). */}
+            {aiEnabled && (
+              <button type="button" className="badge-why" onClick={toggleStructure} title="Extrair requisitos/benefícios estruturados da descrição">
+                {structureOpen ? '📋 fechar' : '📋 requisitos'}
               </button>
             )}
             {job.rejected && <span className="badge-rejected">❌ RECUSADA</span>}
@@ -658,6 +704,44 @@ function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogg
               )}
               {!why.heuristico && sortMode !== 'personal' && (
                 <p className="why-line why-line--muted">Sem sinal de ordenação pra explicar nessa vaga.</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Fase 9.4 — requisitos/benefícios estruturados extraídos da
+          descrição crua. Mesmo motivo do why-panel de ficar fora do
+          card-header: painel de largura total, não encaixa no flex de duas
+          colunas do cabeçalho. */}
+      {structureOpen && (
+        <div className="why-panel">
+          {structureLoading ? (
+            <p className="why-loading">extraindo requisitos da descrição…</p>
+          ) : structureError ? (
+            <p className="why-line why-line--muted">{structureError}</p>
+          ) : !structure ? (
+            <p className="why-loading">Não consegui carregar agora.</p>
+          ) : (
+            <>
+              {structure.requisitosObrigatorios.length > 0 && (
+                <p className="why-line">✅ <strong>Obrigatórios:</strong> {structure.requisitosObrigatorios.join(', ')}</p>
+              )}
+              {structure.requisitosDesejaveis.length > 0 && (
+                <p className="why-line">➕ <strong>Desejáveis:</strong> {structure.requisitosDesejaveis.join(', ')}</p>
+              )}
+              {structure.anosExperienciaMin != null && (
+                <p className="why-line">⏳ <strong>{structure.anosExperienciaMin} ano{structure.anosExperienciaMin === 1 ? '' : 's'}</strong> de experiência mínima</p>
+              )}
+              {structure.escolaridadeRequerida && (
+                <p className="why-line">🎓 {structure.escolaridadeRequerida}</p>
+              )}
+              {structure.beneficios.length > 0 && (
+                <p className="why-line">🎁 <strong>Benefícios:</strong> {structure.beneficios.join(', ')}</p>
+              )}
+              {structure.requisitosObrigatorios.length === 0 && structure.requisitosDesejaveis.length === 0
+                && structure.anosExperienciaMin == null && !structure.escolaridadeRequerida && structure.beneficios.length === 0 && (
+                <p className="why-line why-line--muted">A descrição dessa vaga não trouxe nenhum requisito estruturado claro.</p>
               )}
             </>
           )}

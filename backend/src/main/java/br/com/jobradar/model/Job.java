@@ -188,4 +188,21 @@ public class Job {
     // certa em vez de penalizar TODAS as features da vaga por igual quando
     // o motivo real era só o salário, por exemplo.
     private String rejectedReason;
+
+    // Fase 9.4 — extração de estrutura da descrição via IA (ver
+    // JobStructureExtractorService), sob demanda e cacheada — mesma ideia do
+    // salaryCheckedAt acima: estruturaExtraidaEm marca "já tentei" (mesmo
+    // quando a extração não achou nada útil), pra nunca gastar uma segunda
+    // chamada de Gemini na mesma vaga. Comma-separated pras listas (mesmo
+    // padrão de `tags` acima), não JSON — o resto do schema não usa colunas
+    // JSON, não vale introduzir um padrão novo só aqui.
+    @Column(columnDefinition = "TEXT")
+    private String requisitosObrigatorios;
+    @Column(columnDefinition = "TEXT")
+    private String requisitosDesejaveis;
+    private Integer anosExperienciaMin;
+    private String escolaridadeRequerida;
+    @Column(columnDefinition = "TEXT")
+    private String beneficios;
+    private LocalDateTime estruturaExtraidaEm;
 }

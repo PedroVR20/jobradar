@@ -9,6 +9,7 @@ import br.com.jobradar.repository.JobSpecifications;
 import br.com.jobradar.service.AiDuplicateVerifierService;
 import br.com.jobradar.service.AiFeatureBudgetService;
 import br.com.jobradar.service.AiTriageService;
+import br.com.jobradar.service.JobStructureExtractorService;
 import br.com.jobradar.service.CompanyNormalizer;
 import br.com.jobradar.service.GeminiService;
 import br.com.jobradar.service.JarvisAssistantService;
@@ -71,6 +72,7 @@ public class JobController {
     private final JobEmbeddingService jobEmbeddingService;
     private final AiFeatureBudgetService aiFeatureBudgetService;
     private final AiTriageService aiTriageService;
+    private final JobStructureExtractorService jobStructureExtractorService;
 
     /**
      * Lista todas as vagas com filtros opcionais
@@ -860,6 +862,34 @@ public class JobController {
                 .map(v -> Map.of("jobId", v.jobId(), "veredito", v.veredito().name(), "motivo", v.motivo()))
                 .toList());
         return ResponseEntity.ok(out);
+    }
+
+    /**
+     * Fase 9.4 — estrutura da descrição (requisitos obrigatórios/desejáveis,
+     * anos de experiência, escolaridade, benefícios), extraída via IA e
+     * CACHEADA na própria vaga (ver Job.estruturaExtraidaEm) — chamadas
+     * seguintes pra mesma vaga devolvem do banco, sem gastar IA de novo.
+     * GET /api/jobs/{id}/structure
+     */
+    @GetMapping("/{id}/structure")
+    public ResponseEntity<Map<String, Object>> extrairEstrutura(@PathVariable Long id) {
+        return jobRepository.findById(id).<ResponseEntity<Map<String, Object>>>map(job -> {
+            JobStructureExtractorService.ExtractOutcome outcome = jobStructureExtractorService.extrair(job);
+            if (!outcome.ok()) {
+                Map<String, Object> erro = new HashMap<>();
+                erro.put("error", outcome.errorMessage());
+                erro.put("rateLimited", outcome.rateLimited());
+                return ResponseEntity.status(outcome.rateLimited() ? 429 : 400).body(erro);
+            }
+            Map<String, Object> out = new HashMap<>();
+            out.put("requisitosObrigatorios", outcome.estrutura().requisitosObrigatorios());
+            out.put("requisitosDesejaveis", outcome.estrutura().requisitosDesejaveis());
+            out.put("anosExperienciaMin", outcome.estrutura().anosExperienciaMin());
+            out.put("escolaridadeRequerida", outcome.estrutura().escolaridadeRequerida());
+            out.put("beneficios", outcome.estrutura().beneficios());
+            out.put("cacheHit", outcome.cacheHit());
+            return ResponseEntity.ok(out);
+        }).orElse(ResponseEntity.notFound().build());
     }
 
     /**
