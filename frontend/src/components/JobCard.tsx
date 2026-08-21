@@ -936,19 +936,28 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
               </button>
             </div>
           ) : (
-            <button
-              className="btn btn-danger"
-              onClick={() => onSetStatus(job.id, 'RECUSADA')}
-            >
-              ❌ Recusada/congelada
-              <span
+            // Fase 16.4 — antes era um <span onClick> DENTRO do <button>
+            // (HTML inválido — conteúdo interativo aninhado — e
+            // inalcançável por teclado: Tab parava no botão de fora, Enter
+            // recusava sem motivo, o span "por quê?" só respondia a clique
+            // de mouse exatamente em cima dele). Dois botões irmãos agora,
+            // os dois alcançáveis por Tab normalmente.
+            <div className="reject-actions">
+              <button
+                className="btn btn-danger"
+                onClick={() => onSetStatus(job.id, 'RECUSADA')}
+              >
+                ❌ Recusada/congelada
+              </button>
+              <button
+                type="button"
                 className="reject-reason-toggle"
                 title="Dizer por quê (ajuda o ranking pessoal a aprender certo)"
-                onClick={e => { e.stopPropagation(); setShowRejectReasons(true); }}
+                onClick={() => setShowRejectReasons(true)}
               >
                 por quê?
-              </span>
-            </button>
+              </button>
+            </div>
           )
         )}
         {job.rejected && (

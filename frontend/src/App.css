@@ -824,8 +824,15 @@ a:hover { text-decoration: underline; }
 }
 
 /* Fase 8.7 — motivo da recusa em um clique */
+/* Fase 16.4 — era um <span> inline dentro do botão de recusar, virou
+   <button> irmão de verdade (acessível por teclado) — reset do visual
+   padrão de botão pra continuar parecendo um link discreto igual antes. */
+.reject-actions { display: flex; align-items: center; gap: 0.5rem; }
 .reject-reason-toggle {
-  margin-left: 0.5rem;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
   font-size: 0.7rem;
   font-weight: 400;
   text-decoration: underline;
