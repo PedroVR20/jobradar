@@ -21,6 +21,40 @@
      translúcido sobre fundo já claro é praticamente invisível — vira preto
      translúcido lá embaixo em vez de trocar cada regra uma por uma. */
   --overlay-rgb: 255,255,255;
+
+  /* Fase 16.3 — escala de tokens de espaçamento e tipografia. O app
+     cresceu por 16 fases de incrementos pontuais sem uma escala
+     combinada desde o início — hoje o arquivo tem 67 cores hex distintas,
+     29 tamanhos de fonte distintos (vários a 0.01-0.02rem de diferença
+     um do outro, ex: 0.74/0.75/0.76/0.78rem, quase certamente
+     acidentais, não intencionais) e 60+ declarações de margin/padding/gap
+     com valor solto. Consolidar TUDO isso retroativamente exigiria
+     revisar visualmente cada uma das ~3600 linhas do arquivo pra
+     confirmar que nenhuma mudança de valor (ex: 0.74rem → 0.75rem)
+     quebrou um alinhamento — fora do que dá pra verificar com segurança
+     nesta sessão (sem acesso a browser/DevTools pra QA visual, ver
+     memória "no-self-testing-after-implementation"). Em vez de arriscar
+     uma regressão visual invisível em código já em produção, esta escala
+     nova é usada nas regras ADICIONADAS a partir de agora (ver
+     .shortcuts-*, .active-filter-chip*, .triage-batch-row/.triage-veredito*,
+     .structure-alertas* mais abaixo) — consolidação retroativa do resto
+     do arquivo fica pra quando houver como validar visualmente.
+     Cores já têm token semântico (--bg/--text/--accent/--green/--yellow/
+     --red/--border acima) desde a Fase 4.1 — o que faltava era só a
+     escala de espaçamento/tipografia, que é isso aqui. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --font-size-xs: 0.7rem;
+  --font-size-sm: 0.78rem;
+  --font-size-base: 0.85rem;
+  --font-size-md: 0.95rem;
+  --font-size-lg: 1.05rem;
+  --font-size-xl: 1.3rem;
 }
 
 /* Fase 4.1 — tema claro. Segue a preferência do sistema por padrão
@@ -528,7 +562,7 @@ a:hover { text-decoration: underline; }
 .structure-alertas-list {
   margin: 0.3rem 0 0;
   padding-left: 1.1rem;
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
   color: var(--text);
   line-height: 1.5;
 }
@@ -1770,7 +1804,7 @@ a:hover { text-decoration: underline; }
   border: none;
   color: #818cf8;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: var(--font-size-base);
   line-height: 1;
   padding: 2px 5px;
   border-radius: 999px;
@@ -3606,7 +3640,7 @@ html.jarvis-resizing .header-inner {
 }
 .triage-veredito {
   display: block;
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   padding: 0.35rem 0.6rem;
   border-radius: 6px;
