@@ -336,7 +336,13 @@ export default function App() {
         <div className="header-inner header-inner--flex">
           <div>
             <h1 className="app-title">🎯 Job Radar</h1>
-            <p className="app-subtitle">Vagas de programação remotas na Europa + vagas no Brasil (Gupy) · Atualizado a cada 2 horas</p>
+            {/* Fase 16.10 — a versão antiga citava "Europa + Gupy" como se
+                fossem as únicas fontes; hoje são 9 (Gupy, QueroVagasTech,
+                Nerdin, Arbeitnow, Greenhouse, Eureca, WWR, Remotive,
+                InfoJobs — ver stats.porFonte). Descreve a categoria em vez
+                de listar fonte por fonte, pra não voltar a ficar
+                desatualizado a cada fonte nova que entrar. */}
+            <p className="app-subtitle">Vagas de programação no Brasil e remotas internacionais, de múltiplas fontes agregadas · Atualizado a cada 2 horas</p>
           </div>
           <div className="header-actions">
             <button

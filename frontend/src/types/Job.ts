@@ -615,6 +615,12 @@ export const sourceMeta: Record<string, { label: string; color: string }> = {
   MANUAL:           { label: 'Adicionada manualmente', color: '#94a3b8' },
   QUEROVAGASTECH:   { label: 'QueroVagasTech (BR)',    color: '#f97316' },
   NERDIN:           { label: 'Nerdin (BR)',            color: '#8b5cf6' },
+  // Fase 16.10 — faltavam desde que essas duas fontes entraram no backend
+  // (Fase 2.1/2.x) e nunca ganharam entrada aqui: sourceMeta[s]?.label ??
+  // s devolve a CHAVE crua ("GREENHOUSE") no filtro, e o badge do card
+  // fica sem cor propria — medido: 525 vagas (8,8% do catalogo) afetadas.
+  GREENHOUSE:       { label: 'Greenhouse',              color: '#0ea5e9' },
+  INFOJOBS:         { label: 'InfoJobs (BR)',           color: '#dc2626' },
 };
 
 export const workplaceMeta: Record<WorkplaceType, { label: string; icon: string }> = {
