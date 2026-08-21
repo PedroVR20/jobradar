@@ -179,6 +179,32 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources, 
     filters.beginnerMode ||
     filters.techStack.length > 0;
 
+  // Fase 16.6 — antes, saber QUAIS filtros estavam ativos exigia olhar
+  // cada um dos 6 selects um por um (o botão "Limpar filtros" só dizia
+  // "tem algo ativo", não o quê). Um resumo em chips, cada um removível
+  // individualmente, deixa o estado do filtro visível de relance.
+  const DAYS_LABEL: Record<string, string> = {
+    '1': 'Últimas 24h', '3': 'Últimos 3 dias', '7': 'Últimos 7 dias',
+    '14': 'Últimos 14 dias', '30': 'Últimos 30 dias',
+  };
+  const SENIORITY_LABEL: Record<string, string> = {
+    ESTAGIO: seniorityMeta.ESTAGIO.label, JUNIOR: seniorityMeta.JUNIOR.label,
+    PLENO: seniorityMeta.PLENO.label, SENIOR: seniorityMeta.SENIOR.label,
+    NAO_INFORMADO: 'Nível não informado',
+  };
+  const WORKPLACE_LABEL: Record<string, string> = {
+    REMOTO: `${workplaceMeta.REMOTO.icon} 100% Remoto`, HIBRIDO: `${workplaceMeta.HIBRIDO.icon} Híbrido`,
+    PRESENCIAL: `${workplaceMeta.PRESENCIAL.icon} Presencial`,
+  };
+  const activeChips: { key: string; label: string; clear: () => void }[] = [];
+  if (filters.search) activeChips.push({ key: 'search', label: `🔍 "${filters.search}"`, clear: () => set({ search: '' }) });
+  if (filters.source) activeChips.push({ key: 'source', label: sourceMeta[filters.source]?.label ?? filters.source, clear: () => set({ source: '' }) });
+  if (filters.seniority) activeChips.push({ key: 'seniority', label: SENIORITY_LABEL[filters.seniority] ?? filters.seniority, clear: () => set({ seniority: '' }) });
+  if (filters.workplaceType) activeChips.push({ key: 'workplaceType', label: WORKPLACE_LABEL[filters.workplaceType] ?? filters.workplaceType, clear: () => set({ workplaceType: '' }) });
+  if (filters.state) activeChips.push({ key: 'state', label: `📍 ${filters.state}`, clear: () => set({ state: '' }) });
+  if (filters.days) activeChips.push({ key: 'days', label: DAYS_LABEL[filters.days] ?? filters.days, clear: () => set({ days: '' }) });
+  if (filters.beginnerMode) activeChips.push({ key: 'beginnerMode', label: '🎓 Modo Iniciante', clear: () => set({ beginnerMode: false }) });
+
   return (
     <div className="filter-bar">
       {/* Modo Iniciante + Tech Pills personalizadas */}
@@ -349,6 +375,24 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources, 
           {compact ? '☰ Cards' : '≡ Compacto'}
         </button>
       </div>
+
+      {activeChips.length > 0 && (
+        <div className="filter-row filter-row--chips">
+          {activeChips.map(chip => (
+            <span key={chip.key} className="active-filter-chip">
+              {chip.label}
+              <button
+                className="active-filter-chip-remove"
+                onClick={chip.clear}
+                title={`Remover filtro`}
+                aria-label={`Remover filtro ${chip.label}`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Modal de confirmação — arrastável */}
       {confirmDelete && (

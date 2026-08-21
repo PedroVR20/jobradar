@@ -1727,6 +1727,41 @@ a:hover { text-decoration: underline; }
 }
 .tech-pill-remove:hover { color: var(--red); background: #ef444411; }
 
+/* Fase 16.6 — resumo dos filtros ativos em chips (search/fonte/nível/
+   modalidade/estado/data/modo iniciante), cada um removível na hora,
+   sem precisar abrir o select correspondente pra saber o que tá filtrando. */
+.filter-row--chips {
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+}
+.active-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--accent);
+  background: #6366f122;
+  color: #818cf8;
+  border-radius: 999px;
+  padding: 3px 4px 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.active-filter-chip-remove {
+  background: transparent;
+  border: none;
+  color: #818cf8;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 999px;
+  transition: color 0.15s, background 0.15s;
+}
+.active-filter-chip-remove:hover { color: var(--red); background: #ef444422; }
+
 /* input inline para criar nova pill */
 .tech-pill-form { display: contents; }
 
