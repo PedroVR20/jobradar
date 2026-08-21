@@ -4,14 +4,54 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:jobradar}
     password: ${SPRING_DATASOURCE_PASSWORD:jobradar123}
     driver-class-name: org.postgresql.Driver
+  # Fase 5.3 — antes disso o schema inteiro era gerenciado por
+  # `ddl-auto: update`, sem histórico nenhum de "o que mudou quando" além
+  # do git log dos @Entity. baseline-on-migrate marca o banco de produção
+  # existente como "já na versão 1" (ver V1__baseline.sql) sem tentar
+  # recriá-lo — só migrações NOVAS (V2__ em diante) rodam de verdade nele.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "Schema existente antes do Flyway"
   jpa:
     hibernate:
-      ddl-auto: update
+      # validate, não mais update — Flyway é a única fonte de verdade do
+      # schema agora; o Hibernate só CONFERE que as entidades batem com o
+      # que existe (erro alto e claro no boot se alguém esquecer de somar
+      # uma migração ao mudar um @Entity), nunca mais altera nada sozinho.
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+
+# Fase 15.4 — observabilidade via Actuator. Só health/info/metrics expostos
+# (não env/beans/configprops — vazariam a DATASOURCE_PASSWORD e as
+# GEMINI_API_KEYS em texto claro num endpoint HTTP sem autenticação; esse é
+# um app pessoal sem camada de auth na frente do backend, então o que NÃO
+# expõe é tão importante quanto o que expõe). health com detalhes sempre
+# visíveis (não só "UP"/"DOWN") pra dar diagnóstico real (DB caiu? disco
+# cheio?) sem precisar entrar no container pra olhar log.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+      status:
+        # Fase 15.5 — DEGRADED é status customizado do
+        # SourceFreshnessHealthIndicator (fonte de vaga parada — sinal de
+        # NEGÓCIO, não de infra). Entra na ordem entre UP e DOWN pra
+        # aparecer no status agregado sem mapear pra HTTP 503 (só
+        # DOWN/OUT_OF_SERVICE mapeiam por padrão) — não derruba o
+        # healthcheck do Docker por causa de um scraper quebrado.
+        order: DOWN, OUT_OF_SERVICE, DEGRADED, UNKNOWN, UP
 
 server:
   port: 8080
@@ -38,6 +78,64 @@ gemini:
   # pode ser descontinuada; testado e funcionando tanto em projetos antigos
   # quanto novos (resolveu pra gemini-3.6-flash nos dois em ago/2026).
   model: ${GEMINI_MODEL:gemini-flash-latest}
+
+google:
+  oauth:
+    # Vazio por padrão — a integração com Gmail fica desativada (Configurações
+    # mostra "não configurado") sem essas duas. Geradas em
+    # console.cloud.google.com (Credenciais > Criar credenciais > ID do
+    # cliente OAuth, tipo "Aplicativo da Web"). Não são as mesmas keys do
+    # Gemini — projeto separado ou o mesmo, tanto faz, só precisa a Gmail API
+    # ativada nele.
+    client-id: ${GOOGLE_OAUTH_CLIENT_ID:}
+    client-secret: ${GOOGLE_OAUTH_CLIENT_SECRET:}
+    # Precisa bater EXATAMENTE (incluindo protocolo/porta) com um dos "URIs de
+    # redirecionamento autorizados" cadastrados no client OAuth no Google
+    # Cloud Console, senão a Google recusa o callback com redirect_uri_mismatch.
+    redirect-uri: ${GOOGLE_OAUTH_REDIRECT_URI:http://localhost:8080/api/gmail/oauth/callback}
+    # Pra onde o navegador volta depois do callback processar o código —
+    # a origem do frontend, não do backend.
+    frontend-origin: ${FRONTEND_ORIGIN:http://localhost:3000}
+
+# hunter: — um bloco SÓ (YAML não mescla chave de nível raiz repetida,
+# a segunda ocorrência silenciosamente apagaria a primeira — dois blocos
+# hunter: separados aqui já foi um bug real evitado ANTES de commitar,
+# achado relendo o arquivo depois de somar a Fase 9.8 em cima da 8/9).
+hunter:
+  # Fase 8/9 — quem calcula embedding de vaga: "local" (padrão, Hunter-Embed
+  # próprio via HunterEmbeddingProvider) ou "gemini" (volta pro GeminiService,
+  # se o serviço local tiver algum problema). Ver EmbeddingProvider.
+  embedding:
+    provider: ${HUNTER_EMBEDDING_PROVIDER:local}
+    # host.docker.internal — o serviço roda fora do Docker, direto no WSL2
+    # (GPU sem fricção com o Docker Desktop no Windows), confirmado alcançável
+    # a partir do container backend. Ver HunterEmbeddingProvider.
+    url: ${HUNTER_EMBEDDING_URL:http://host.docker.internal:8091}
+  # Fase 9.8 — teto diário de chamadas de IA generativa POR FUNCIONALIDADE
+  # (rede de segurança além do rodízio de keys do GeminiService, que protege
+  # a COTA mas não protege uma funcionalidade específica de consumir
+  # desproporcionalmente o que é compartilhado). Ver AiFeatureBudgetService.
+  ai-budget:
+    cover-letter: ${HUNTER_BUDGET_COVER_LETTER:150}
+    match-score: ${HUNTER_BUDGET_MATCH_SCORE:150}
+    learning-plan: ${HUNTER_BUDGET_LEARNING_PLAN:100}
+    interview-questions: ${HUNTER_BUDGET_INTERVIEW_QUESTIONS:100}
+    duplicate-verify: ${HUNTER_BUDGET_DUPLICATE_VERIFY:200}
+    weekly-digest: ${HUNTER_BUDGET_WEEKLY_DIGEST:10}
+    # Fase 9.1 — 1 chamada cobre um LOTE inteiro (até AiTriageService.MAX_LOTE
+    # vagas), por isso o teto é bem menor que os outros (que gastam 1
+    # unidade por vaga individual).
+    batch-triage: ${HUNTER_BUDGET_BATCH_TRIAGE:30}
+    # Fase 9.4 — cacheado por vaga (Job.estruturaExtraidaEm), então cada
+    # vaga só gasta 1 unidade pra sempre, não repetidamente.
+    structure-extract: ${HUNTER_BUDGET_STRUCTURE_EXTRACT:100}
+
+app:
+  foco:
+    # Fase 2.6 — estado(s) que ganham uma segunda passada de busca por
+    # fonte (antes só a Gupy tinha isso hardcoded). Separado por vírgula
+    # se quiser mais de um no futuro, ex: "Rio de Janeiro,Minas Gerais".
+    estados: ${FOCO_ESTADOS:Rio de Janeiro}
 
 logging:
   level:

@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Metrics } from '../types/Job';
+import { SkeletonLines } from './SkeletonCard';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   onClose: () => void;
 }
 
 export function MetricsModal({ onClose }: Props) {
+  useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -22,15 +27,23 @@ export function MetricsModal({ onClose }: Props) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal metrics-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal metrics-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="metrics-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>📊</span>
-          <h2>Métricas de candidatura</h2>
+          <h2 id="metrics-modal-title">Métricas de candidatura</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 
         {loading ? (
-          <p className="agenda-hint">Carregando...</p>
+          <SkeletonLines count={5} />
         ) : !metrics || metrics.totalAplicadas === 0 ? (
           <p className="agenda-hint">Ainda não há vagas aplicadas pra gerar métricas.</p>
         ) : (

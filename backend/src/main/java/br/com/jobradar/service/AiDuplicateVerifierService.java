@@ -24,6 +24,7 @@ import java.util.List;
 public class AiDuplicateVerifierService {
 
     private final GeminiService geminiService;
+    private final AiFeatureBudgetService aiFeatureBudgetService;
     private final ObjectMapper mapper = new ObjectMapper();
 
     /**
@@ -37,6 +38,13 @@ public class AiDuplicateVerifierService {
      */
     public boolean confirmar(String company, List<String> titles) {
         if (!geminiService.isEnabled()) return true;
+        // Fase 9.8 — orçamento diário. Mesmo comportamento de "sem IA
+        // disponível" documentado na assinatura: mantém o veredito do
+        // Jaccard sem alterar, já que não dá pra verificar agora.
+        if (!aiFeatureBudgetService.permitir(AiFeatureBudgetService.DUPLICATE_VERIFY)) {
+            log.info("Orçamento de verificação de duplicata esgotado hoje — mantendo veredito do Jaccard pra '{}'.", company);
+            return true;
+        }
 
         String listaTitulos = String.join("\n", titles.stream().map(t -> "- " + t).toList());
         String prompt = """

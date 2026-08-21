@@ -32,7 +32,26 @@ export interface Job {
   pinned: boolean;
   notes: string | null;
   classifiedByAi: boolean;
+  // Fase 7.3+8.4 — arquivamento reversível (ver JobController.reativarVaga).
+  archived: boolean;
+  archivedReason: string | null;
+  // Fase 7.5 — null = link nunca checado, ver JobLinkCheckerService.
+  linkMorto: boolean | null;
+  // Fase 8.7 — motivo estruturado da recusa (ver RejectedReason).
+  rejectedReason: RejectedReason | null;
 }
+
+// Fase 8.7 — mesmos valores de JobStatusService.VALID_REJECTED_REASONS.
+export type RejectedReason = 'SALARIO' | 'LOCALIDADE' | 'SENIORIDADE' | 'STACK' | 'EMPRESA' | 'OUTRO';
+
+export const rejectedReasonMeta: Record<RejectedReason, string> = {
+  SALARIO: '💰 Salário',
+  LOCALIDADE: '📍 Localidade',
+  SENIORIDADE: '📶 Senioridade',
+  STACK: '🧩 Stack',
+  EMPRESA: '🏢 Empresa',
+  OUTRO: '❓ Outro',
+};
 
 // Status da integração com Gemini — GET /api/jobs/ai-status
 export interface AiStatus {
@@ -43,7 +62,7 @@ export interface AiStatus {
   requestsToday: number | null;
   // Presente só quando há mais de uma GEMINI_API_KEYS configurada — o
   // backend faz rodízio automático entre elas quando uma bate no limite.
-  keyPool: { total: number; availableToday: number; exhaustedToday: number } | null;
+  keyPool: { total: number; availableToday: number; exhaustedToday: number; rejectedNow: number } | null;
 }
 
 // GET /api/jobs/{id}/salary-estimate — dado real do banco, não IA
@@ -405,6 +424,22 @@ export interface JarvisBuscaSemanticaData {
   erro?: string;
 }
 
+// POST /api/jobs/assistant/chat — resultado da ferramenta
+// verificarEmailsDeVagas (Gmail só-leitura, ver GmailService)
+export interface JarvisEmailVaga {
+  titulo: string;
+  empresa: string | null;
+  url: string;
+  dataEmail: string | null;
+  fonte: string;
+}
+export interface JarvisEmailVagasData {
+  conectado: boolean;
+  vagas: JarvisEmailVaga[];
+  erro?: string;
+}
+
+
 // POST /api/jobs/assistant/chat — resultado da ferramenta apagarVaga
 export interface JarvisApagarVagaData {
   sucesso?: boolean;
@@ -427,12 +462,13 @@ export interface JarvisToolResult {
     | 'estimativaSalarialDeVagas' | 'detalharVagas' | 'vagasParecidas' | 'vagasParadas' | 'marcarStatusDeVaga' | 'atualizarNotaDeVaga'
     | 'gerarCartaDeApresentacao' | 'metricasDeDesempenho' | 'vagasComPrazoProximo' | 'detectarDuplicatas' | 'desempenhoPorFonte' | 'historicoDaEmpresa'
     | 'fixarVaga' | 'adicionarVagaManual' | 'apagarVaga' | 'lembrarPreferencia' | 'oQueFazerAgora' | 'compararStackComMercado'
-    | 'criarLembreteNaAgenda' | 'buscarVagasPorSignificado';
+    | 'criarLembreteNaAgenda' | 'buscarVagasPorSignificado' | 'verificarEmailsDeVagas';
   data: JarvisListarVagasData | JarvisResumoFunilData | JarvisCompatibilidadeData | JarvisSalarioData
     | JarvisDetalharVagasData | JarvisVagasParecidasData | JarvisVagasParadasData | JarvisMarcarStatusData | JarvisAtualizarNotaData
     | JarvisCartaData | JarvisMetricasData | JarvisPrazoData | JarvisDuplicatasData | JarvisFontesData | JarvisHistoricoEmpresaData
     | JarvisFixarVagaData | JarvisAdicionarVagaData | JarvisApagarVagaData | JarvisLembrarData
-    | JarvisOQueFazerAgoraData | JarvisCompararMercadoData | JarvisLembreteAgendaData | JarvisBuscaSemanticaData;
+    | JarvisOQueFazerAgoraData | JarvisCompararMercadoData | JarvisLembreteAgendaData | JarvisBuscaSemanticaData
+    | JarvisEmailVagasData;
 }
 
 // Pergunta interativa que o Hunter decidiu fazer (ferramenta perguntarUsuario)
@@ -499,17 +535,24 @@ export interface Stats {
   // qualquer conta "aplicadas - recusadas", senão dá número negativo quando
   // a maioria das recusas nunca foi aplicada de verdade.
   recusadasDeAplicadas: number;
+  // Fase 16.1 — contagem DIRETA de cada aba (mesma Specification que a
+  // listagem real usa), pra ViewTabs não aproximar mais por subtração
+  // (total - outros campos), que já deu badge errado por até 5x.
+  vistasAba: number;
+  aplicadasAba: number;
   hojeCount: number;
-  porFonte: {
-    REMOTIVE: number;
-    ARBEITNOW: number;
-    WWR: number;
-    GUPY: number;
-    EURECA: number;
-    QUEROVAGASTECH: number;
-    NERDIN: number;
-  };
-  porSenioridade: Record<Seniority, number>;
+  // Fase 12.5 — virou GROUP BY dinâmico no backend em vez de uma lista fixa
+  // de fontes/senioridades hardcoded: uma fonte com 0 vagas simplesmente
+  // não aparece como chave (em vez de aparecer com valor 0), e uma fonte
+  // nova (Greenhouse, SINE Aberto — invisíveis aqui antes por não estarem
+  // na lista fixa) aparece sozinha sem precisar editar tipo nem backend.
+  porFonte: Record<string, number>;
+  porSenioridade: Partial<Record<Seniority, number>>;
+  // Fase 7.2 — vagas com prazo (expiresAt) vencido, ainda não aplicadas
+  // nem recusadas. Alimenta o badge da aba "Vencidas".
+  vencidas: number;
+  // Fase 7.3+8.4 — alimenta o badge da aba "Arquivadas".
+  arquivadas: number;
 }
 
 export interface Metrics {
@@ -523,9 +566,9 @@ export interface Metrics {
   tempoMedioAteRecusaDias: number | null;
 }
 
-export type SortOption = 'posted_desc' | 'posted_asc' | 'fetched_desc';
+export type SortOption = 'posted_desc' | 'posted_asc' | 'fetched_desc' | 'personal';
 
-export type ViewMode = 'novas' | 'vistas' | 'interessado' | 'aplicadas' | 'andamento' | 'recusadas';
+export type ViewMode = 'novas' | 'vistas' | 'interessado' | 'aplicadas' | 'andamento' | 'recusadas' | 'vencidas' | 'arquivadas';
 
 export type JobStatus = 'NOVA' | 'VISTA' | 'INTERESSADO' | 'APLICADA' | 'ANDAMENTO' | 'RECUSADA';
 
@@ -540,6 +583,14 @@ export const statusMeta: Record<JobStatus, string> = {
 
 // Vagas recusadas somem sozinhas depois de tantos dias (espelha o backend)
 export const DIAS_PARA_EXCLUIR_RECUSADAS = 7;
+
+// Fase 2.7/15.5 — acima disso, uma fonte de vaga (Gupy, Nerdin, etc) sem
+// vaga nova é tratada como "possivelmente parada" (badge vermelho em
+// Configurações + toast proativo no carregamento, ver App.tsx). Espelha
+// DIAS_ALERTA_FONTE_PARADA em SourceFreshnessHealthIndicator no backend —
+// os dois lados concordam hoje; não há endpoint compartilhado de config
+// pra evitar essa duplicação, então se um mudar o outro precisa acompanhar.
+export const DIAS_ALERTA_FONTE_PARADA = 10;
 
 export interface Filters {
   source: string;
@@ -572,6 +623,12 @@ export const sourceMeta: Record<string, { label: string; color: string }> = {
   MANUAL:           { label: 'Adicionada manualmente', color: '#94a3b8' },
   QUEROVAGASTECH:   { label: 'QueroVagasTech (BR)',    color: '#f97316' },
   NERDIN:           { label: 'Nerdin (BR)',            color: '#8b5cf6' },
+  // Fase 16.10 — faltavam desde que essas duas fontes entraram no backend
+  // (Fase 2.1/2.x) e nunca ganharam entrada aqui: sourceMeta[s]?.label ??
+  // s devolve a CHAVE crua ("GREENHOUSE") no filtro, e o badge do card
+  // fica sem cor propria — medido: 525 vagas (8,8% do catalogo) afetadas.
+  GREENHOUSE:       { label: 'Greenhouse',              color: '#0ea5e9' },
+  INFOJOBS:         { label: 'InfoJobs (BR)',           color: '#dc2626' },
 };
 
 export const workplaceMeta: Record<WorkplaceType, { label: string; icon: string }> = {

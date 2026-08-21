@@ -1,10 +1,25 @@
 services:
   postgres:
     image: postgres:16-alpine
+    # Fase 10.6 — teto de memória por serviço, faltava desde sempre (o
+    # -Xmx1g do backend já era medido — Fase 6.6 — mas sem mem_limit no
+    # Compose, nada impedia o container de estourar isso e brigar por
+    # memória com os outros dois no mesmo host). ~6.700 vagas é pequeno
+    # pra Postgres — 512m é folgado sem reservar memória à toa.
+    mem_limit: 512m
     environment:
       POSTGRES_DB: jobradar
       POSTGRES_USER: jobradar
       POSTGRES_PASSWORD: jobradar123
+    # Fase 12.7 — pg_stat_statements precisa ser pré-carregado no boot do
+    # Postgres (shared_preload_libraries); CREATE EXTENSION sozinho não
+    # basta, e diferente da maioria das extensões não dá pra ativar depois
+    # sem reiniciar o servidor. Com isso, todo diagnóstico de banco daqui
+    # pra frente vira "qual query custa mais no total" (dado real, via
+    # pg_stat_statements) em vez de EXPLAIN manual em cima de suspeita —
+    # foi assim que as 19 queries do /stats (Fase 12.5) só apareceram por
+    # eu ter procurado, não porque alguma ferramenta apontou.
+    command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
@@ -19,6 +34,27 @@ services:
     build: ./backend
     ports:
       - "${BACKEND_PORT:-8080}:8080"
+    # Fase 10.6 — heap é -Xmx1g (Fase 6.6, medido), mas off-heap (metaspace,
+    # stack de threads, code cache do JIT, buffers diretos) soma por cima —
+    # 1,5g dá a folga de sempre (~1,5x o heap) sem repetir o exagero do
+    # -Xmx2g/sem-teto que já causou OOM real antes (ver comentário no
+    # Dockerfile).
+    mem_limit: 1536m
+    # Fase 15.4 — trocado de um endpoint de negócio (/api/jobs/sources) pro
+    # /actuator/health de verdade: o indicador de banco (HikariCP) já vem de
+    # graça com o starter, então isso prova a conexão com o Postgres de pé
+    # (não só que o processo Java subiu) sem precisar de um endpoint
+    # emprestado que não foi feito pra isso.
+    # 127.0.0.1 explícito, não "localhost" — descoberto testando de verdade:
+    # wget tenta o endereço IPv6 (::1) primeiro em Alpine, e nginx/o próprio
+    # Java só escutam em IPv4 (0.0.0.0) por padrão, dando "connection
+    # refused" mesmo com o serviço de pé e respondendo.
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     environment:
       # Aponta pro serviço "postgres" na rede interna do Compose — usa sempre a porta
       # interna do container (5432), independente do host-side POSTGRES_PORT acima.
@@ -40,11 +76,41 @@ services:
       # Opcional — só o botão "🔒 Retreinar modelo de salário" nas Configurações
       # funciona com isso preenchido (gate simples, não é segurança de verdade).
       RETRAIN_SECRET_CODE: ${RETRAIN_SECRET_CODE:-}
+      # Opcional — integração Gmail (Configurações > "📧 Gmail") fica
+      # desativada sem essas duas. Geradas em console.cloud.google.com,
+      # credenciais OAuth tipo "Aplicativo da Web" com a Gmail API ativada.
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      # Precisa bater com um dos "URIs de redirecionamento autorizados" do
+      # client OAuth no Google Cloud Console.
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8080/api/gmail/oauth/callback}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      # Opcional — estado(s) que ganham uma segunda passada de busca por
+      # fonte que suporta filtro geográfico (Gupy, e futuras fontes BR).
+      # Separado por vírgula pra mais de um, ex: "Rio de Janeiro,Minas Gerais".
+      FOCO_ESTADOS: ${FOCO_ESTADOS:-Rio de Janeiro}
+      # Opcional — Adzuna BR (Fase 2.2). Gere grátis em developer.adzuna.com.
+      ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
+      ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
+      # Fase 8/9 — quem calcula embedding de vaga: "local" (Hunter-Embed
+      # próprio, padrão) ou "gemini" (reverte pro GeminiService). O serviço
+      # local roda FORA do Docker, direto no WSL2 (GPU sem fricção com o
+      # Docker Desktop no Windows) — host.docker.internal alcança o host
+      # Windows, que tem o WSL2 fazendo localhost-forwarding da porta do
+      # uvicorn. Ver hunter-llm/embed_server.py e HunterEmbeddingProvider.
+      HUNTER_EMBEDDING_PROVIDER: ${HUNTER_EMBEDDING_PROVIDER:-local}
+      HUNTER_EMBEDDING_URL: ${HUNTER_EMBEDDING_URL:-http://host.docker.internal:8091}
     volumes:
       # Persiste o modelo de salário retreinado fora da imagem — sem isso,
       # um "docker compose up --build" voltaria pro modelo empacotado no jar
       # e o retreino se perderia.
       - ./data:/app/data
+      # Fase 5.4 — backup diário do Postgres (ver BackupService), fora do
+      # volume nomeado do próprio postgres de propósito: um volume Docker
+      # comum e o dump de backup vivendo juntos não protegem contra nada —
+      # se o Docker/disco tiver um problema, os dois somem juntos. Pasta no
+      # host é resgatável independente do estado dos containers/volumes.
+      - ./backups:/app/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,10 +118,23 @@ services:
 
   frontend:
     build: ./frontend
+    # nginx servindo estático + proxy — leve, não tem margem real pra
+    # crescer sozinho (o peso do app inteiro é os bundles JS já servidos
+    # como arquivo, não memória de processo).
+    mem_limit: 256m
+    # 127.0.0.1 explícito — mesmo motivo do healthcheck do backend acima
+    # (wget tenta ::1 primeiro, nginx só escuta em 0.0.0.0).
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     ports:
       - "${FRONTEND_PORT:-3000}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   pgdata:

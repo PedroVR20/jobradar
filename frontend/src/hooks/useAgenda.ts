@@ -1,3 +1,5 @@
+import { useCallback } from 'react';
+
 const AGENDA_API = 'http://localhost:8081';
 const TOKEN_KEY = 'agenda_token';
 const EMAIL_KEY = 'agenda_email';
@@ -22,12 +24,17 @@ export interface LinkedTask {
   dueAt: string | null;
 }
 
+// Fase 13.2 — todo retorno desse hook vira prop de callback em componentes
+// que usam React.memo (JobCard, etc). Sem useCallback aqui, useAgenda()
+// devolvia uma função NOVA a cada render de quem chamava — memo nunca
+// batia. Nenhuma dessas funções depende de estado do componente (só
+// localStorage/fetch), então a maioria estabiliza com deps vazias.
 export function useAgenda() {
   const getToken = () => localStorage.getItem(TOKEN_KEY);
-  const isConnected = () => !!getToken();
-  const savedEmail = () => localStorage.getItem(EMAIL_KEY) ?? '';
+  const isConnected = useCallback(() => !!getToken(), []);
+  const savedEmail = useCallback(() => localStorage.getItem(EMAIL_KEY) ?? '', []);
 
-  const login = async (email: string, password: string): Promise<'ok' | 'invalid' | 'error'> => {
+  const login = useCallback(async (email: string, password: string): Promise<'ok' | 'invalid' | 'error'> => {
     try {
       const res = await fetch(`${AGENDA_API}/api/v1/auth/login`, {
         method: 'POST',
@@ -43,18 +50,18 @@ export function useAgenda() {
     } catch {
       return 'error';
     }
-  };
+  }, []);
 
-  const disconnect = () => {
+  const disconnect = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(EMAIL_KEY);
-  };
+  }, []);
 
-  const linkTask = (jobId: number, taskId: string, dueAt: string | null = null) => {
+  const linkTask = useCallback((jobId: number, taskId: string, dueAt: string | null = null) => {
     localStorage.setItem(TASK_KEY(jobId), JSON.stringify({ id: taskId, dueAt }));
-  };
+  }, []);
 
-  const getLinkedTask = (jobId: number): LinkedTask | null => {
+  const getLinkedTask = useCallback((jobId: number): LinkedTask | null => {
     const raw = localStorage.getItem(TASK_KEY(jobId));
     if (!raw) return null;
     try {
@@ -62,17 +69,17 @@ export function useAgenda() {
     } catch {
       return null;
     }
-  };
+  }, []);
 
-  const getLinkedTaskId = (jobId: number): string | null => getLinkedTask(jobId)?.id ?? null;
+  const getLinkedTaskId = useCallback((jobId: number): string | null => getLinkedTask(jobId)?.id ?? null, [getLinkedTask]);
 
   // Tarefa de entrevista — vinculada separadamente da candidatura/follow-up,
   // pra não perder a referência de uma quando a outra é criada/atualizada.
-  const linkInterviewTask = (jobId: number, taskId: string, dueAt: string) => {
+  const linkInterviewTask = useCallback((jobId: number, taskId: string, dueAt: string) => {
     localStorage.setItem(INTERVIEW_KEY(jobId), JSON.stringify({ id: taskId, dueAt }));
-  };
+  }, []);
 
-  const getInterviewTask = (jobId: number): LinkedTask | null => {
+  const getInterviewTask = useCallback((jobId: number): LinkedTask | null => {
     const raw = localStorage.getItem(INTERVIEW_KEY(jobId));
     if (!raw) return null;
     try {
@@ -80,9 +87,9 @@ export function useAgenda() {
     } catch {
       return null;
     }
-  };
+  }, []);
 
-  const createTask = async (payload: AgendaTaskPayload): Promise<CreateTaskResult> => {
+  const createTask = useCallback(async (payload: AgendaTaskPayload): Promise<CreateTaskResult> => {
     const token = getToken();
     if (!token) return 'unauthorized';
     try {
@@ -104,14 +111,19 @@ export function useAgenda() {
     } catch {
       return 'error';
     }
-  };
+  }, [disconnect]);
 
-  const syncTaskStatus = async (jobId: number, status: AgendaTaskStatus): Promise<void> => {
+  // Fase 13.5 — devolve se sincronizou de verdade (antes era Promise<void>,
+  // sempre "sucesso" pra quem chamava, mesmo numa falha real). O fluxo do
+  // Job Radar continua não-bloqueante de propósito (o catch continua não
+  // travando nada) — só que agora quem chama TEM como avisar o usuário em
+  // vez de deixar os dois apps saírem de sincronia sem ninguém perceber.
+  const syncTaskStatus = useCallback(async (jobId: number, status: AgendaTaskStatus): Promise<boolean> => {
     const token = getToken();
     const taskId = getLinkedTaskId(jobId);
-    if (!token || !taskId) return;
+    if (!token || !taskId) return true; // não vinculado a nenhuma tarefa — não é falha, é n/a
     try {
-      await fetch(`${AGENDA_API}/api/v1/tasks/${taskId}/status`, {
+      const res = await fetch(`${AGENDA_API}/api/v1/tasks/${taskId}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -119,14 +131,15 @@ export function useAgenda() {
         },
         body: JSON.stringify({ status }),
       });
+      return res.ok;
     } catch {
-      // silent — sync failure doesn't affect Job Radar flow
+      return false;
     }
-  };
+  }, [getLinkedTaskId]);
 
   // Lê o status atual de uma tarefa na Agenda — usado pra sincronizar no sentido inverso
   // (Agenda → Job Radar), quando o usuário move a tarefa direto por lá.
-  const getTaskStatus = async (taskId: string): Promise<AgendaTaskStatus | null> => {
+  const getTaskStatus = useCallback(async (taskId: string): Promise<AgendaTaskStatus | null> => {
     const token = getToken();
     if (!token) return null;
     try {
@@ -143,7 +156,7 @@ export function useAgenda() {
     } catch {
       return null;
     }
-  };
+  }, [disconnect]);
 
   return { isConnected, savedEmail, login, disconnect, createTask, linkTask, getLinkedTask, getLinkedTaskId, syncTaskStatus, getTaskStatus, linkInterviewTask, getInterviewTask };
 }

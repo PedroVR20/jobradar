@@ -1,5 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { RetrainResult } from '../types/Job';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   onClose: () => void;
@@ -29,6 +31,8 @@ function diffBadge(before: number, after: number, higherIsBetter: boolean): stri
 // SalaryModelTrainerService no backend (Ridge regression em Java puro,
 // entra em uso na hora, sem precisar reconstruir o container).
 export function RetrainModal({ onClose }: Props) {
+  useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const [code, setCode] = useState('');
   const [step, setStep] = useState<Step>('code');
   const [error, setError] = useState('');
@@ -87,10 +91,18 @@ export function RetrainModal({ onClose }: Props) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal retrain-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal retrain-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="retrain-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>🔒</span>
-          <h2>Retreinar modelo de salário</h2>
+          <h2 id="retrain-modal-title">Retreinar modelo de salário</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 
@@ -103,6 +115,7 @@ export function RetrainModal({ onClose }: Props) {
               value={code}
               onChange={e => setCode(e.target.value)}
               placeholder="Código secreto"
+              aria-label="Código secreto"
               autoFocus
             />
             {error && <p className="agenda-error">{error}</p>}

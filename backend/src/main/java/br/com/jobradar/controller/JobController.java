@@ -1,35 +1,33 @@
 package br.com.jobradar.controller;
 
+import br.com.jobradar.dto.JobPageResult;
 import br.com.jobradar.model.Job;
-import br.com.jobradar.model.JobEvent;
+import br.com.jobradar.repository.ChaveContagemProjection;
 import br.com.jobradar.repository.JobEventRepository;
 import br.com.jobradar.repository.JobRepository;
 import br.com.jobradar.repository.JobSpecifications;
 import br.com.jobradar.service.AiDuplicateVerifierService;
-import br.com.jobradar.service.CoverLetterService;
+import br.com.jobradar.service.AiFeatureBudgetService;
+import br.com.jobradar.service.AiTriageService;
+import br.com.jobradar.service.JobStructureExtractorService;
+import br.com.jobradar.service.CompanyNormalizer;
 import br.com.jobradar.service.GeminiService;
-import br.com.jobradar.service.InterviewQuestionsService;
 import br.com.jobradar.service.JarvisAssistantService;
-import br.com.jobradar.service.JarvisChatService;
 import br.com.jobradar.service.JobAggregatorService;
 import br.com.jobradar.service.JobEmbeddingService;
+import br.com.jobradar.service.JobQueryService;
 import br.com.jobradar.service.JobStatusService;
-import br.com.jobradar.service.LearningPlanService;
-import br.com.jobradar.service.MatchScoreService;
-import br.com.jobradar.service.SalaryEstimateService;
-import br.com.jobradar.service.SalaryModelTrainerService;
-import br.com.jobradar.service.SalaryPredictionService;
+import br.com.jobradar.service.PersonalRankingService;
 import br.com.jobradar.service.SeniorityClassifier;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.jpa.domain.Specification;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
-import java.io.IOException;
+import java.io.BufferedWriter;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.time.DayOfWeek;
 import java.time.Duration;
@@ -37,27 +35,27 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * Fase 5.1 — CRUD/listagem/dashboard das vagas. Antes deste split o arquivo
+ * tinha 1420 linhas e misturava isso com admin (retreino de modelo, backfill
+ * de embedding) e IA por vaga (carta, match-score, chat do Hunter) — ver
+ * {@link JobAdminController} e {@link AssistantController} pra onde essas
+ * duas partes foram.
+ */
 @RestController
 @RequestMapping("/api/jobs")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
-@Slf4j
 public class JobController {
 
     private final JobRepository jobRepository;
@@ -65,26 +63,16 @@ public class JobController {
     private final JobAggregatorService aggregatorService;
     private final SeniorityClassifier seniorityClassifier;
     private final AiDuplicateVerifierService aiDuplicateVerifierService;
-    private final CoverLetterService coverLetterService;
+    private final CompanyNormalizer companyNormalizer;
     private final GeminiService geminiService;
-    private final SalaryEstimateService salaryEstimateService;
-    private final SalaryPredictionService salaryPredictionService;
-    private final SalaryModelTrainerService salaryModelTrainerService;
     private final JarvisAssistantService jarvisAssistantService;
-    private final JarvisChatService jarvisChatService;
-    private final MatchScoreService matchScoreService;
-    private final LearningPlanService learningPlanService;
-    private final InterviewQuestionsService interviewQuestionsService;
     private final JobStatusService jobStatusService;
+    private final PersonalRankingService personalRankingService;
+    private final JobQueryService jobQueryService;
     private final JobEmbeddingService jobEmbeddingService;
-
-    // Gate simples (não é segurança de verdade — app pessoal local) pra não
-    // ter um botão de "retreinar" clicável sem querer. Vazio == recurso
-    // desativado (retorna 503 em vez de aceitar qualquer código).
-    @Value("${retrain.secret-code:}")
-    private String retrainSecretCode;
-    private final AtomicBoolean retreinoEmAndamento = new AtomicBoolean(false);
-    private final AtomicBoolean backfillEmbeddingsEmAndamento = new AtomicBoolean(false);
+    private final AiFeatureBudgetService aiFeatureBudgetService;
+    private final AiTriageService aiTriageService;
+    private final JobStructureExtractorService jobStructureExtractorService;
 
     /**
      * Lista todas as vagas com filtros opcionais
@@ -95,16 +83,30 @@ public class JobController {
      * workplaceType → REMOTO | HIBRIDO | PRESENCIAL (só vagas brasileiras/Gupy informam)
      * state     → nome do estado por extenso, ignora acentos (ex: "sao paulo" acha "São Paulo")
      * days      → só vagas publicadas nos últimos N dias
-     * sort      → posted_desc (padrão) | posted_asc | fetched_desc
+     * sort      → posted_desc (padrão) | posted_asc | fetched_desc | personal (Fase 3.1, ver PersonalRankingService)
      * onlyNew   → só não vistas
      * onlySeen  → só vistas, sem interesse marcado, e não aplicadas
      * onlyInteressado → só marcadas com interesse, e não aplicadas
      * onlyApplied → só aplicadas e fora de processo (não confundir com em andamento)
      * onlyInProgress → só aplicadas e em processo seletivo ativo
      * onlyRejected → só recusadas/congeladas (somem sozinhas depois de 7 dias)
+     * onlyExpired → Fase 7.2: só vagas com prazo (expiresAt) vencido, ainda
+     *   não aplicadas nem recusadas. Nas outras abas de decisão (onlyNew/
+     *   onlySeen/onlyInteressado) vaga vencida some sozinha da lista.
+     * onlyArchived → Fase 7.3+8.4: só vagas arquivadas (ver
+     *   JobAggregatorService.arquivarVagasAntigasNuncaEngajadas). Sem essa
+     *   flag, vaga arquivada some de TODAS as abas, não só das de decisão.
+     *
+     * Fase 6.3 — devolve página, não o catálogo inteiro. Antes disso o
+     * corpo desse método inteiro (filtro SQL, busca textual, ordenação)
+     * vivia aqui; extraído pra {@link JobQueryService} (Fase 5.5) junto da
+     * paginação nova. techStack é novo aqui: antes os pills de tecnologia só
+     * filtravam no cliente sobre o catálogo inteiro já carregado — com
+     * paginação de verdade isso precisa acontecer no servidor, senão a
+     * página 1 pode vir vazia mesmo com resultado no catálogo inteiro.
      */
     @GetMapping
-    public List<Map<String, Object>> getAll(
+    public JobPageResult getAll(
             @RequestParam(required = false) String source,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String seniority,
@@ -117,44 +119,31 @@ public class JobController {
             @RequestParam(required = false, defaultValue = "false") boolean onlyInteressado,
             @RequestParam(required = false, defaultValue = "false") boolean onlyApplied,
             @RequestParam(required = false, defaultValue = "false") boolean onlyInProgress,
-            @RequestParam(required = false, defaultValue = "false") boolean onlyRejected
+            @RequestParam(required = false, defaultValue = "false") boolean onlyRejected,
+            @RequestParam(required = false, defaultValue = "false") boolean onlyExpired,
+            @RequestParam(required = false, defaultValue = "false") boolean onlyArchived,
+            @RequestParam(required = false) List<String> techStack,
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "30") int size
     ) {
-        LocalDateTime postedAfter = days != null && days > 0
-                ? LocalDateTime.now().minusDays(days)
-                : null;
+        return jobQueryService.listar(new JobQueryService.Filtro(
+                source, search, seniority, workplaceType, state, days, sort,
+                onlyNew, onlySeen, onlyInteressado, onlyApplied, onlyInProgress, onlyRejected, onlyExpired, onlyArchived,
+                techStack, page, size
+        ));
+    }
 
-        // Filtros de comparação direta (fonte, senioridade, modalidade, data,
-        // status do funil) viram WHERE de SQL — cortam a imensa maioria das
-        // ~4800 vagas ANTES de qualquer coisa rodar em memória Java. Busca
-        // textual (multi-termo, insensível a acento) e comparação de estado
-        // continuam em Java de propósito — ver comentário em
-        // JobSpecifications sobre por que (precisaria da extensão unaccent
-        // do Postgres pra fazer certo em SQL).
-        Specification<Job> spec = JobSpecifications.combine(
-                JobSpecifications.bySource(source),
-                JobSpecifications.bySeniorityIn(seniority),
-                JobSpecifications.byWorkplaceType(workplaceType),
-                JobSpecifications.postedAfter(postedAfter),
-                onlyNew ? JobSpecifications.onlyNew() : null,
-                onlySeen ? JobSpecifications.onlySeen() : null,
-                onlyInteressado ? JobSpecifications.onlyInteressado() : null,
-                onlyApplied ? JobSpecifications.onlyApplied() : null,
-                onlyInProgress ? JobSpecifications.onlyInProgress() : null,
-                onlyRejected ? JobSpecifications.onlyRejected() : null
-        );
-        List<Job> jobs = jobRepository.findAll(spec);
-
-        // vagas pinadas sempre sobem ao topo, independente da aba ou filtro
-        Comparator<Job> pinnedFirst = Comparator.comparing(
-                (Job j) -> !Boolean.TRUE.equals(j.getFavorited()));
-
-        return jobs.stream()
-                .filter(j -> state == null || state.isBlank()
-                        || (j.getState() != null && normalize(state).equals(normalize(j.getState()))))
-                .filter(j -> matchesSearch(j, search))
-                .sorted(pinnedFirst.thenComparing(comparatorFor(sort)))
-                .map(this::toDto)
-                .toList();
+    /**
+     * Reativa uma vaga arquivada (Fase 7.3+8.4) — tira ela do "porão" e
+     * devolve pro funil normal (volta a aparecer em Novas/Já vistas
+     * dependendo de `seen`). Reversível de propósito: arquivamento nunca é
+     * uma decisão definitiva, só uma limpeza de lista.
+     * POST /api/jobs/{id}/reativar
+     */
+    @PostMapping("/{id}/reativar")
+    public ResponseEntity<Void> reativarVaga(@PathVariable Long id) {
+        int atualizadas = jobRepository.reativarVaga(id);
+        return atualizadas > 0 ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 
     /**
@@ -180,6 +169,24 @@ public class JobController {
     }
 
     /**
+     * Fase 3.1 — diz se já dá pra ordenar por "ranking pessoal" (dado
+     * suficiente de interesse/aplicada/favoritada vs recusada-sem-aplicar).
+     * O frontend usa isso pra decidir se mostra a opção no seletor de
+     * ordenação, em vez de mostrar uma opção que hoje empataria tudo em 50.
+     * GET /api/jobs/personal-ranking-status
+     */
+    @GetMapping("/personal-ranking-status")
+    public Map<String, Object> getPersonalRankingStatus() {
+        PersonalRankingService.Modelo modelo = personalRankingService.treinar();
+        Map<String, Object> m = new HashMap<>();
+        m.put("disponivel", modelo.disponivel());
+        m.put("motivoIndisponivel", modelo.motivoIndisponivel());
+        m.put("totalPositivas", modelo.totalPositivas());
+        m.put("totalNegativas", modelo.totalNegativas());
+        return m;
+    }
+
+    /**
      * Conta quantas vagas foram buscadas (fetchedAt) desde X minutos atrás.
      * Usado pelo frontend pra avisar "N vagas novas desde sua última visita"
      * ao abrir o app. Recebe minutos (não um timestamp absoluto do cliente)
@@ -196,30 +203,14 @@ public class JobController {
         return Map.of("count", jobRepository.countByFetchedAtAfter(cutoff));
     }
 
-    // Todos os termos da busca devem aparecer em título, empresa ou tags.
-    // Ignora acentuação para achar "itau" em "Itaú", "sao paulo" em "São Paulo", etc.
-    private boolean matchesSearch(Job j, String search) {
-        if (search == null || search.isBlank()) return true;
-        String haystack = normalize(j.getTitle() + " " + j.getCompany() + " "
-                + (j.getTags() != null ? j.getTags() : ""));
-        return Arrays.stream(normalize(search).trim().split("\\s+"))
-                .allMatch(haystack::contains);
-    }
-
+    // Usado por normalizeCompany/titleWords (detecção de duplicatas) — a
+    // versão usada pela listagem/busca textual mudou pra JobQueryService
+    // (Fase 5.5), mas esse aqui continua local, mesmo precedente de
+    // pequeno helper duplicado já registrado no projeto (ver statusDe em
+    // JarvisWriteTools/JobStatusService).
     private String normalize(String text) {
         String decomposed = Normalizer.normalize(text.toLowerCase(), Normalizer.Form.NFD);
         return decomposed.replaceAll("\\p{M}", "");
-    }
-
-    private Comparator<Job> comparatorFor(String sort) {
-        return switch (sort == null ? "" : sort) {
-            case "posted_asc" -> Comparator.comparing(Job::getPostedAt,
-                    Comparator.nullsLast(Comparator.naturalOrder()));
-            case "fetched_desc" -> Comparator.comparing(Job::getFetchedAt,
-                    Comparator.nullsLast(Comparator.reverseOrder()));
-            default -> Comparator.comparing(Job::getPostedAt,
-                    Comparator.nullsLast(Comparator.reverseOrder()));
-        };
     }
 
     /**
@@ -230,11 +221,31 @@ public class JobController {
     public Map<String, Object> getStats() {
         Map<String, Object> stats = new HashMap<>();
         stats.put("total", jobRepository.count());
-        stats.put("novas", jobRepository.countBySeenFalse());
+        // Fase 16.1 — era countBySeenFalse() puro: contava vaga arquivada
+        // (nunca vista, mas fora do funil ativo há tempo) e vaga vencida
+        // como "nova", e não excluía vaga recusada direto da aba Novas sem
+        // nunca ter sido marcada como vista. Resultado real medido: badge
+        // mostrava 5.787 com a aba de verdade (mesma Specification que
+        // JobQueryService usa) devolvendo 3.594 — 61% a mais. Esse número
+        // também alimentava o badge de "⚡ Triagem rápida" (App.tsx) e o
+        // card "🔴 NÃO VISTAS" (StatsBar) — os três ficam corretos de graça
+        // agora, mesma fonte da verdade que a listagem real usa.
+        stats.put("novas", jobRepository.count(
+                JobSpecifications.combine(JobSpecifications.onlyNew(), JobSpecifications.notExpired(), JobSpecifications.notArchived())));
         stats.put("interessadas", jobRepository.countByInterestedTrue());
         stats.put("aplicadas", jobRepository.countByAppliedTrue());
         stats.put("emAndamento", jobRepository.countByAppliedTrueAndInProgressTrue());
         stats.put("recusadas", jobRepository.countByRejectedTrue());
+        // Fase 16.1 — contagem DIRETA de cada aba (mesma Specification que
+        // JobQueryService.listar usa pra filtrar), pro frontend parar de
+        // aproximar "Já vistas"/"Aplicadas" por subtração (total - outros
+        // campos) — ViewTabs.tsx media 153 na aba "Já vistas" com a
+        // listagem real devolvendo 31 (5x a mais) por causa exatamente
+        // dessa aproximação.
+        stats.put("vistasAba", jobRepository.count(
+                JobSpecifications.combine(JobSpecifications.onlySeen(), JobSpecifications.notExpired(), JobSpecifications.notArchived())));
+        stats.put("aplicadasAba", jobRepository.count(
+                JobSpecifications.combine(JobSpecifications.onlyApplied(), JobSpecifications.notArchived())));
         // Diferente de "recusadas" acima (TODA vaga recusada, aplicada ou
         // não) — esse é só a recusa de quem realmente tinha sido aplicada.
         // "aplicadas" - "recusadas" (o campo de cima) dava número negativo
@@ -242,25 +253,41 @@ public class JobController {
         // este campo pra qualquer conta que precise só da recusa "dentro"
         // do funil de aplicadas (bug reportado: "-21 aplicadas" na tela).
         stats.put("recusadasDeAplicadas", jobRepository.countByAppliedTrueAndRejectedTrue());
-        stats.put("hojeCount", jobRepository
-                .findByFetchedAtAfter(LocalDateTime.now().minusHours(24)).size());
-        stats.put("porFonte", Map.of(
-                "REMOTIVE", jobRepository.countBySource("REMOTIVE"),
-                "ARBEITNOW", jobRepository.countBySource("ARBEITNOW"),
-                "WWR", jobRepository.countBySource("WWR"),
-                "GUPY", jobRepository.countBySource("GUPY"),
-                "EURECA", jobRepository.countBySource("EURECA"),
-                "QUEROVAGASTECH", jobRepository.countBySource("QUEROVAGASTECH"),
-                "NERDIN", jobRepository.countBySource("NERDIN")
-        ));
-        stats.put("porSenioridade", Map.of(
-                SeniorityClassifier.ESTAGIO, jobRepository.countBySeniority(SeniorityClassifier.ESTAGIO),
-                SeniorityClassifier.JUNIOR, jobRepository.countBySeniority(SeniorityClassifier.JUNIOR),
-                SeniorityClassifier.PLENO, jobRepository.countBySeniority(SeniorityClassifier.PLENO),
-                SeniorityClassifier.SENIOR, jobRepository.countBySeniority(SeniorityClassifier.SENIOR),
-                SeniorityClassifier.NAO_INFORMADO, jobRepository.countBySeniority(SeniorityClassifier.NAO_INFORMADO)
-        ));
+        // Fase 7.2 — alimenta o badge da aba "Vencidas". Fase 16.1: soma
+        // notArchived() — vaga arquivada (nunca engajada) pode ter
+        // expiresAt vencido igual, e a aba de verdade já exclui arquivada
+        // de qualquer aba que não seja a própria Arquivadas.
+        stats.put("vencidas", jobRepository.count(
+                JobSpecifications.combine(JobSpecifications.onlyExpired(), JobSpecifications.notArchived())));
+        // Fase 7.3+8.4 — alimenta o badge da aba "Arquivadas".
+        stats.put("arquivadas", jobRepository.countByArchivedTrue());
+        // Fase 12.6 — era findByFetchedAtAfter(...).size(): materializava as
+        // ~635 entidades das últimas 24h inteiras (todos os campos, uma a
+        // uma via Hibernate) só pra jogar fora e contar o tamanho da lista.
+        // countByFetchedAtAfter já existe e já é usado 34 linhas acima
+        // (getNewSince) — era literalmente a mesma pergunta respondida de
+        // dois jeitos diferentes no mesmo arquivo.
+        stats.put("hojeCount", jobRepository.countByFetchedAtAfter(LocalDateTime.now().minusHours(24)));
+        // Fase 12.5 — eram 7 + 5 = 12 chamadas de countBySource/countBySeniority,
+        // uma por valor FIXO escrito no código. Além de 12 queries virarem 2,
+        // a lista fixa já estava desatualizada: Greenhouse e SINE Aberto
+        // (Fase 2) nunca apareciam no painel porque não estavam nesse
+        // Map.of() — a versão por GROUP BY inclui toda fonte que existir
+        // no banco de verdade, sem precisar editar este método de novo.
+        stats.put("porFonte", contagemPorChave(jobRepository.contagemPorSource()));
+        stats.put("porSenioridade", contagemPorChave(jobRepository.contagemPorSenioridade()));
         return stats;
+    }
+
+    // Linha com chave nula (seniority nunca classificada, ex: vaga manual
+    // antiga) é descartada — mesmo comportamento de antes, quando essas
+    // linhas também não caíam em nenhuma das 5 chaves fixas do Map.of().
+    private Map<String, Long> contagemPorChave(List<ChaveContagemProjection> linhas) {
+        Map<String, Long> resultado = new HashMap<>();
+        for (ChaveContagemProjection linha : linhas) {
+            if (linha.getChave() != null) resultado.put(linha.getChave(), linha.getTotal());
+        }
+        return resultado;
     }
 
     /**
@@ -325,18 +352,23 @@ public class JobController {
      * mesma empresa (normalizada) + título com alta similaridade de palavras.
      * Só sinaliza pra revisão manual: não deleta nem mescla nada sozinho.
      * GET /api/jobs/duplicates
+     *
+     * Fase 11.1 — a verificação por IA saiu daqui. Antes o endpoint fazia até
+     * {@code MAX_VERIFICACOES_IA} chamadas SÍNCRONAS ao Gemini dentro do
+     * request — com uma key recusada no pool (ver GeminiService), cada uma
+     * dessas chamadas percorria as 29 keys de novo, e o endpoint media mais
+     * de 120s sem responder (confirmado: dois timeouts reais, um de 60s e
+     * um de 120s). O Jaccard sozinho (agrupamento por similaridade de
+     * palavras) é local e rápido — devolve na hora. A segunda opinião da IA
+     * virou sob demanda, grupo a grupo, ver {@link #verificarDuplicataComIa}.
      */
-    // Limite de grupos verificados por IA por chamada — o Jaccard já reduz
-    // milhares de vagas a um punhado de grupos candidatos, mas ainda assim
-    // pode passar disso, e cada verificação é uma chamada ao Gemini (free
-    // tier tem limite de requisições por minuto).
-    private static final int MAX_VERIFICACOES_IA = 20;
-
     @GetMapping("/duplicates")
     public List<Map<String, Object>> getDuplicates() {
-        List<Job> ativos = jobRepository.findAll().stream()
-                .filter(j -> !j.isRejected())
-                .toList();
+        // Fase 1.6 — filtro "não recusada" empurrado pro WHERE do SQL (via
+        // JobSpecifications), em vez de carregar TODA vaga (incluindo
+        // recusada, que esse endpoint nunca precisa) só pra descartar em
+        // Java logo em seguida.
+        List<Job> ativos = jobRepository.findAll(JobSpecifications.notRejected());
 
         Map<String, List<Job>> porEmpresa = new HashMap<>();
         for (Job j : ativos) {
@@ -346,49 +378,58 @@ public class JobController {
         }
 
         List<Map<String, Object>> grupos = new ArrayList<>();
-        int verificacoesIa = 0;
         for (List<Job> candidatos : porEmpresa.values()) {
             if (candidatos.size() < 2) continue;
 
-            // agrupa por similaridade de título via BFS (componentes conectados)
+            // Fase 10 — complete-linkage, não mais BFS de single-linkage.
+            // Achado real ao coletar dado de treino pro Hunter-Dup: o BFS
+            // antigo conectava A-D transitivamente via uma cadeia A-B-C-D
+            // (cada elo só precisava bater jaccard>=0.6 com o VIZINHO
+            // imediato), mesmo que A e D não se parecessem nada entre si.
+            // Medido contra ~500 grupos reais verificados pelo Gemini: 57%
+            // dos pares dentro de grupo "mesma vaga" tinham jaccard < 0.6
+            // entre si — o critério antigo deixava grupo "esticar" longe
+            // demais. Agora um candidato só entra se bater jaccard>=0.6 com
+            // TODO mundo que já está confirmado no grupo (o "elo mais
+            // fraco" do grupo inteiro decide, não só o último vizinho).
+            // Medido contra o veredito real do Gemini nos mesmos ~500
+            // grupos: 94% de precisão (quando o grupo bate esse critério,
+            // quase sempre É mesma vaga de verdade) — não elimina a
+            // necessidade da segunda opinião da IA (ver
+            // verificarDuplicataComIa), só entrega um candidato mais limpo
+            // pra ela analisar. Loop até estabilizar porque adicionar um
+            // membro pode habilitar outro que antes não batia sozinho.
             boolean[] visitado = new boolean[candidatos.size()];
             for (int i = 0; i < candidatos.size(); i++) {
                 if (visitado[i]) continue;
                 List<Job> componente = new ArrayList<>();
-                Deque<Integer> fila = new ArrayDeque<>();
-                fila.add(i);
+                List<Set<String>> palavrasComponente = new ArrayList<>();
+                componente.add(candidatos.get(i));
+                palavrasComponente.add(titleWords(candidatos.get(i).getTitle()));
                 visitado[i] = true;
-                while (!fila.isEmpty()) {
-                    int atual = fila.poll();
-                    Job jobAtual = candidatos.get(atual);
-                    componente.add(jobAtual);
-                    Set<String> palavrasAtual = titleWords(jobAtual.getTitle());
+
+                boolean mudou = true;
+                while (mudou) {
+                    mudou = false;
                     for (int j = 0; j < candidatos.size(); j++) {
-                        if (visitado[j] || j == atual) continue;
+                        if (visitado[j]) continue;
                         Job jobCandidato = candidatos.get(j);
-                        // senioridade precisa bater — "Dev Pleno" e "Dev Sênior" da mesma empresa
-                        // são vagas diferentes, não duplicata, mesmo com título quase idêntico
-                        boolean mesmaSenioridade = java.util.Objects.equals(jobAtual.getSeniority(), jobCandidato.getSeniority());
-                        if (mesmaSenioridade && jaccard(palavrasAtual, titleWords(jobCandidato.getTitle())) >= 0.6) {
+                        Set<String> palavrasCandidato = titleWords(jobCandidato.getTitle());
+                        // senioridade precisa bater com TODO o grupo — "Dev Pleno" e "Dev
+                        // Sênior" da mesma empresa são vagas diferentes, não duplicata.
+                        boolean mesmaSenioridade = componente.stream()
+                                .allMatch(m -> java.util.Objects.equals(m.getSeniority(), jobCandidato.getSeniority()));
+                        boolean pareceComTodoOGrupo = palavrasComponente.stream()
+                                .allMatch(palavrasMembro -> jaccard(palavrasMembro, palavrasCandidato) >= 0.6);
+                        if (mesmaSenioridade && pareceComTodoOGrupo) {
+                            componente.add(jobCandidato);
+                            palavrasComponente.add(palavrasCandidato);
                             visitado[j] = true;
-                            fila.add(j);
+                            mudou = true;
                         }
                     }
                 }
                 if (componente.size() < 2) continue;
-
-                // segunda opinião via IA — descarta grupos que o Jaccard achou parecidos
-                // por palavra mas que são vagas de times/produtos genuinamente diferentes.
-                // Sem IA disponível, ou depois do limite de verificações por chamada,
-                // mantém o comportamento anterior (só o veredito do Jaccard).
-                boolean aiVerificado = false;
-                if (verificacoesIa < MAX_VERIFICACOES_IA) {
-                    List<String> titulos = componente.stream().map(Job::getTitle).toList();
-                    boolean confirmado = aiDuplicateVerifierService.confirmar(componente.get(0).getCompany(), titulos);
-                    verificacoesIa++;
-                    if (!confirmado) continue; // IA disse que são vagas diferentes
-                    aiVerificado = true;
-                }
 
                 List<Map<String, Object>> vagas = componente.stream()
                         .map(j -> {
@@ -404,7 +445,7 @@ public class JobController {
                 Map<String, Object> grupo = new HashMap<>();
                 grupo.put("company", componente.get(0).getCompany());
                 grupo.put("jobs", vagas);
-                grupo.put("aiVerificado", aiVerificado);
+                grupo.put("aiVerificado", false); // sempre false aqui agora — ver verificarDuplicataComIa
                 grupos.add(grupo);
             }
         }
@@ -412,20 +453,35 @@ public class JobController {
         return grupos;
     }
 
-    private static final Set<String> COMPANY_SUFFIXES = Set.of(
-            "sa", "s a", "ltda", "me", "eireli", "inc", "llc", "corp", "corporation", "co"
-    );
+    public record VerificarDuplicataRequest(String company, List<String> titles) {}
 
-    private String normalizeCompany(String company) {
-        if (company == null) return "";
-        String norm = normalize(company).replaceAll("[^a-z0-9 ]", " ").trim();
-        StringBuilder sb = new StringBuilder();
-        for (String w : norm.split("\\s+")) {
-            if (COMPANY_SUFFIXES.contains(w)) continue;
-            if (sb.length() > 0) sb.append(' ');
-            sb.append(w);
+    /**
+     * Segunda opinião da IA sobre UM grupo específico já sinalizado pelo
+     * Jaccard — chamada sob demanda pelo frontend (botão por grupo), nunca
+     * em laço automático dentro de {@link #getDuplicates}. 503 sem IA
+     * configurada; 200 com {@code mesmaVaga: false} quando a IA identifica
+     * que são vagas genuinamente diferentes (o frontend remove o grupo da
+     * lista nesse caso).
+     * POST /api/jobs/duplicates/verify  Body: { "company": "...", "titles": ["...", "..."] }
+     */
+    @PostMapping("/duplicates/verify")
+    public ResponseEntity<Map<String, Object>> verificarDuplicataComIa(@RequestBody VerificarDuplicataRequest req) {
+        if (!geminiService.isEnabled()) {
+            return ResponseEntity.status(503).body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
         }
-        return sb.toString().trim();
+        if (req == null || req.titles() == null || req.titles().size() < 2) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Informe pelo menos 2 títulos pra comparar."));
+        }
+        boolean mesmaVaga = aiDuplicateVerifierService.confirmar(req.company(), req.titles());
+        return ResponseEntity.ok(Map.of("mesmaVaga", mesmaVaga));
+    }
+
+    // Fase 7.6 — delega pro CompanyNormalizer compartilhado (agora também
+    // usado no fetch pra persistir Job.companyNormalized) em vez de manter
+    // uma segunda cópia da mesma lógica aqui — as duas precisam concordar
+    // sempre, ou o dedup em memória deste endpoint e o campo salvo divergem.
+    private String normalizeCompany(String company) {
+        return companyNormalizer.normalizar(company);
     }
 
     private static final Set<String> TITLE_STOPWORDS = Set.of(
@@ -501,17 +557,20 @@ public class JobController {
      * (alternativa ao drag-and-drop, que nem sempre funciona ao iniciar o
      * arrasto a partir de um link dentro do card).
      * PATCH /api/jobs/{id}/status?value=NOVA|VISTA|APLICADA|ANDAMENTO|RECUSADA
+     * motivo (opcional, só usado com value=RECUSADA) → Fase 8.7:
+     * SALARIO|LOCALIDADE|SENIORIDADE|STACK|EMPRESA|OUTRO
      */
     @PatchMapping("/{id}/status")
     public ResponseEntity<Map<String, Object>> setStatus(
-            @PathVariable Long id, @RequestParam String value) {
+            @PathVariable Long id, @RequestParam String value,
+            @RequestParam(required = false) String motivo) {
         String status = value == null ? "" : value.toUpperCase();
         if (!VALID_STATUSES.contains(status)) {
             return ResponseEntity.badRequest().build();
         }
 
         return jobRepository.findById(id).map(job -> {
-            aplicarStatus(job, status);
+            jobStatusService.aplicarStatus(job, status, motivo);
             return ResponseEntity.ok(toDto(jobRepository.save(job)));
         }).orElse(ResponseEntity.notFound().build());
     }
@@ -632,6 +691,7 @@ public class JobController {
         dto.put("inProgressAt", job.getInProgressAt() != null ? job.getInProgressAt().toString() : null);
         dto.put("rejected", job.isRejected());
         dto.put("rejectedAt", job.getRejectedAt() != null ? job.getRejectedAt().toString() : null);
+        dto.put("rejectedReason", job.getRejectedReason());
         dto.put("tags", job.getTags() != null
                 ? Arrays.asList(job.getTags().split(","))
                 : List.of());
@@ -643,56 +703,84 @@ public class JobController {
         return dto;
     }
 
+    private static final String[] EXPORT_CSV_COLUNAS = {
+            "id", "title", "company", "url", "source", "seniority", "salary", "workplaceType",
+            "state", "city", "postedAt", "seen", "interested", "applied", "inProgress", "rejected",
+            "pinned", "notes", "tags"
+    };
+
     /**
      * Backup/export de todas as vagas — GET /api/jobs/export?format=json|csv
      * (padrão json). Sem filtro nenhum: é o banco inteiro, pensado pra
      * "salva tudo antes de mexer" ou levar os dados pra outra ferramenta,
      * não pra visualização filtrada (isso já é o GET / normal).
+     *
+     * <p>Fase 15.3 — antes montava TRÊS cópias inteiras do catálogo na
+     * memória ao mesmo tempo (lista de entidades do findAll(), lista de
+     * {@code Map<String,Object>} do toDto, e o {@code byte[]} serializado)
+     * antes de mandar o primeiro byte pro cliente — o mesmo padrão que
+     * causou o OutOfMemoryError real da Fase 6 (ver ARCHITECTURE.md).
+     * {@link StreamingResponseBody} escreve linha a linha DIRETO no
+     * OutputStream da resposta HTTP: só a linha atual (mais o
+     * {@code JsonGenerator}/{@code Writer} com seu buffer interno pequeno,
+     * não o payload inteiro) vive na memória a qualquer momento — tira o
+     * teto que crescia junto com o catálogo. {@code jobRepository.findAll()}
+     * continua carregando as ENTIDADES inteiras de uma vez (streaming de
+     * verdade no nível do JDBC/cursor do Postgres ficaria pra uma fase
+     * futura, exige @Transactional + fetch-size configurado com cuidado) —
+     * essa parte não piora nem melhora em relação a antes, o que muda aqui
+     * é parar de DUPLICAR esse custo em cima com DTO+bytes inteiros.</p>
      */
     @GetMapping("/export")
-    public ResponseEntity<byte[]> export(@RequestParam(required = false, defaultValue = "json") String format) {
-        List<Map<String, Object>> vagas = jobRepository.findAll().stream()
-                .sorted(Comparator.comparing(Job::getId))
-                .map(this::toDto)
-                .toList();
+    public ResponseEntity<StreamingResponseBody> export(@RequestParam(required = false, defaultValue = "json") String format) {
         String stamp = LocalDate.now().toString();
+        boolean csv = "csv".equalsIgnoreCase(format);
 
-        if ("csv".equalsIgnoreCase(format)) {
-            String[] colunas = {
-                    "id", "title", "company", "url", "source", "seniority", "salary", "workplaceType",
-                    "state", "city", "postedAt", "seen", "interested", "applied", "inProgress", "rejected",
-                    "pinned", "notes", "tags"
-            };
-            StringBuilder sb = new StringBuilder();
-            sb.append(String.join(",", colunas)).append('\n');
-            for (Map<String, Object> v : vagas) {
-                for (int i = 0; i < colunas.length; i++) {
-                    if (i > 0) sb.append(',');
-                    Object val = v.get(colunas[i]);
-                    String texto = val instanceof List<?> lista ? String.join(";", lista.stream().map(String::valueOf).toList())
-                            : (val != null ? String.valueOf(val) : "");
-                    sb.append('"').append(texto.replace("\"", "\"\"")).append('"');
+        StreamingResponseBody body = outputStream -> {
+            List<Job> todas = jobRepository.findAll().stream()
+                    .sorted(Comparator.comparing(Job::getId))
+                    .toList();
+
+            if (csv) {
+                try (Writer w = new BufferedWriter(new OutputStreamWriter(outputStream, StandardCharsets.UTF_8))) {
+                    w.write(String.join(",", EXPORT_CSV_COLUNAS));
+                    w.write('\n');
+                    for (Job job : todas) {
+                        Map<String, Object> v = toDto(job);
+                        for (int i = 0; i < EXPORT_CSV_COLUNAS.length; i++) {
+                            if (i > 0) w.write(',');
+                            Object val = v.get(EXPORT_CSV_COLUNAS[i]);
+                            String texto = val instanceof List<?> lista
+                                    ? String.join(";", lista.stream().map(String::valueOf).toList())
+                                    : (val != null ? String.valueOf(val) : "");
+                            w.write('"');
+                            w.write(texto.replace("\"", "\"\""));
+                            w.write('"');
+                        }
+                        w.write('\n');
+                    }
                 }
-                sb.append('\n');
+                return;
             }
-            byte[] bytes = sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            return ResponseEntity.ok()
-                    .header("Content-Type", "text/csv; charset=UTF-8")
-                    .header("Content-Disposition", "attachment; filename=\"job-radar-export-" + stamp + ".csv\"")
-                    .body(bytes);
-        }
 
-        try {
-            byte[] bytes = new com.fasterxml.jackson.databind.ObjectMapper()
-                    .writerWithDefaultPrettyPrinter()
-                    .writeValueAsBytes(vagas);
-            return ResponseEntity.ok()
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Content-Disposition", "attachment; filename=\"job-radar-export-" + stamp + ".json\"")
-                    .body(bytes);
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError().build();
-        }
+            try (com.fasterxml.jackson.core.JsonGenerator gen = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .getFactory()
+                    .createGenerator(outputStream, com.fasterxml.jackson.core.JsonEncoding.UTF8)) {
+                gen.useDefaultPrettyPrinter();
+                gen.writeStartArray();
+                for (Job job : todas) {
+                    gen.writeObject(toDto(job));
+                }
+                gen.writeEndArray();
+            }
+        };
+
+        String contentType = csv ? "text/csv; charset=UTF-8" : "application/json; charset=UTF-8";
+        String filename = "job-radar-export-" + stamp + (csv ? ".csv" : ".json");
+        return ResponseEntity.ok()
+                .header("Content-Type", contentType)
+                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                .body(body);
     }
 
     /**
@@ -720,42 +808,6 @@ public class JobController {
     }
 
     /**
-     * Embedda (busca semântica, ver JobEmbeddingService) todas as vagas que
-     * ainda não têm vetor salvo — vagas novas já são embeddadas sozinhas no
-     * fetch periódico (ver JobAggregatorService); esse endpoint é só pro
-     * catálogo que já existia ANTES dessa feature. Roda em background (o POST
-     * devolve na hora), protegido de disparo duplo com a mesma flag simples
-     * que /admin/retrain-salary-model já usa.
-     * POST /api/jobs/admin/backfill-embeddings
-     */
-    @PostMapping("/admin/backfill-embeddings")
-    public ResponseEntity<Map<String, Object>> backfillEmbeddings() {
-        if (!geminiService.isEnabled()) {
-            return ResponseEntity.status(503).body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
-        }
-        if (!backfillEmbeddingsEmAndamento.compareAndSet(false, true)) {
-            return ResponseEntity.status(409).body(Map.of("error", "Backfill de embeddings já em andamento."));
-        }
-        long faltam = jobEmbeddingService.contarSemEmbedding();
-        sseExecutor.execute(() -> {
-            try {
-                List<Job> pendentes = jobEmbeddingService.semEmbedding();
-                int ok = 0;
-                for (Job job : pendentes) {
-                    if (jobEmbeddingService.embedESalvar(job)) {
-                        jobRepository.save(job);
-                        ok++;
-                    }
-                }
-                log.info("=== Backfill de embeddings concluído: {} de {} vagas embeddadas ===", ok, pendentes.size());
-            } finally {
-                backfillEmbeddingsEmAndamento.set(false);
-            }
-        });
-        return ResponseEntity.accepted().body(Map.of("iniciado", true, "vagasSemEmbedding", faltam));
-    }
-
-    /**
      * Pontuação heurística (sem IA, sobreposição de tags do perfil) de todas
      * as vagas NÃO VISTAS — poder pro modo "Triagem rápida" (ordena as mais
      * prováveis primeiro) e pro badge "provável match" nos cards. Não é
@@ -774,6 +826,171 @@ public class JobController {
         percentPorId.forEach((id, pct) -> scores.put(String.valueOf(id), pct));
         out.put("scores", scores);
         return out;
+    }
+
+    /**
+     * Fase 9.1 — pré-triagem assistida em lote: 1 chamada de IA cobre até
+     * {@link AiTriageService#MAX_LOTE} vagas de uma vez (não 1 chamada por
+     * vaga), devolvendo um veredito (RECOMENDADA/TALVEZ/DESCARTAR) + motivo
+     * curto por vaga. Usado pela "Triagem rápida" como sinal a mais ao lado
+     * do pré-filtro heurístico — não decide nada sozinho, o usuário ainda
+     * confirma cada vaga manualmente.
+     * POST /api/jobs/triage-batch  body: {"jobIds": [1,2,3], "profile": "..."}
+     */
+    @PostMapping("/triage-batch")
+    public ResponseEntity<Map<String, Object>> triarLote(@RequestBody Map<String, Object> body) {
+        @SuppressWarnings("unchecked")
+        List<Integer> idsRaw = (List<Integer>) body.getOrDefault("jobIds", List.of());
+        String profile = (String) body.get("profile");
+
+        List<Job> jobs = idsRaw.stream()
+                .map(id -> jobRepository.findById(id.longValue()))
+                .filter(java.util.Optional::isPresent)
+                .map(java.util.Optional::get)
+                .toList();
+
+        AiTriageService.TriageOutcome outcome = aiTriageService.triarLote(jobs, profile);
+        if (!outcome.ok()) {
+            Map<String, Object> erro = new HashMap<>();
+            erro.put("error", outcome.errorMessage());
+            erro.put("rateLimited", outcome.rateLimited());
+            return ResponseEntity.status(outcome.rateLimited() ? 429 : 400).body(erro);
+        }
+
+        Map<String, Object> out = new HashMap<>();
+        out.put("veredictos", outcome.veredictos().stream()
+                .map(v -> Map.of("jobId", v.jobId(), "veredito", v.veredito().name(), "motivo", v.motivo()))
+                .toList());
+        return ResponseEntity.ok(out);
+    }
+
+    /**
+     * Fase 9.4 + 9.6 — estrutura da descrição (requisitos obrigatórios/
+     * desejáveis, anos de experiência, escolaridade, benefícios) E sinais de
+     * alerta no texto, extraídos via IA numa chamada só e CACHEADOS na
+     * própria vaga (ver Job.estruturaExtraidaEm) — chamadas seguintes pra
+     * mesma vaga devolvem do banco, sem gastar IA de novo.
+     * GET /api/jobs/{id}/structure
+     */
+    @GetMapping("/{id}/structure")
+    public ResponseEntity<Map<String, Object>> extrairEstrutura(@PathVariable Long id) {
+        return jobRepository.findById(id).<ResponseEntity<Map<String, Object>>>map(job -> {
+            JobStructureExtractorService.ExtractOutcome outcome = jobStructureExtractorService.extrair(job);
+            if (!outcome.ok()) {
+                Map<String, Object> erro = new HashMap<>();
+                erro.put("error", outcome.errorMessage());
+                erro.put("rateLimited", outcome.rateLimited());
+                return ResponseEntity.status(outcome.rateLimited() ? 429 : 400).body(erro);
+            }
+            Map<String, Object> out = new HashMap<>();
+            out.put("requisitosObrigatorios", outcome.estrutura().requisitosObrigatorios());
+            out.put("requisitosDesejaveis", outcome.estrutura().requisitosDesejaveis());
+            out.put("anosExperienciaMin", outcome.estrutura().anosExperienciaMin());
+            out.put("escolaridadeRequerida", outcome.estrutura().escolaridadeRequerida());
+            out.put("beneficios", outcome.estrutura().beneficios());
+            out.put("sinaisAlerta", outcome.estrutura().sinaisAlerta());
+            out.put("cacheHit", outcome.cacheHit());
+            return ResponseEntity.ok(out);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Fase 9.3 — explica de onde veio a ordenação/badge que o usuário já
+     * vê, mas sem o motivo até agora: (1) o badge 🎯 heurístico (quais tags
+     * do perfil bateram, quais faltaram, se a senioridade bateu) e (2) o
+     * ranking pessoal aprendido (quando ativo — quais features da vaga mais
+     * pesaram a favor, ver PersonalRankingService.explicar). Os dois campos
+     * vêm sempre, o frontend decide o que mostrar conforme o que está
+     * visível na tela (badge presente / sort=personal ativo).
+     * GET /api/jobs/{id}/why?profile=...
+     */
+    @GetMapping("/{id}/why")
+    public ResponseEntity<Map<String, Object>> explicarOrdenacao(
+            @PathVariable Long id, @RequestParam(required = false) String profile) {
+        return jobRepository.findById(id).<ResponseEntity<Map<String, Object>>>map(job -> {
+            Map<String, Object> out = new HashMap<>();
+
+            jarvisAssistantService.explicarMatch(job, profile).ifPresentOrElse(
+                    m -> out.put("heuristico", Map.of(
+                            "percent", m.percent(),
+                            "tagsQueBateram", m.tagsQueBateram(),
+                            "tagsQueFaltaram", m.tagsQueFaltaram(),
+                            "senioridadeBateu", m.senioridadeBateu())),
+                    () -> out.put("heuristico", null));
+
+            PersonalRankingService.Modelo modelo = personalRankingService.treinar();
+            Map<String, Object> ranking = new HashMap<>();
+            ranking.put("disponivel", modelo.disponivel());
+            if (modelo.disponivel()) {
+                ranking.put("score", personalRankingService.pontuar(job, modelo));
+                ranking.put("principaisFatores", personalRankingService.explicar(job, modelo, 4).stream()
+                        .map(c -> Map.of("descricao", humanizarFeature(c.feature()), "peso", Math.round(c.peso() * 100.0) / 100.0))
+                        .toList());
+            } else {
+                ranking.put("motivo", modelo.motivoIndisponivel());
+            }
+            out.put("rankingPessoal", ranking);
+
+            return ResponseEntity.ok(out);
+        }).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // Traduz a chave crua da feature (ver PersonalRankingService.featuresDe,
+    // formato "campo:valor") pra um texto legível no card — "tag:java" vira
+    // "tecnologia: java", não o texto interno do modelo.
+    private String humanizarFeature(String feature) {
+        int i = feature.indexOf(':');
+        if (i < 0) return feature;
+        String campo = feature.substring(0, i);
+        String valor = feature.substring(i + 1);
+        String rotulo = switch (campo) {
+            case "tag" -> "tecnologia";
+            case "seniority" -> "nível";
+            case "workplaceType" -> "modalidade";
+            case "source" -> "fonte";
+            case "state" -> "estado";
+            case "temSalario" -> "salário informado";
+            default -> campo;
+        };
+        return "temSalario".equals(campo) ? rotulo + " (" + valor + ")" : rotulo + ": " + valor;
+    }
+
+    public record SemanticSearchResult(Job job, int similaridadePercent) {}
+
+    /**
+     * Fase 9.2 — busca semântica NA TELA PRINCIPAL, fora do chat do Hunter.
+     * A busca em si (JobEmbeddingService.buscar) já existia desde a Fase 6
+     * e o chat já usava (ferramenta buscarVagasPorSignificado) — faltava só
+     * um jeito de chegar nela sem precisar conversar. Não gasta cota do
+     * Gemini: o embedding é calculado pelo Hunter-Embed local (ver
+     * EmbeddingProvider/HunterEmbeddingProvider, Fase 8/9 da migração).
+     *
+     * <p>Candidatas = mesma regra de "vaga ativa" que {@link #getDuplicates},
+     * não recusada e não arquivada — não faz sentido a busca por significado
+     * devolver vaga que o usuário já descartou ou que saiu do funil ativo.</p>
+     * GET /api/jobs/semantic-search?consulta=...&limite=20
+     */
+    @GetMapping("/semantic-search")
+    public ResponseEntity<Map<String, Object>> semanticSearch(
+            @RequestParam String consulta,
+            @RequestParam(required = false) Integer limite) {
+        if (consulta == null || consulta.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Informe o que procurar."));
+        }
+        int limiteFinal = limite != null ? Math.min(30, Math.max(1, limite)) : 15;
+
+        List<Job> candidatas = jobRepository.findAll(
+                JobSpecifications.combine(JobSpecifications.notRejected(), JobSpecifications.notArchived()));
+        List<JobEmbeddingService.Match> matches = jobEmbeddingService.buscar(consulta, candidatas, limiteFinal);
+
+        List<SemanticSearchResult> resultados = matches.stream()
+                .map(m -> new SemanticSearchResult(m.job(), (int) Math.round(m.similaridade() * 100)))
+                .toList();
+
+        Map<String, Object> out = new HashMap<>();
+        out.put("consulta", consulta);
+        out.put("resultados", resultados);
+        return ResponseEntity.ok(out);
     }
 
     /**
@@ -797,10 +1014,19 @@ public class JobController {
             keyPool.put("total", pool.total());
             keyPool.put("availableToday", pool.availableToday());
             keyPool.put("exhaustedToday", pool.exhaustedToday());
+            // Fase 11.3 — separado de exhaustedToday: key rejeitada (401/403)
+            // não é cota, não passa sozinho à meia-noite. Sem isso o painel
+            // dizia "29 de 29 disponíveis" com o log cheio de 403.
+            keyPool.put("rejectedNow", pool.rejectedNow());
             status.put("keyPool", keyPool);
         } else {
             status.put("keyPool", null);
         }
+        // Fase 9.8 — orçamento diário por funcionalidade, separado do
+        // keyPool acima (que é sobre a COTA das keys, não sobre quanto uma
+        // funcionalidade específica já usou hoje). Sempre visível, mesmo
+        // sem IA ativa (contador zerado é informação válida também).
+        status.put("aiBudget", aiFeatureBudgetService.status());
         return status;
     }
 
@@ -829,511 +1055,5 @@ public class JobController {
             job.setNotes(text.isBlank() ? null : text.trim());
             return ResponseEntity.ok(toDto(jobRepository.save(job)));
         }).orElse(ResponseEntity.notFound().build());
-    }
-
-    // feedbackContext: histórico de avaliações (👍/👎 + comentário) que o
-    // usuário deu em gerações anteriores desse mesmo recurso — mantido só no
-    // localStorage do frontend (ver useAiFeedback), chega aqui formatado como
-    // texto pronto e nunca é persistido no backend, igual ao perfil do candidato.
-    public record CoverLetterRequest(String extraContext, String feedbackContext) {}
-
-    /**
-     * Gera uma carta de apresentação personalizada pra vaga via Gemini —
-     * usa os campos que o Job Radar já tem (não a descrição completa, que
-     * não é armazenada) mais qualquer contexto extra que o usuário quiser
-     * colar no corpo da requisição, mais o histórico de feedback que o
-     * usuário deu em cartas anteriores (se houver). 503 se a IA não estiver
-     * configurada (sem GEMINI_API_KEY), 429 se o free tier estourou (por
-     * minuto ou por dia — a mensagem diz qual), 502 pra qualquer outra falha
-     * do Gemini.
-     * POST /api/jobs/{id}/cover-letter  Body (opcional): { "extraContext": "...", "feedbackContext": "..." }
-     */
-    @PostMapping("/{id}/cover-letter")
-    public ResponseEntity<Map<String, Object>> gerarCartaApresentacao(
-            @PathVariable Long id, @RequestBody(required = false) CoverLetterRequest req) {
-        if (!geminiService.isEnabled()) {
-            return ResponseEntity.status(503)
-                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
-        }
-        return jobRepository.findById(id).map(job -> {
-            String extraContext = req != null ? req.extraContext() : null;
-            String feedback = req != null ? req.feedbackContext() : null;
-            GeminiService.GeminiResult resultado = coverLetterService.gerar(job, extraContext, feedback);
-            if (!resultado.ok()) {
-                return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
-                        .body(Map.<String, Object>of("error", resultado.errorMessage()));
-            }
-            return ResponseEntity.ok(Map.<String, Object>of("coverLetter", resultado.text()));
-        }).orElse(ResponseEntity.notFound().build());
-    }
-
-    /**
-     * Faixa salarial estimada — dado real do banco, nunca um chute de IA.
-     * Combina duas fontes, nenhuma depende do Gemini estar configurado:
-     * {@code predicted} vem de um modelo (regressão Ridge) treinado offline
-     * sobre as vagas com salário do banco, sempre disponível quando o
-     * modelo carregou (ver SalaryPredictionService — erro médio ~43%,
-     * exposto em {@code modelInfo} pra não esconder a incerteza);
-     * {@code similarJobs} é a mediana das vagas parecidas (mesma senioridade
-     * + tag em comum), disponível só com amostra mínima (>=3).
-     * GET /api/jobs/{id}/salary-estimate
-     */
-    @GetMapping("/{id}/salary-estimate")
-    public ResponseEntity<Map<String, Object>> estimarSalario(@PathVariable Long id) {
-        return jobRepository.findById(id).map(job -> {
-            Map<String, Object> body = new HashMap<>();
-            boolean anyAvailable = false;
-
-            Optional<Long> predicted = salaryPredictionService.predict(
-                    job.getSeniority(), tagList(job.getTags()), job.getWorkplaceType(), job.getState());
-            if (predicted.isPresent()) {
-                body.put("predicted", predicted.get());
-                SalaryPredictionService.ModelInfo info = salaryPredictionService.getModelInfo();
-                body.put("modelInfo", Map.of(
-                        "nSamples", info.nSamples(), "r2", info.r2(), "maePercent", info.maePercent()));
-                anyAvailable = true;
-            }
-
-            Optional<SalaryEstimateService.SalaryEstimate> estimativa = salaryEstimateService.estimate(job);
-            if (estimativa.isPresent()) {
-                SalaryEstimateService.SalaryEstimate e = estimativa.get();
-                Map<String, Object> similar = new HashMap<>();
-                similar.put("sampleSize", e.sampleSize());
-                similar.put("min", e.min());
-                similar.put("max", e.max());
-                similar.put("median", e.median());
-                body.put("similarJobs", similar);
-                anyAvailable = true;
-            }
-
-            body.put("available", anyAvailable);
-            return ResponseEntity.ok(body);
-        }).orElse(ResponseEntity.notFound().build());
-    }
-
-    private List<String> tagList(String tags) {
-        return tags == null || tags.isBlank() ? List.of() : Arrays.asList(tags.split(","));
-    }
-
-    /**
-     * Estimativa personalizada: usa a senioridade/stack extraídas do
-     * currículo/perfil salvo pelo candidato (nunca persistido — vem no
-     * corpo do request) em vez dos dados da vaga, mantendo modalidade e
-     * estado da vaga (isso não muda com quem se candidata). Sempre 200 —
-     * available=false só se o modelo não tiver carregado ou o perfil vier
-     * vazio, nunca erro.
-     * POST /api/jobs/{id}/salary-estimate/personalized  Body: { "candidateProfile": "..." }
-     */
-    @PostMapping("/{id}/salary-estimate/personalized")
-    public ResponseEntity<Map<String, Object>> estimarSalarioPersonalizado(
-            @PathVariable Long id, @RequestBody(required = false) CandidateProfileRequest req) {
-        return jobRepository.findById(id).map(job -> {
-            String perfil = req != null ? req.candidateProfile() : null;
-            Map<String, Object> body = new HashMap<>();
-            if (perfil == null || perfil.isBlank() || !salaryPredictionService.isLoaded()) {
-                body.put("available", false);
-                return ResponseEntity.ok(body);
-            }
-
-            Set<String> stackDoCurriculo = salaryPredictionService.extractTagsFromText(perfil);
-            String senioridadeInferida = seniorityClassifier.classify(perfil, String.join(",", stackDoCurriculo));
-
-            Optional<Long> predicted = salaryPredictionService.predict(
-                    senioridadeInferida, stackDoCurriculo, job.getWorkplaceType(), job.getState());
-            if (predicted.isEmpty()) {
-                body.put("available", false);
-                return ResponseEntity.ok(body);
-            }
-            body.put("available", true);
-            body.put("predicted", predicted.get());
-            body.put("inferredSeniority", senioridadeInferida);
-            body.put("inferredStack", stackDoCurriculo);
-            return ResponseEntity.ok(body);
-        }).orElse(ResponseEntity.notFound().build());
-    }
-
-    /**
-     * Exporta as vagas com salário parseável e limpo (mesma lógica do
-     * salary-estimate) pra treinar um modelo real fora do backend — uso
-     * interno/manutenção, não é chamado pelo frontend. Ver
-     * scripts/train_salary_model.py e SalaryPredictionService.
-     * GET /api/jobs/admin/salary-training-data
-     */
-    @GetMapping("/admin/salary-training-data")
-    public List<SalaryEstimateService.TrainingRow> exportSalaryTrainingData() {
-        return salaryEstimateService.exportTrainingData();
-    }
-
-    public record RetrainCodeRequest(String code, Boolean force) {}
-
-    private boolean codigoRetreinoBate(String code) {
-        return retrainSecretCode != null && !retrainSecretCode.isBlank()
-                && code != null && code.equals(retrainSecretCode);
-    }
-
-    /**
-     * Passo 1 do fluxo de retreino do frontend: só confirma se o código
-     * digitado bate, sem disparar o treino de verdade — o botão "Retreinar"
-     * só aparece na tela depois de um {@code valid:true} aqui.
-     * POST /api/jobs/admin/verify-retrain-code  Body: { "code": "..." }
-     */
-    @PostMapping("/admin/verify-retrain-code")
-    public ResponseEntity<Map<String, Object>> verificarCodigoRetreino(@RequestBody(required = false) RetrainCodeRequest req) {
-        return ResponseEntity.ok(Map.of("valid", codigoRetreinoBate(req != null ? req.code() : null)));
-    }
-
-    /**
-     * Retreina o modelo de salário na hora (Ridge regression em Java puro,
-     * ver SalaryModelTrainerService) e já troca o modelo em uso — sem
-     * precisar rodar o script Python nem reconstruir o container. O código
-     * é validado de novo aqui (não confia só na checagem do passo 1).
-     * POST /api/jobs/admin/retrain-salary-model  Body: { "code": "..." }
-     */
-    @PostMapping("/admin/retrain-salary-model")
-    public ResponseEntity<Map<String, Object>> retreinarModeloSalario(@RequestBody(required = false) RetrainCodeRequest req) {
-        if (retrainSecretCode == null || retrainSecretCode.isBlank()) {
-            return ResponseEntity.status(503).body(Map.of("error", "RETRAIN_SECRET_CODE não configurado no .env — recurso desativado."));
-        }
-        if (!codigoRetreinoBate(req != null ? req.code() : null)) {
-            return ResponseEntity.status(403).body(Map.of("error", "Código incorreto."));
-        }
-        if (!retreinoEmAndamento.compareAndSet(false, true)) {
-            return ResponseEntity.status(409).body(Map.of("error", "Já tem um retreino em andamento — espera terminar."));
-        }
-        try {
-            SalaryPredictionService.ModelInfo anterior = salaryPredictionService.getModelInfo();
-            SalaryModelTrainerService.TrainResult resultado = salaryModelTrainerService.treinar();
-
-            // Erro % (maePercent) é o número que a UI destaca em todo lugar
-            // como "margem de erro típica" — é o que o usuário realmente
-            // olha pra saber se piorou ou melhorou. Um retreino que piora
-            // esse número não substitui o modelo em produção sozinho: o
-            // treino em si sempre roda (não tem como saber se piorou sem
-            // treinar), mas só troca o modelo em uso se não piorou, ou se o
-            // usuário mandou forçar mesmo assim depois de ver a comparação.
-            boolean force = req != null && Boolean.TRUE.equals(req.force());
-            boolean piorou = anterior != null && resultado.maePercent() > anterior.maePercent();
-            boolean aplicado = force || !piorou;
-            if (aplicado) {
-                salaryPredictionService.reload(resultado.modelJson());
-            }
-
-            Map<String, Object> body = new HashMap<>();
-            body.put("previous", anterior == null ? null : Map.of(
-                    "nSamples", anterior.nSamples(), "r2", anterior.r2(),
-                    "maeBrl", anterior.maeBrl(), "maePercent", anterior.maePercent()));
-            body.put("updated", Map.of(
-                    "nSamples", resultado.nSamples(), "r2", resultado.r2(),
-                    "maeBrl", resultado.maeBrl(), "maePercent", resultado.maePercent()));
-            body.put("applied", aplicado);
-            return ResponseEntity.ok(body);
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(400).body(Map.of("error", e.getMessage()));
-        } catch (Exception e) {
-            log.error("Falha ao retreinar modelo de salário", e);
-            return ResponseEntity.status(500).body(Map.of("error", "Erro interno ao retreinar: " + e.getMessage()));
-        } finally {
-            retreinoEmAndamento.set(false);
-        }
-    }
-
-    public record CandidateProfileRequest(String candidateProfile, String feedbackContext) {}
-
-    /**
-     * Compatibilidade entre o perfil/currículo do candidato (enviado pelo
-     * frontend — nunca persistido no backend) e a vaga, considerando também
-     * o histórico de feedback do usuário sobre análises anteriores, se
-     * houver. 503 sem IA configurada, 429 em rate limit, 502 pra outras falhas.
-     * POST /api/jobs/{id}/match-score  Body: { "candidateProfile": "...", "feedbackContext": "..." }
-     */
-    @PostMapping("/{id}/match-score")
-    public ResponseEntity<Map<String, Object>> calcularCompatibilidade(
-            @PathVariable Long id, @RequestBody(required = false) CandidateProfileRequest req) {
-        if (!geminiService.isEnabled()) {
-            return ResponseEntity.status(503)
-                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
-        }
-        return jobRepository.findById(id).map(job -> {
-            String perfil = req != null ? req.candidateProfile() : null;
-            String feedback = req != null ? req.feedbackContext() : null;
-            MatchScoreService.MatchOutcome resultado = matchScoreService.calcular(job, perfil, feedback);
-            if (!resultado.ok()) {
-                return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
-                        .body(Map.<String, Object>of("error", resultado.errorMessage()));
-            }
-            MatchScoreService.MatchResult r = resultado.result();
-            Map<String, Object> body = new HashMap<>();
-            body.put("score", r.score());
-            body.put("pontosFortes", r.pontosFortes());
-            body.put("pontosFaltando", r.pontosFaltando());
-            body.put("resumo", r.resumo());
-            return ResponseEntity.ok(body);
-        }).orElse(ResponseEntity.notFound().build());
-    }
-
-    public record LearningPlanRequest(String gap, String candidateProfile, String feedbackContext) {}
-
-    /**
-     * "Contramedida" pra um ponto a desenvolver específico apontado pela
-     * análise de compatibilidade (match-score) — plano de ação prático pra
-     * fechar aquela lacuna, considerando o perfil atual do candidato como
-     * ponto de partida. Mesma regra de privacidade das outras rotas de IA:
-     * perfil nunca é persistido no backend, só chega junto do request.
-     * POST /api/jobs/{id}/learning-plan  Body: { "gap": "...", "candidateProfile": "...", "feedbackContext": "..." }
-     */
-    @PostMapping("/{id}/learning-plan")
-    public ResponseEntity<Map<String, Object>> gerarPlanoDeAprendizado(
-            @PathVariable Long id, @RequestBody(required = false) LearningPlanRequest req) {
-        if (!geminiService.isEnabled()) {
-            return ResponseEntity.status(503)
-                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
-        }
-        if (req == null || req.gap() == null || req.gap().isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Informe qual ponto a desenvolver quer um plano."));
-        }
-        return jobRepository.findById(id).map(job -> {
-            LearningPlanService.PlanOutcome resultado = learningPlanService.gerar(job, req.gap(), req.candidateProfile(), req.feedbackContext());
-            if (!resultado.ok()) {
-                return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
-                        .body(Map.<String, Object>of("error", resultado.errorMessage()));
-            }
-            LearningPlanService.LearningPlan p = resultado.plan();
-            Map<String, Object> body = new HashMap<>();
-            body.put("resumo", p.resumo());
-            body.put("tempoEstimado", p.tempoEstimado());
-            body.put("passos", p.passos());
-            return ResponseEntity.ok(body);
-        }).orElse(ResponseEntity.notFound().build());
-    }
-
-    /**
-     * Perguntas prováveis de entrevista pra vaga, opcionalmente ajustadas ao
-     * perfil do candidato (mesma regra de privacidade do match-score — só
-     * chega no backend se o frontend mandar nesse request específico).
-     * POST /api/jobs/{id}/interview-questions  Body opcional: { "candidateProfile": "...", "feedbackContext": "..." }
-     */
-    @PostMapping("/{id}/interview-questions")
-    public ResponseEntity<Map<String, Object>> gerarPerguntasEntrevista(
-            @PathVariable Long id, @RequestBody(required = false) CandidateProfileRequest req) {
-        if (!geminiService.isEnabled()) {
-            return ResponseEntity.status(503)
-                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
-        }
-        return jobRepository.findById(id).map(job -> {
-            String perfil = req != null ? req.candidateProfile() : null;
-            String feedback = req != null ? req.feedbackContext() : null;
-            InterviewQuestionsService.QuestionsOutcome resultado = interviewQuestionsService.gerar(job, perfil, feedback);
-            if (!resultado.ok()) {
-                return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
-                        .body(Map.<String, Object>of("error", resultado.errorMessage()));
-            }
-            return ResponseEntity.ok(Map.<String, Object>of("questions", resultado.questions()));
-        }).orElse(ResponseEntity.notFound().build());
-    }
-
-    public record CompatibilityScanRequest(String candidateProfile, Integer days, String feedbackContext) {}
-
-    /**
-     * Ação "🤖 Jarvis": compatibilidade do perfil salvo com vagas recentes.
-     * Pré-filtra por sobreposição de tags/senioridade (sem IA, sempre roda)
-     * e só chama o Gemini de verdade nas top vagas do pré-filtro — ver
-     * JarvisAssistantService pro porquê. 200 sempre, com available=false
-     * quando não há perfil, e errorMessage preenchido se a IA falhar em
-     * todas as tentativas (não depende do Gemini estar habilitado pra
-     * responder "sem dados" — só falha graciosamente se estiver desligado).
-     * POST /api/jobs/assistant/compatibility-scan
-     * Body: { "candidateProfile": "...", "days": 1, "feedbackContext": "..." }
-     */
-    @PostMapping("/assistant/compatibility-scan")
-    public Map<String, Object> assistantCompatibilityScan(@RequestBody(required = false) CompatibilityScanRequest req) {
-        String perfil = req != null ? req.candidateProfile() : null;
-        int dias = req != null && req.days() != null ? req.days() : 1;
-        String feedback = req != null ? req.feedbackContext() : null;
-
-        JarvisAssistantService.CompatibilityResult resultado = jarvisAssistantService.scanCompatibilidade(perfil, dias, feedback);
-
-        Map<String, Object> body = new HashMap<>();
-        body.put("available", resultado.available());
-        body.put("totalConsiderados", resultado.totalConsiderados());
-        body.put("totalAnalisadosPorIa", resultado.totalAnalisadosPorIa());
-        body.put("errorMessage", resultado.errorMessage());
-        body.put("hits", resultado.hits().stream().map(h -> {
-            Map<String, Object> hit = new HashMap<>();
-            Map<String, Object> jobDto = new HashMap<>();
-            jobDto.put("id", h.job().getId());
-            jobDto.put("title", h.job().getTitle());
-            jobDto.put("company", h.job().getCompany());
-            jobDto.put("url", h.job().getUrl());
-            jobDto.put("source", h.job().getSource());
-            hit.put("job", jobDto);
-            hit.put("score", h.score());
-            hit.put("pontosFortes", h.pontosFortes());
-            hit.put("pontosFaltando", h.pontosFaltando());
-            hit.put("resumo", h.resumo());
-            return hit;
-        }).toList());
-        return body;
-    }
-
-    // imageMimeType/imageBase64: só preenchido na mensagem mais recente,
-    // quando o usuário anexa um print no chat (ver JarvisChatService.
-    // ChatMessage e GeminiService.userTurnWithImage). base64Data vem sem o
-    // prefixo "data:image/png;base64," — o frontend já manda só o miolo.
-    public record ChatMessageDto(String role, String text, String imageMimeType, String imageBase64) {}
-
-    // feedbackContext: 👍/👎 salvos pelo usuário nos cards de compatibilidade/
-    // plano de ação (useAiFeedback no frontend) — mesmo texto que já
-    // alimenta match-score e learning-plan, agora também chega no chat.
-    // replyStyle: preset de tom escolhido nos chips do rodapé do chat
-    // ("conciso"/"formal"), null = padrão. Ver comentário do parâmetro
-    // homônimo em JarvisChatService.conversar.
-    public record ChatRequest(List<ChatMessageDto> history, String candidateProfile, String feedbackContext, String memoryContext,
-                               Boolean fastMode, String replyStyle) {}
-
-    /**
-     * Chat livre do Jarvis — diferente do compatibility-scan (ação fixa),
-     * aqui o Gemini decide sozinho quais ferramentas chamar (listar vagas,
-     * resumo do funil, compatibilidade) a partir da mensagem em linguagem
-     * natural, via function-calling de verdade (ver JarvisChatService).
-     * 503 sem IA configurada, 429 em rate limit, 502 pra outras falhas.
-     * POST /api/jobs/assistant/chat
-     * Body: { "history": [{"role":"user","text":"...","imageMimeType":null,"imageBase64":null}, ...], "candidateProfile": "...", "feedbackContext": "..." }
-     */
-    @PostMapping("/assistant/chat")
-    public ResponseEntity<Map<String, Object>> assistantChat(@RequestBody(required = false) ChatRequest req) {
-        if (!geminiService.isEnabled()) {
-            return ResponseEntity.status(503)
-                    .body(Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
-        }
-        List<JarvisChatService.ChatMessage> historico = req != null && req.history() != null
-                ? req.history().stream()
-                        .map(m -> new JarvisChatService.ChatMessage(m.role(), m.text(), m.imageMimeType(), m.imageBase64()))
-                        .toList()
-                : List.of();
-        String perfil = req != null ? req.candidateProfile() : null;
-        String feedbackContext = req != null ? req.feedbackContext() : null;
-        String memoryContext = req != null ? req.memoryContext() : null;
-
-        JarvisChatService.ChatOutcome resultado = jarvisChatService.conversar(historico, perfil, feedbackContext, memoryContext);
-        if (!resultado.ok()) {
-            return ResponseEntity.status(resultado.rateLimited() ? 429 : 502)
-                    .body(Map.<String, Object>of("error", resultado.errorMessage()));
-        }
-        Map<String, Object> body = new HashMap<>();
-        body.put("reply", resultado.reply());
-        body.put("thinking", resultado.thinking());
-        body.put("toolResults", resultado.toolResults());
-        body.put("pendingQuestion", resultado.pendingQuestion());
-        return ResponseEntity.ok(body);
-    }
-
-    // Só pra esse endpoint de streaming — o resto do controller usa o
-    // request thread normal (Tomcat) sem problema, mas SseEmitter precisa
-    // devolver a conexão pro chamador IMEDIATAMENTE e continuar mandando
-    // eventos de uma thread separada por trás, senão a conexão HTTP nunca
-    // fica "aberta" de verdade pro navegador começar a ler o stream.
-    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
-
-    /**
-     * Mesmo chat livre de /assistant/chat, só que narrando CADA passo real
-     * (chamada de ferramenta) em tempo real via Server-Sent Events, em vez
-     * de devolver tudo de uma vez só no final. O endpoint antigo continua
-     * existindo do jeito que sempre foi — esse aqui é aditivo, pro frontend
-     * poder cair de volta nele se precisar.
-     *
-     * Eventos emitidos:
-     *   tool_call  → {"tool": "listarVagas"}          (antes de cada ferramenta rodar)
-     *   final      → {reply, thinking, toolResults, pendingQuestion}  (mesmo shape do endpoint síncrono)
-     *   error      → {"error": "...", "rateLimited": bool}
-     *
-     * POST /api/jobs/assistant/chat/stream
-     */
-    @PostMapping(value = "/assistant/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter assistantChatStream(@RequestBody(required = false) ChatRequest req) {
-        SseEmitter emitter = new SseEmitter(120_000L);
-
-        if (!geminiService.isEnabled()) {
-            sendSseEvent(emitter, "error", Map.of("error", "Recurso de IA não configurado — defina GEMINI_API_KEY no .env"));
-            emitter.complete();
-            return emitter;
-        }
-
-        List<JarvisChatService.ChatMessage> historico = req != null && req.history() != null
-                ? req.history().stream()
-                        .map(m -> new JarvisChatService.ChatMessage(m.role(), m.text(), m.imageMimeType(), m.imageBase64()))
-                        .toList()
-                : List.of();
-        String perfil = req != null ? req.candidateProfile() : null;
-        String feedbackContext = req != null ? req.feedbackContext() : null;
-        String memoryContext = req != null ? req.memoryContext() : null;
-        boolean fastMode = req != null && Boolean.TRUE.equals(req.fastMode());
-        String replyStyle = req != null ? req.replyStyle() : null;
-
-        // "Parar" (botão no frontend, ver AbortController em handleSend):
-        // fechar a conexão dispara onCompletion/onError aqui — o mais cedo
-        // que o loop de function-calling em conversar() percebe isso é no
-        // INÍCIO da próxima rodada (ver ChatProgressListener.isCancelled),
-        // não no meio de uma chamada ao Gemini já em voo. Ainda evita gastar
-        // as próximas ferramentas de uma pergunta que dispara várias.
-        java.util.concurrent.atomic.AtomicBoolean cancelado = new java.util.concurrent.atomic.AtomicBoolean(false);
-        emitter.onCompletion(() -> cancelado.set(true));
-        emitter.onTimeout(() -> cancelado.set(true));
-        emitter.onError(e -> cancelado.set(true));
-
-        sseExecutor.execute(() -> {
-            try {
-                JarvisChatService.ChatOutcome resultado = jarvisChatService.conversar(
-                        historico, perfil, feedbackContext, memoryContext,
-                        new JarvisChatService.ChatProgressListener() {
-                            @Override
-                            public void onToolCall(String toolName) {
-                                sendSseEvent(emitter, "tool_call", Map.of("tool", toolName));
-                            }
-
-                            @Override
-                            public boolean isCancelled() {
-                                return cancelado.get();
-                            }
-
-                            @Override
-                            public void onAnswerChunk(String chunk) {
-                                sendSseEvent(emitter, "answer_chunk", Map.of("text", chunk));
-                            }
-                        }, fastMode, replyStyle);
-
-                if (cancelado.get()) {
-                    // Já não tem mais ninguém ouvindo do outro lado — não
-                    // tenta mandar nem "final" nem "error", só encerra.
-                    return;
-                }
-                if (!resultado.ok()) {
-                    sendSseEvent(emitter, "error", Map.of(
-                            "error", resultado.errorMessage(),
-                            "rateLimited", resultado.rateLimited()));
-                } else {
-                    Map<String, Object> finalBody = new HashMap<>();
-                    finalBody.put("reply", resultado.reply());
-                    finalBody.put("thinking", resultado.thinking());
-                    finalBody.put("toolResults", resultado.toolResults());
-                    finalBody.put("pendingQuestion", resultado.pendingQuestion());
-                    sendSseEvent(emitter, "final", finalBody);
-                }
-                emitter.complete();
-            } catch (Exception e) {
-                log.warn("Erro inesperado no chat em streaming: {}", e.getMessage());
-                emitter.completeWithError(e);
-            }
-        });
-
-        return emitter;
-    }
-
-    private void sendSseEvent(SseEmitter emitter, String name, Object data) {
-        try {
-            emitter.send(SseEmitter.event().name(name).data(data));
-        } catch (IOException e) {
-            // Cliente desconectou (fechou a aba, trocou de conversa no meio) —
-            // não tem pra quem mandar o resto, só ignora e segue.
-        }
     }
 }

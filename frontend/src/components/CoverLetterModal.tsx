@@ -5,6 +5,8 @@ import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { combineWithGitHub, useGitHubProfile } from '../hooks/useGitHubProfile';
 import { useAiFeedback } from '../hooks/useAiFeedback';
 import { AiFeedbackBox } from './AiFeedbackBox';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   job: Job;
@@ -12,6 +14,8 @@ interface Props {
 }
 
 export function CoverLetterModal({ job, onClose }: Props) {
+  useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const { profile } = useCandidateProfile();
   const { summary: githubSummary } = useGitHubProfile();
   const { buildContext } = useAiFeedback('cover-letter');
@@ -60,10 +64,18 @@ export function CoverLetterModal({ job, onClose }: Props) {
 
   return createPortal(
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal cover-letter-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal cover-letter-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cover-letter-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>🤖</span>
-          <h2>Carta de apresentação</h2>
+          <h2 id="cover-letter-modal-title">Carta de apresentação</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 

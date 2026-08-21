@@ -28,7 +28,12 @@ import java.util.StringJoiner;
  */
 @Service
 @Slf4j
-public class EurecaService {
+public class EurecaService implements JobSource {
+
+    @Override
+    public String nome() {
+        return "Eureca";
+    }
 
     private static final String API_URL = "https://candidate-api.eureca.me/v2/opportunities";
     private static final int PAGE_SIZE = 50; // máximo aceito pela API
@@ -49,6 +54,7 @@ public class EurecaService {
             Map.entry("SP", "São Paulo"), Map.entry("SE", "Sergipe"), Map.entry("TO", "Tocantins")
     );
 
+    @Override
     public List<Job> fetchJobs() {
         List<Job> jobs = new ArrayList<>();
         try {

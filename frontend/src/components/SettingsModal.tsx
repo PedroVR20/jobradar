@@ -1,8 +1,11 @@
 import { ChangeEvent, DragEvent, FormEvent, useEffect, useRef, useState } from 'react';
-import { AiStatus } from '../types/Job';
+import { AiStatus, DIAS_ALERTA_FONTE_PARADA } from '../types/Job';
 import { useCandidateProfile } from '../hooks/useCandidateProfile';
 import { GitHubFetchError, useGitHubProfile } from '../hooks/useGitHubProfile';
+import { useGmail } from '../hooks/useGmail';
 import { RetrainModal } from './RetrainModal';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   aiStatus: AiStatus;
@@ -33,14 +36,88 @@ function relativeTime(ts: number): string {
   return d === 1 ? 'ontem' : `há ${d}d`;
 }
 
+// Fase 2.7 — formato devolvido por GET /api/jobs/admin/fontes-saude.
+interface FonteSaude {
+  fonte: string;
+  total: number;
+  pctComSalario: number;
+  pctComEstado: number;
+  vagaMaisRecente: string | null;
+  diasSemVagaNova: number | null;
+}
+
+// Fase 7.7 — formato devolvido por GET /api/jobs/admin/painel-qualidade.
+interface PainelQualidade {
+  total: number;
+  foraDeArea: number;
+  arquivadas: number;
+  vencidasAtivas: number;
+  linksMortos: number;
+  linksNuncaChecados: number;
+  semClassificacaoDeQualidade: number;
+}
+
+// Fase 3.5 — formato devolvido por GET/POST /api/jobs/admin/digest-semanal.
+interface WeeklyDigestDto {
+  existe: boolean;
+  conteudo?: string;
+  geradoEm?: string;
+  vagasNovas?: number;
+  vagasParadas?: number;
+  prazosProximos?: number;
+}
+
 export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose }: Props) {
+  useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
+  const [fontesSaude, setFontesSaude] = useState<FonteSaude[]>([]);
+  const [fontesSaudeLoading, setFontesSaudeLoading] = useState(true);
+
+  // Fase 7.7 — painel de qualidade do catálogo.
+  const [painelQualidade, setPainelQualidade] = useState<PainelQualidade | null>(null);
+  const [painelQualidadeLoading, setPainelQualidadeLoading] = useState(true);
+
+  // Fase 3.5 — resumo semanal automático (ver WeeklyDigestService).
+  const [digest, setDigest] = useState<WeeklyDigestDto | null>(null);
+  const [digestLoading, setDigestLoading] = useState(true);
+  const [digestGerando, setDigestGerando] = useState(false);
+
+  const carregarDigest = () => {
+    fetch('/api/jobs/admin/digest-semanal')
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((data: WeeklyDigestDto) => setDigest(data.existe ? data : null))
+      .catch(() => setDigest(null))
+      .finally(() => setDigestLoading(false));
+  };
+
+  const gerarDigestAgora = () => {
+    setDigestGerando(true);
+    fetch('/api/jobs/admin/digest-semanal/gerar-agora', { method: 'POST' })
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((data: WeeklyDigestDto) => setDigest(data))
+      .catch(() => {})
+      .finally(() => setDigestGerando(false));
+  };
+
   useEffect(() => {
     onRefreshAiStatus();
+    fetch('/api/jobs/admin/fontes-saude')
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((data: FonteSaude[]) => setFontesSaude(data))
+      .catch(() => setFontesSaude([]))
+      .finally(() => setFontesSaudeLoading(false));
+    fetch('/api/jobs/admin/painel-qualidade')
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((data: PainelQualidade) => setPainelQualidade(data))
+      .catch(() => setPainelQualidade(null))
+      .finally(() => setPainelQualidadeLoading(false));
+    carregarDigest();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const { profile, fileName, setProfile } = useCandidateProfile();
   const github = useGitHubProfile();
+  const gmail = useGmail();
   const [githubInput, setGithubInput] = useState('');
   const [githubLoading, setGithubLoading] = useState(false);
   const [githubError, setGithubError] = useState('');
@@ -170,10 +247,18 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
   return (
     <>
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal settings-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal settings-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>⚙️</span>
-          <h2>Configurações</h2>
+          <h2 id="settings-modal-title">Configurações</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 
@@ -202,6 +287,12 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
               disponíveis hoje
               {aiStatus.keyPool.exhaustedToday > 0 && (
                 <span className="key-pool-exhausted"> · {aiStatus.keyPool.exhaustedToday} esgotada(s)</span>
+              )}
+              {aiStatus.keyPool.rejectedNow > 0 && (
+                // Fase 11.3 — diferente de "esgotada" (cota, some sozinho amanhã):
+                // recusada é autenticação/permissão quebrada, não se resolve com
+                // o tempo. Cor de aviso mais forte (--red) de propósito.
+                <span className="key-pool-rejected"> · {aiStatus.keyPool.rejectedNow} recusada(s)</span>
               )}
             </div>
           )}
@@ -413,6 +504,153 @@ export function SettingsModal({ aiStatus, aiLoading, onRefreshAiStatus, onClose 
             )}
           </div>
         )}
+
+        <div className="settings-section">
+          <h3 className="settings-section-title">📧 Gmail</h3>
+          {!gmail.loading && !gmail.configured && (
+            <p className="agenda-hint">
+              Integração não configurada — precisa de um client OAuth do Google Cloud Console
+              (variáveis <code>GOOGLE_OAUTH_CLIENT_ID</code>/<code>GOOGLE_OAUTH_CLIENT_SECRET</code> no <code>.env</code>).
+            </p>
+          )}
+          {!gmail.loading && gmail.configured && !gmail.connected && (
+            <>
+              <p className="agenda-hint">
+                Conecta o Hunter ao seu Gmail (só-leitura) pra ele achar vagas nos emails de alerta
+                (LinkedIn, Glassdoor) e sugerir importar pro Job Radar — você sempre confirma cada
+                uma antes de qualquer coisa entrar no banco, nada é adicionado sozinho.
+              </p>
+              <button type="button" className="btn btn-ghost" onClick={gmail.connect} disabled={gmail.connecting}>
+                {gmail.connecting ? 'Abrindo o Google...' : '📧 Conectar Gmail'}
+              </button>
+            </>
+          )}
+          {!gmail.loading && gmail.connected && (
+            <>
+              <p className="agenda-hint">
+                ✅ Conectado{gmail.email ? ` como ${gmail.email}` : ''}. Peça pro Hunter no chat, ex:
+                "vê se tem vaga nova no meu email" (ou <code>/emails</code>).
+              </p>
+              <button type="button" className="btn btn-ghost" onClick={gmail.disconnect}>
+                Desconectar Gmail
+              </button>
+            </>
+          )}
+          {gmail.error && <p className="agenda-error">{gmail.error}</p>}
+        </div>
+
+        {aiStatus.enabled && (
+          <div className="settings-section">
+            <h3 className="settings-section-title">🗞️ Resumo semanal</h3>
+            <p className="agenda-hint">
+              Gerado automaticamente toda segunda-feira às 8h (1 chamada de IA por semana) — o que entrou,
+              o que está parado e prazos fechando. Pode gerar na hora pra não esperar até lá.
+            </p>
+            {digestLoading ? (
+              <p className="agenda-hint">Carregando...</p>
+            ) : digest ? (
+              <>
+                <p className="agenda-hint settings-usage-hint">
+                  📅 {digest.vagasNovas} nova(s) · 🐢 {digest.vagasParadas} parada(s) · ⏳ {digest.prazosProximos} com prazo próximo
+                  {digest.geradoEm && ` · gerado ${relativeTime(new Date(digest.geradoEm).getTime())}`}
+                </p>
+                <div className="profile-file-card" style={{ alignItems: 'flex-start' }}>
+                  <span className="profile-file-icon">🗞️</span>
+                  <div className="profile-file-info">
+                    <span className="profile-file-name" style={{ whiteSpace: 'pre-wrap', fontWeight: 400 }}>
+                      {digest.conteudo}
+                    </span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="agenda-hint">Nenhum resumo gerado ainda.</p>
+            )}
+            <button type="button" className="btn btn-ghost" onClick={gerarDigestAgora} disabled={digestGerando}>
+              {digestGerando ? 'Gerando...' : '🗞️ Gerar resumo agora'}
+            </button>
+          </div>
+        )}
+
+        <div className="settings-section">
+          <h3 className="settings-section-title">🧹 Qualidade do catálogo</h3>
+          <p className="agenda-hint">
+            Sinais introduzidos nas Fases 7.1–7.6 — cada número já tem ação própria em outro lugar
+            do app (aba Vencidas, aba Arquivadas, painel Duplicatas, badge ⚠️ no card).
+          </p>
+          {painelQualidadeLoading ? (
+            <p className="agenda-hint">Carregando...</p>
+          ) : !painelQualidade ? (
+            <p className="agenda-hint">Não foi possível carregar o painel agora.</p>
+          ) : (
+            <div className="quality-panel-grid">
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.foraDeArea}</span>
+                <span className="quality-panel-label">fora de área (7.1)</span>
+              </div>
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.arquivadas}</span>
+                <span className="quality-panel-label">arquivadas (7.3+8.4)</span>
+              </div>
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.vencidasAtivas}</span>
+                <span className="quality-panel-label">vencidas ativas (7.2)</span>
+              </div>
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.linksMortos}</span>
+                <span className="quality-panel-label">links mortos (7.5)</span>
+              </div>
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.linksNuncaChecados}</span>
+                <span className="quality-panel-label">links nunca checados</span>
+              </div>
+              <div className="quality-panel-stat">
+                <span className="quality-panel-value">{painelQualidade.total}</span>
+                <span className="quality-panel-label">total no catálogo</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="settings-section">
+          <h3 className="settings-section-title">📡 Saúde das fontes</h3>
+          <p className="agenda-hint">
+            Uma linha por fonte de vaga (Gupy, Nerdin, Greenhouse...). "Dias sem vaga nova" é a vaga
+            mais recente daquela fonte hoje — um número alto é um SINAL de que ela pode ter parado
+            (scraping quebrado, API fora do ar), não uma confirmação: algumas fontes genuinamente
+            postam pouco.
+          </p>
+          {fontesSaudeLoading ? (
+            <p className="agenda-hint">Carregando...</p>
+          ) : fontesSaude.length === 0 ? (
+            <p className="agenda-hint">Nenhuma vaga salva ainda.</p>
+          ) : (
+            <div className="fontes-saude-table">
+              <div className="fontes-saude-row fontes-saude-row--head">
+                <span>Fonte</span>
+                <span>Vagas</span>
+                <span>% c/ salário</span>
+                <span>% c/ estado</span>
+                <span>Dias s/ vaga nova</span>
+              </div>
+              {fontesSaude.map(f => {
+                const alerta = f.diasSemVagaNova !== null && f.diasSemVagaNova > DIAS_ALERTA_FONTE_PARADA;
+                return (
+                  <div key={f.fonte} className={`fontes-saude-row ${alerta ? 'fontes-saude-row--alerta' : ''}`}>
+                    <span className="fontes-saude-nome">{f.fonte}</span>
+                    <span>{f.total}</span>
+                    <span>{f.pctComSalario}%</span>
+                    <span>{f.pctComEstado}%</span>
+                    <span>
+                      {f.diasSemVagaNova === null ? '—' : `${f.diasSemVagaNova}d`}
+                      {alerta && ' ⚠️'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         <div className="settings-section">
           <h3 className="settings-section-title">🔒 Área avançada</h3>

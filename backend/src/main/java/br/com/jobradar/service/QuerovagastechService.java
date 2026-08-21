@@ -25,7 +25,12 @@ import java.util.Set;
  */
 @Service
 @Slf4j
-public class QuerovagastechService {
+public class QuerovagastechService implements JobSource {
+
+    @Override
+    public String nome() {
+        return "QueroVagasTech";
+    }
 
     private static final String API_URL = "https://www.querovagastech.com.br/api/jobs";
     private static final int PAGE_SIZE = 100;
@@ -50,6 +55,7 @@ public class QuerovagastechService {
             Map.entry("SP", "São Paulo"), Map.entry("SE", "Sergipe"), Map.entry("TO", "Tocantins")
     );
 
+    @Override
     public List<Job> fetchJobs() {
         List<Job> jobs = new ArrayList<>();
         try {

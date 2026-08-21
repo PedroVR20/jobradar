@@ -27,8 +27,15 @@ public class CoverLetterService {
 
     private final GeminiService geminiService;
     private final JobDescriptionService jobDescriptionService;
+    private final AiFeatureBudgetService aiFeatureBudgetService;
 
     public GeminiService.GeminiResult gerar(Job job, String extraContext, String feedbackContext) {
+        // Fase 9.8 — checa o orçamento diário ANTES de montar o prompt (que
+        // já busca a descrição real da vaga, custo evitável se o teto já
+        // estourou) e ANTES da chamada real ao Gemini.
+        if (!aiFeatureBudgetService.permitir(AiFeatureBudgetService.COVER_LETTER)) {
+            return new GeminiService.GeminiResult(null, aiFeatureBudgetService.mensagemLimiteAtingido(AiFeatureBudgetService.COVER_LETTER), false);
+        }
         StringBuilder contexto = new StringBuilder();
         contexto.append("Vaga: ").append(job.getTitle()).append("\n");
         contexto.append("Empresa: ").append(job.getCompany()).append("\n");

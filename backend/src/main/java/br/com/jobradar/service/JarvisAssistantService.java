@@ -2,6 +2,7 @@ package br.com.jobradar.service;
 
 import br.com.jobradar.model.Job;
 import br.com.jobradar.repository.JobRepository;
+import br.com.jobradar.repository.JobSpecifications;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -51,10 +52,12 @@ public class JarvisAssistantService {
         String perfilSenioridade = seniorityClassifier.classify(candidateProfile, String.join(",", perfilTags));
 
         LocalDateTime cutoff = LocalDateTime.now().minusDays(Math.max(1, dias));
-        List<Job> candidatos = jobRepository.findAll().stream()
-                .filter(j -> !j.isRejected())
-                .filter(j -> j.getPostedAt() != null && j.getPostedAt().isAfter(cutoff))
-                .toList();
+        // Fase 1.6 — os dois filtros (não recusada + postada depois do
+        // corte) empurrados pro WHERE do SQL em vez de Java: pra "vagas de
+        // hoje" isso corta a imensa maioria do catálogo ANTES de carregar
+        // qualquer linha na memória, não só depois.
+        List<Job> candidatos = jobRepository.findAll(
+                JobSpecifications.combine(JobSpecifications.notRejected(), JobSpecifications.postedAfter(cutoff)));
 
         if (candidatos.isEmpty()) {
             return new CompatibilityResult(true, 0, 0, List.of(), null);
@@ -120,6 +123,30 @@ public class JarvisAssistantService {
             out.put(job.getId(), percent);
         }
         return out;
+    }
+
+    public record MatchExplanation(int percent, List<String> tagsQueBateram, List<String> tagsQueFaltaram, boolean senioridadeBateu) {}
+
+    // Fase 9.3 — "de onde veio a ordenação"/"por que essa vaga apareceu":
+    // o badge 🎯 já existia (heuristicMatchPercents acima), mas só mostrava
+    // o percentual — nunca QUAIS tags do perfil bateram ou faltaram. Mesmo
+    // cálculo de heuristicMatchPercents, pra UMA vaga só, guardando o
+    // detalhe em vez de só o número final.
+    public Optional<MatchExplanation> explicarMatch(Job job, String candidateProfile) {
+        if (candidateProfile == null || candidateProfile.isBlank()) return Optional.empty();
+        Set<String> perfilTags = salaryPredictionService.extractTagsFromText(candidateProfile);
+        if (perfilTags.isEmpty()) return Optional.empty();
+        String perfilSenioridade = seniorityClassifier.classify(candidateProfile, String.join(",", perfilTags));
+
+        Set<String> jobTags = tagSet(job.getTags());
+        List<String> bateram = perfilTags.stream().filter(jobTags::contains).sorted().toList();
+        List<String> faltaram = perfilTags.stream().filter(t -> !jobTags.contains(t)).sorted().toList();
+        boolean senioridadeBateu = perfilSenioridade != null && perfilSenioridade.equals(job.getSeniority());
+
+        int percent = perfilTags.isEmpty() ? 0 : (int) Math.round(100.0 * bateram.size() / perfilTags.size());
+        if (senioridadeBateu) percent = Math.min(100, percent + 10);
+
+        return Optional.of(new MatchExplanation(percent, bateram, faltaram, senioridadeBateu));
     }
 
     private double scoreHeuristico(Job job, Set<String> perfilTags, String perfilSenioridade) {

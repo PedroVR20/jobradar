@@ -1,6 +1,9 @@
 package br.com.jobradar.service;
 
+import br.com.jobradar.llm.EmbeddingProvider;
 import br.com.jobradar.model.Job;
+import br.com.jobradar.model.JobEmbedding;
+import br.com.jobradar.repository.JobEmbeddingRepository;
 import br.com.jobradar.repository.JobRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +12,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Busca semântica sobre as vagas — resolve um problema real e verificado no
@@ -17,24 +21,29 @@ import java.util.List;
  * acha "DevOps/SRE/Cloud", "front" nunca acha "React". Embeddings resolvem
  * isso comparando SIGNIFICADO, não caractere por caractere.
  *
- * <p>Usa o modelo {@code text-embedding-004} (ver {@link GeminiService#embedContent}),
- * que tem quota SEPARADA e bem mais folgada que o {@code generateContent}
- * usado pelo chat — por isso essa ferramenta não compete pela cota que já
- * vive esgotada no free tier.</p>
+ * <p>Fase 8/9 — quem calcula o vetor de verdade é {@link EmbeddingProvider}
+ * (não mais {@code GeminiService} direto): por padrão o Hunter-Embed local
+ * (encoder próprio, treinado por destilação a partir dos vetores do Gemini
+ * já salvos aqui — ver {@code HunterEmbeddingProvider}), com o Gemini como
+ * alternativa reativável via {@code hunter.embedding.provider=gemini} se
+ * precisar reverter.</p>
  *
  * <p>Sem extensão pgvector no Postgres: os vetores ficam serializados como
- * TEXT no próprio {@link Job} (campo {@code embedding}) e a similaridade de
- * cosseno é calculada em Java sobre a lista de vagas candidatas — ~4800
- * vagas × 768 dimensões é um produto escalar trivial pra JVM, não precisa de
- * banco vetorial de verdade nessa escala.</p>
+ * bytea (Fase 6.5 — floats empacotados em binário, ver
+ * {@link #serializar}/{@link #parsear}) numa tabela própria ({@link JobEmbedding},
+ * ver Fase 6.1 pra por que saiu de dentro de {@link Job}) e a similaridade
+ * de cosseno é calculada em Java sobre a lista de vagas candidatas — ~5900
+ * vagas × 3072 dimensões é um produto escalar trivial pra JVM, não precisa
+ * de banco vetorial de verdade nessa escala.</p>
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class JobEmbeddingService {
 
-    private final GeminiService geminiService;
+    private final EmbeddingProvider embeddingProvider;
     private final JobRepository jobRepository;
+    private final JobEmbeddingRepository jobEmbeddingRepository;
 
     // Resultado de uma busca semântica: a vaga e o quão perto ela ficou da
     // consulta (0 a 1, 1 = idêntico em significado).
@@ -53,14 +62,22 @@ public class JobEmbeddingService {
      * (ver JobAggregatorService) e pelo backfill (endpoint admin). Falha
      * silenciosa de propósito (só loga): não pode travar o fetch periódico
      * inteiro porque o Gemini está fora do ar ou sem key configurada.
+     *
+     * <p>Fase 6.1 — salva direto em {@code job_embeddings} (não mexe mais no
+     * Job em si), então precisa que {@code job.getId()} já exista — a vaga
+     * tem que ter sido persistida antes de chamar isso.</p>
      */
     public boolean embedESalvar(Job job) {
-        GeminiService.EmbedResult resultado = geminiService.embedContent(textoDaVaga(job));
+        EmbeddingProvider.EmbedResult resultado = embeddingProvider.embed(
+                textoDaVaga(job), EmbeddingProvider.TASK_TYPE_DOCUMENTO);
         if (!resultado.ok()) {
             log.warn("Não foi possível embeddar a vaga {} ('{}'): {}", job.getId(), job.getTitle(), resultado.errorMessage());
             return false;
         }
-        job.setEmbedding(serializar(resultado.vector()));
+        jobEmbeddingRepository.save(JobEmbedding.builder()
+                .id(job.getId())
+                .vector(serializar(resultado.vector()))
+                .build());
         return true;
     }
 
@@ -71,19 +88,27 @@ public class JobEmbeddingService {
      * embedding ainda (não passou pelo fetch desde que essa feature existe,
      * ou o backfill não chegou nela) simplesmente não entra no resultado —
      * não trava a busca, só fica de fora até ser embeddada.
+     *
+     * <p>Fase 6.1 — busca os vetores em lote só das candidatas (não carrega
+     * a tabela job_embeddings inteira), via {@code findAllById}.</p>
      */
     public List<Match> buscar(String consulta, List<Job> candidatas, int limite) {
-        GeminiService.EmbedResult consultaEmbed = geminiService.embedContent(consulta);
+        EmbeddingProvider.EmbedResult consultaEmbed = embeddingProvider.embed(consulta, EmbeddingProvider.TASK_TYPE_CONSULTA);
         if (!consultaEmbed.ok()) {
             log.warn("Busca semântica: não consegui embeddar a consulta '{}': {}", consulta, consultaEmbed.errorMessage());
             return List.of();
         }
         float[] vetorConsulta = consultaEmbed.vector();
 
+        List<Long> ids = candidatas.stream().map(Job::getId).toList();
+        Map<Long, byte[]> vetoresPorJobId = jobEmbeddingRepository.findAllById(ids).stream()
+                .collect(java.util.stream.Collectors.toMap(JobEmbedding::getId, JobEmbedding::getVector));
+
         List<Match> resultados = new ArrayList<>();
         for (Job job : candidatas) {
-            if (job.getEmbedding() == null || job.getEmbedding().isBlank()) continue;
-            float[] vetorVaga = parsear(job.getEmbedding());
+            byte[] vetorSerializado = vetoresPorJobId.get(job.getId());
+            if (vetorSerializado == null || vetorSerializado.length == 0) continue;
+            float[] vetorVaga = parsear(vetorSerializado);
             if (vetorVaga.length != vetorConsulta.length) continue; // modelo trocado no meio do caminho, ignora
             resultados.add(new Match(job, similaridadeCosseno(vetorConsulta, vetorVaga)));
         }
@@ -92,36 +117,38 @@ public class JobEmbeddingService {
     }
 
     // Quantas vagas ainda não têm embedding — usado pra reportar progresso
-    // no endpoint de backfill, sem precisar carregar a lista inteira duas vezes.
+    // no endpoint de backfill. Fase 6.1: query de verdade (NOT IN contra
+    // job_embeddings), não mais filtro em memória sobre findAll().
     public long contarSemEmbedding() {
-        return jobRepository.findAll().stream().filter(j -> j.getEmbedding() == null || j.getEmbedding().isBlank()).count();
+        return jobRepository.countNotEmbedded();
     }
 
     // Só as sem embedding ainda — usado pelo backfill, pra não reprocessar
     // (e regastar cota em) vaga que já foi embeddada antes.
     public List<Job> semEmbedding() {
-        return jobRepository.findAll().stream()
-                .filter(j -> j.getEmbedding() == null || j.getEmbedding().isBlank())
-                .toList();
+        return jobRepository.findAllNotEmbedded();
     }
 
-    static String serializar(float[] vetor) {
-        StringBuilder sb = new StringBuilder(vetor.length * 8);
-        for (int i = 0; i < vetor.length; i++) {
-            if (i > 0) sb.append(',');
-            sb.append(vetor[i]);
-        }
-        return sb.toString();
+    // Fase 6.5 — 4 bytes por float (little-endian), em vez do texto decimal
+    // de antes (~13 caracteres por float em média, incluindo notação
+    // científica). ByteBuffer em vez de escrever byte a byte na mão: mais
+    // curto e sem chance de errar a ordem dos bytes.
+    static byte[] serializar(float[] vetor) {
+        java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocate(vetor.length * Float.BYTES)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        for (float v : vetor) buffer.putFloat(v);
+        return buffer.array();
     }
 
-    static float[] parsear(String serializado) {
-        String[] partes = serializado.split(",");
-        float[] vetor = new float[partes.length];
-        for (int i = 0; i < partes.length; i++) vetor[i] = Float.parseFloat(partes[i]);
+    static float[] parsear(byte[] serializado) {
+        java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(serializado)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        float[] vetor = new float[serializado.length / Float.BYTES];
+        for (int i = 0; i < vetor.length; i++) vetor[i] = buffer.getFloat();
         return vetor;
     }
 
-    // text-embedding-004 já devolve vetores normalizados (norma 1), mas
+    // gemini-embedding-001 já devolve vetores normalizados (norma 1), mas
     // calcular completo em vez de assumir isso evita ficar refém de um
     // detalhe de implementação do modelo que pode mudar.
     static double similaridadeCosseno(float[] a, float[] b) {

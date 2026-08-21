@@ -16,6 +16,75 @@
   --red:       #ef4444;
   --radius:    10px;
   --shadow:    0 1px 3px rgba(0,0,0,0.4);
+  /* Fase 4.1 — tint neutro pra hover/badge sutil (ex: background: rgba(var(--overlay-rgb),0.039)
+     em cima do card escuro). Precisa inverter no tema claro: branco
+     translúcido sobre fundo já claro é praticamente invisível — vira preto
+     translúcido lá embaixo em vez de trocar cada regra uma por uma. */
+  --overlay-rgb: 255,255,255;
+
+  /* Fase 16.3 — escala de tokens de espaçamento e tipografia. O app
+     cresceu por 16 fases de incrementos pontuais sem uma escala
+     combinada desde o início — hoje o arquivo tem 67 cores hex distintas,
+     29 tamanhos de fonte distintos (vários a 0.01-0.02rem de diferença
+     um do outro, ex: 0.74/0.75/0.76/0.78rem, quase certamente
+     acidentais, não intencionais) e 60+ declarações de margin/padding/gap
+     com valor solto. Consolidar TUDO isso retroativamente exigiria
+     revisar visualmente cada uma das ~3600 linhas do arquivo pra
+     confirmar que nenhuma mudança de valor (ex: 0.74rem → 0.75rem)
+     quebrou um alinhamento — fora do que dá pra verificar com segurança
+     nesta sessão (sem acesso a browser/DevTools pra QA visual, ver
+     memória "no-self-testing-after-implementation"). Em vez de arriscar
+     uma regressão visual invisível em código já em produção, esta escala
+     nova é usada nas regras ADICIONADAS a partir de agora (ver
+     .shortcuts-*, .active-filter-chip*, .triage-batch-row/.triage-veredito*,
+     .structure-alertas* mais abaixo) — consolidação retroativa do resto
+     do arquivo fica pra quando houver como validar visualmente.
+     Cores já têm token semântico (--bg/--text/--accent/--green/--yellow/
+     --red/--border acima) desde a Fase 4.1 — o que faltava era só a
+     escala de espaçamento/tipografia, que é isso aqui. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --font-size-xs: 0.7rem;
+  --font-size-sm: 0.78rem;
+  --font-size-base: 0.85rem;
+  --font-size-md: 0.95rem;
+  --font-size-lg: 1.05rem;
+  --font-size-xl: 1.3rem;
+}
+
+/* Fase 4.1 — tema claro. Segue a preferência do sistema por padrão
+   (prefers-color-scheme) E aceita escolha manual via [data-theme] no
+   <html> (ver useTheme.ts) — o :not([data-theme="dark"]) garante que
+   quem escolheu escuro manualmente não seja atropelado pelo SO estar em
+   modo claro. A paleta clara segue a mesma lógica visual do GitHub
+   (neutros levemente azulados, não branco puro) pra ficar familiar sem
+   fugir muito da linguagem visual escura original. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg:        #f6f8fa;
+    --bg-card:   #ffffff;
+    --bg-card2:  #eef1f4;
+    --border:    #d0d7de;
+    --text:      #1f2328;
+    --text-muted:#57606a;
+    --shadow:    0 1px 3px rgba(31,35,40,0.12);
+    --overlay-rgb: 0,0,0;
+  }
+}
+:root[data-theme="light"] {
+  --bg:        #f6f8fa;
+  --bg-card:   #ffffff;
+  --bg-card2:  #eef1f4;
+  --border:    #d0d7de;
+  --text:      #1f2328;
+  --text-muted:#57606a;
+  --shadow:    0 1px 3px rgba(31,35,40,0.12);
+  --overlay-rgb: 0,0,0;
 }
 
 body {
@@ -24,6 +93,12 @@ body {
   font-family: 'Inter', system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.6;
+  /* Fase 4.2 — rede de segurança: nenhum elemento específico devia
+     estourar a viewport (grid/flex já usam auto-fill, wrap e
+     width:100%+max-width em vez de largura fixa), mas isso garante que
+     um scroll horizontal acidental nunca aparece em vez de silenciosamente
+     deixar passar. */
+  overflow-x: hidden;
 }
 
 /* Scrollbar escura pra combinar com o tema — sem isso, o navegador usa a
@@ -36,6 +111,20 @@ body {
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+/* Fase 4.6 — foco visível garantido pra navegação por teclado. Vários
+   inputs/botões no arquivo removem o outline nativo (outline:none) pra
+   estilizar só com border-color — a troca de borda sozinha nem sempre é
+   contraste suficiente, e alguns elementos ficavam sem NENHUM indicador
+   de foco. !important é deliberado aqui: é uma rede de segurança de
+   acessibilidade que precisa vencer qualquer outline:none espalhado
+   pelo CSS, não é uma escolha visual comum. Só ativa com :focus-visible
+   (teclado/programático) — não aparece em clique de mouse, então não
+   "suja" a interface pra quem navega só com o cursor. */
+:focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px !important;
+}
 
 /* ============================
    LAYOUT
@@ -220,7 +309,7 @@ a:hover { text-decoration: underline; }
   transition: background 0.15s, color 0.15s;
   white-space: nowrap;
 }
-.view-tab:hover { background: #ffffff08; color: var(--text); }
+.view-tab:hover { background: rgba(var(--overlay-rgb),0.031); color: var(--text); }
 .view-tab--active {
   background: var(--accent);
   color: #fff;
@@ -230,12 +319,12 @@ a:hover { text-decoration: underline; }
 .view-tab-count {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
-  background: rgba(255,255,255,0.15);
+  background: rgba(var(--overlay-rgb),0.15);
   padding: 1px 7px;
   border-radius: 10px;
 }
 .view-tab:not(.view-tab--active) .view-tab-count {
-  background: #ffffff0f;
+  background: rgba(var(--overlay-rgb),0.059);
 }
 
 .view-tab--drop-hover {
@@ -312,6 +401,9 @@ a:hover { text-decoration: underline; }
   white-space: nowrap;
   font-family: 'JetBrains Mono', monospace;
 }
+/* Fase 4.5 */
+.compact-toggle-btn { font-size: 0.78rem; padding: 6px 10px; }
+.compact-toggle-btn--active { border-color: var(--accent); color: var(--accent); }
 
 /* ============================
    JOBS GRID
@@ -321,6 +413,17 @@ a:hover { text-decoration: underline; }
   grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
   gap: 1rem;
 }
+/* Fase 4.5 — modo compacto: uma coluna só (cada linha já é bem mais baixa
+   que um card cheio, não precisa de múltiplas colunas pra aproveitar
+   espaço horizontal — ficaria com linhas bem curtas e espalhadas). */
+.jobs-grid--compact { grid-template-columns: 1fr; gap: 0.4rem; }
+/* Fase 16.7 — refetch em segundo plano (filtro mudou, aba trocou) esmaece
+   o grid JÁ carregado em vez de trocar tudo pelo SkeletonGrid (esse fica
+   só pro carregamento inicial de verdade, ver App.tsx/useJobs.ts) —
+   transição suave, sem o "piscar" de trocar conteúdo real por placeholder
+   e voltar a cada tecla digitada na busca. pointer-events:none evita
+   clicar num card que está prestes a ser substituído pelo resultado novo. */
+.jobs-grid--refetching { opacity: 0.55; pointer-events: none; transition: opacity 0.15s ease; }
 
 /* ============================
    JOB CARD
@@ -344,6 +447,55 @@ a:hover { text-decoration: underline; }
 .job-card--rejected { border-left: 3px solid var(--text-muted); opacity: 0.6; }
 .job-card[draggable="true"] { cursor: grab; }
 .job-card[draggable="true"]:active { cursor: grabbing; opacity: 0.6; }
+
+/* Fase 4.5 — modo compacto: uma linha por vaga em vez do card cheio.
+   position:relative pro botão de recolher (▲) do card expandido individual
+   se posicionar no canto sem interferir no header normal. */
+.job-card--compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+}
+.job-card--compact:hover { border-color: var(--accent); }
+.company-avatar--compact { width: 28px; height: 28px; flex-shrink: 0; }
+.job-card-compact-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 0.1rem;
+}
+.job-card-compact-title {
+  font-weight: 600;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-card-compact-company {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.badge-match--compact, .badge-salary--compact {
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.badge-match--compact { background: rgba(var(--overlay-rgb),0.06); color: var(--accent); border: 1px solid var(--accent); }
+.badge-salary--compact { background: rgba(16,185,129,0.12); color: var(--green); }
+.job-card-compact-status {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 
 .card-header {
   display: flex;
@@ -377,6 +529,101 @@ a:hover { text-decoration: underline; }
   background: var(--accent);
   color: #fff;
   letter-spacing: 0.3px;
+}
+
+/* Fase 9.3 — "por que essa vaga apareceu" */
+.badge-why {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  letter-spacing: 0.3px;
+}
+.badge-why:hover { color: var(--text); border-color: var(--text-muted); }
+.why-panel {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  margin: 0.4rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.why-line { font-size: 0.78rem; color: var(--text); margin: 0; line-height: 1.4; }
+.why-line--muted { color: var(--text-muted); }
+.why-line--alerta { color: var(--yellow); }
+.why-loading { font-size: 0.78rem; color: var(--text-muted); margin: 0; }
+
+/* Fase 9.6 — sinais de alerta na descrição */
+.structure-alertas {
+  background: #f59e0b14;
+  border: 1px solid var(--yellow);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+}
+.structure-alertas-list {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* Fase 16.8 — folha de atalhos de teclado */
+.shortcuts-modal {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.shortcuts-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.shortcuts-group-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin: 0 0 0.15rem;
+}
+.shortcuts-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+}
+.shortcuts-keys {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.shortcuts-kbd {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.15rem 0.45rem;
+  min-width: 1.4em;
+  text-align: center;
+}
+.shortcuts-label {
+  font-size: 0.82rem;
+  color: var(--text);
+  text-align: right;
 }
 
 .badge-applied {
@@ -423,7 +670,7 @@ a:hover { text-decoration: underline; }
   font-weight: 700;
   padding: 3px 10px;
   border-radius: 5px;
-  background: #ffffff0a;
+  background: rgba(var(--overlay-rgb),0.039);
   color: var(--text-muted);
   border: 1px dashed var(--border);
 }
@@ -485,7 +732,7 @@ a:hover { text-decoration: underline; }
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .card-menu-btn:hover {
-  background: #ffffff10;
+  background: rgba(var(--overlay-rgb),0.063);
   color: var(--text);
   border-color: var(--border);
 }
@@ -546,6 +793,22 @@ a:hover { text-decoration: underline; }
 .ai-menu-dropdown .card-menu-item {
   white-space: normal;
   line-height: 1.3;
+}
+
+/* Fase 16.9 — menu "⋯" do header, reaproveita .card-menu-dropdown/
+   .card-menu-item (mesmo padrão do "⋮" de cada card e do menu de IA) —
+   só o gatilho é diferente (.header-menu-btn usa o .btn normal com texto
+   "⋯ Mais", não o ícone quadrado 22x22 de .card-menu-btn, que não cabe
+   texto) e o dropdown é um pouco mais largo pros itens mais longos
+   ("🧠 Busca semântica"). z-index mais alto que o header (100) — o menu
+   precisa ficar por cima do resto do header, não atrás dele. */
+.header-menu { position: relative; display: inline-flex; }
+.header-menu-btn .view-tab-count { margin-left: 4px; }
+.header-menu-dropdown {
+  top: calc(100% + 6px);
+  min-width: 220px;
+  z-index: 150;
+  animation: card-menu-in 0.15s ease-out;
 }
 .card-menu-item--icon {
   display: flex;
@@ -619,10 +882,10 @@ a:hover { text-decoration: underline; }
   padding: 3px 10px;
   border-radius: 5px;
 }
-.badge-deadline--ok      { background: #ffffff0a; color: var(--text-muted); border: 1px solid var(--border); }
+.badge-deadline--ok      { background: rgba(var(--overlay-rgb),0.039); color: var(--text-muted); border: 1px solid var(--border); }
 .badge-deadline--soon    { background: #f59e0b22; color: var(--yellow); border: 1px solid #f59e0b44; }
 .badge-deadline--urgent  { background: #ef444422; color: var(--red); border: 1px solid #ef444444; animation: pulse 2s infinite; }
-.badge-deadline--closed  { background: #ffffff0a; color: var(--text-muted); border: 1px solid var(--border); text-decoration: line-through; }
+.badge-deadline--closed  { background: rgba(var(--overlay-rgb),0.039); color: var(--text-muted); border: 1px solid var(--border); text-decoration: line-through; }
 
 .card-tags {
   display: flex;
@@ -637,7 +900,7 @@ a:hover { text-decoration: underline; }
   font-family: 'JetBrains Mono', monospace;
 }
 .tag--tech   { background: #6366f122; color: #818cf8; border: 1px solid #6366f144; }
-.tag--normal { background: #ffffff0a; color: var(--text-muted); border: 1px solid var(--border); }
+.tag--normal { background: rgba(var(--overlay-rgb),0.039); color: var(--text-muted); border: 1px solid var(--border); }
 
 .card-actions {
   display: flex;
@@ -645,6 +908,83 @@ a:hover { text-decoration: underline; }
   flex-wrap: wrap;
   padding-top: 0.5rem;
   border-top: 1px solid var(--border);
+}
+
+/* Minimal-underline button, usado como link-ish action (ex: "cancelar" no
+   seletor de motivo de recusa, "verificar com IA" nas duplicatas) */
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.btn-link:hover { color: var(--text); }
+
+/* Fase 7.7 — painel de qualidade do catálogo (Configurações) */
+.quality-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.75rem;
+}
+.quality-panel-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius, 10px);
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+}
+.quality-panel-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.quality-panel-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* Fase 8.7 — motivo da recusa em um clique */
+/* Fase 16.4 — era um <span> inline dentro do botão de recusar, virou
+   <button> irmão de verdade (acessível por teclado) — reset do visual
+   padrão de botão pra continuar parecendo um link discreto igual antes. */
+.reject-actions { display: flex; align-items: center; gap: 0.5rem; }
+.reject-reason-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-decoration: underline;
+  opacity: 0.85;
+  cursor: pointer;
+}
+.reject-reason-toggle:hover { opacity: 1; }
+
+.reject-reason-picker {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.reject-reason-chip {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-card2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.reject-reason-chip:hover {
+  border-color: var(--red, #ef4444);
+  color: var(--red, #ef4444);
 }
 
 .load-more-btn {
@@ -659,7 +999,7 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s;
 }
-.load-more-btn:hover { border-color: var(--accent); background: #ffffff08; }
+.load-more-btn:hover { border-color: var(--accent); background: rgba(var(--overlay-rgb),0.031); }
 
 /* ============================
    BUTTONS
@@ -714,6 +1054,25 @@ a:hover { text-decoration: underline; }
 }
 .btn-interested:hover:not(:disabled) { background: #a855f733; }
 
+/* Fase 16.2 — hierarquia visual do card: os 7 botões de ação (Ver vaga,
+   Salvar na Agenda, Marcar entrevista, Salário estimado, IA, Marquei como
+   aplicada, Marcar como vista, Marquei interesse) tinham TODOS o mesmo
+   .btn base (padding/font-size/font-weight idênticos) — só a cor mudava,
+   então nada dizia visualmente "essa ação importa mais que aquela".
+   .btn--tertiary reduz peso (padding/fonte menores, opacidade em repouso)
+   pras ações de APOIO — Salvar na Agenda, Marcar entrevista, Salário
+   estimado, IA, Marcar como vista — que são úteis mas não são a DECISÃO
+   real do funil. As decisões de funil (Marquei interesse/aplicada,
+   Recusada, Entrei em processo) mantêm o peso normal do .btn, e "Ver
+   vaga →" continua sendo o único .btn-primary (preenchido, sem
+   modificador) — o olho já vai direto nele primeiro. */
+.btn--tertiary {
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+.btn--tertiary:hover:not(:disabled) { opacity: 1; }
+
 .fetch-btn {
   margin-left: auto;
   background: var(--accent);
@@ -767,14 +1126,54 @@ a:hover { text-decoration: underline; }
   padding: 4rem;
   color: var(--text-muted);
 }
+/* Fase 4.7 — empty state com ação: mais de um botão lado a lado quando
+   faz sentido (ex: "Limpar filtros" + "Ampliar período"). */
+.empty-box-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
+.empty-box-hint { font-size: 0.85rem; opacity: 0.8; margin-top: -0.4rem; }
+
+/* Fase 4.4 — skeleton loaders */
+.skeleton-card { cursor: default; gap: 0.7rem; display: flex; flex-direction: column; }
+.skeleton-lines { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
+.skeleton-lines-block { display: flex; flex-direction: column; gap: 0.7rem; padding: 1.5rem 0; }
+.skeleton-lines-block .skeleton-line { height: 14px; }
+.skeleton-badges { display: flex; gap: 0.4rem; }
+.skeleton-block {
+  background: linear-gradient(90deg, var(--bg-card2) 25%, rgba(var(--overlay-rgb),0.06) 50%, var(--bg-card2) 75%);
+  background-size: 200% 100%;
+  border-radius: 6px;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-avatar { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; }
+.skeleton-line { height: 12px; }
+.skeleton-line--title { width: 70%; height: 14px; }
+.skeleton-line--subtitle { width: 45%; }
+.skeleton-line--full { width: 100%; }
+.skeleton-pill { width: 64px; height: 20px; border-radius: 999px; }
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block { animation: none; }
+}
 
 /* ============================
    TOAST
    ============================ */
-.toast {
+/* Fase 16.5 — pilha de verdade (era um toast só, fixo); cada um agora é
+   um item de flex empilhando de baixo pra cima, o container é que fica
+   fixo na tela. */
+.toast-stack {
   position: fixed;
   bottom: 1.5rem;
   right: 1.5rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.5rem;
+  max-width: min(360px, calc(100vw - 3rem));
+}
+.toast {
   background: var(--bg-card2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -782,8 +1181,26 @@ a:hover { text-decoration: underline; }
   font-size: 0.875rem;
   box-shadow: 0 4px 12px rgba(0,0,0,0.5);
   animation: slideIn 0.3s ease;
-  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: space-between;
 }
+/* Fase 16.5 — botão "Desfazer" dentro do toast */
+.toast-undo-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.toast-undo-btn:hover { background: var(--accent); color: #fff; }
 @keyframes slideIn {
   from { transform: translateY(20px); opacity: 0; }
   to   { transform: translateY(0);    opacity: 1; }
@@ -1104,6 +1521,18 @@ a:hover { text-decoration: underline; }
   white-space: nowrap;
 }
 
+/* Fase 7.5 — badge de link possivelmente morto (JobLinkCheckerService) */
+.badge-link-morto {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--red-bg, #ef444422);
+  color: var(--red, #ef4444);
+  border: 1px solid #ef444444;
+  white-space: nowrap;
+}
+
 /* ============================
    BOTÃO FIXAR (PIN)
    ============================ */
@@ -1130,6 +1559,17 @@ a:hover { text-decoration: underline; }
   transform: rotate(-20deg);
 }
 
+/* Fase 7.3+8.4 — botão de reativar vaga arquivada, no cabeçalho do card
+   (antes usava .btn-pin por engano — aquela classe é feita pra ícone
+   sozinho de opacidade baixa/grayscale, não pra botão com texto). */
+.btn-reativar-arquivada {
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  margin-right: 0.4rem;
+}
+
 /* Card fixado tem borda superior accent + leve brilho */
 .job-card--pinned {
   border-top: 2px solid var(--accent);
@@ -1147,6 +1587,12 @@ a:hover { text-decoration: underline; }
   0% { box-shadow: 0 0 0 0 #6366f166; }
   70% { box-shadow: 0 0 0 10px #6366f100; }
   100% { box-shadow: 0 0 0 0 #6366f100; }
+}
+
+/* Fase 8.3 — anel de foco por teclado (j/k no grid principal) */
+.job-card--kbd-focused {
+  outline: 2px solid var(--accent, #6366f1);
+  outline-offset: 2px;
 }
 
 /* ============================
@@ -1392,6 +1838,41 @@ a:hover { text-decoration: underline; }
 }
 .tech-pill-remove:hover { color: var(--red); background: #ef444411; }
 
+/* Fase 16.6 — resumo dos filtros ativos em chips (search/fonte/nível/
+   modalidade/estado/data/modo iniciante), cada um removível na hora,
+   sem precisar abrir o select correspondente pra saber o que tá filtrando. */
+.filter-row--chips {
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+}
+.active-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--accent);
+  background: #6366f122;
+  color: #818cf8;
+  border-radius: 999px;
+  padding: 3px 4px 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.active-filter-chip-remove {
+  background: transparent;
+  border: none;
+  color: #818cf8;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 999px;
+  transition: color 0.15s, background 0.15s;
+}
+.active-filter-chip-remove:hover { color: var(--red); background: #ef444422; }
+
 /* input inline para criar nova pill */
 .tech-pill-form { display: contents; }
 
@@ -1468,7 +1949,7 @@ a:hover { text-decoration: underline; }
   border-bottom: 1px solid var(--border);
   cursor: grab;
   user-select: none;
-  background: #ffffff05;
+  background: rgba(var(--overlay-rgb),0.02);
 }
 .pill-confirm-header:active { cursor: grabbing; }
 
@@ -1522,7 +2003,7 @@ a:hover { text-decoration: underline; }
   gap: 0.5rem;
   padding: 0.75rem 1.25rem 1rem;
   border-top: 1px solid var(--border);
-  background: #ffffff03;
+  background: rgba(var(--overlay-rgb),0.012);
 }
 
 /* ============================
@@ -1543,6 +2024,24 @@ a:hover { text-decoration: underline; }
   font-weight: 600;
   vertical-align: middle;
 }
+
+/* Fase 11.1 — verificação por IA das duplicatas virou sob demanda (o botão
+   embutido é o mesmo estilo do badge que ele substitui até ser clicado). */
+.duplicate-verify-btn {
+  margin-left: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.duplicate-verify-btn:hover:not(:disabled) { background: var(--accent-soft, rgba(99, 102, 241, 0.1)); }
+.duplicate-verify-btn:disabled { opacity: 0.6; cursor: default; }
+.duplicate-verify-error { margin: 4px 0 0; font-size: 0.76rem; }
 
 .btn-ai {
   background: #2dd4bf22;
@@ -1601,6 +2100,41 @@ a:hover { text-decoration: underline; }
   border-color: #ef444444;
 }
 .key-pool-exhausted { opacity: 0.85; font-weight: 400; }
+/* Fase 11.3 — cor mais forte que "esgotada": recusa é config quebrada, não
+   cota que passa sozinha amanhã. */
+.key-pool-rejected { color: var(--red); font-weight: 600; }
+
+/* Fase 2.7 — painel de saúde das fontes (Configurações) */
+.fontes-saude-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 0.6rem;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.fontes-saude-row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr 1fr 1fr 1.2fr;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  background: var(--bg-card);
+}
+.fontes-saude-row--head {
+  background: var(--bg-card2);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.fontes-saude-nome { font-weight: 600; }
+.fontes-saude-row--alerta {
+  background: #ef444414;
+}
+.fontes-saude-row--alerta .fontes-saude-nome { color: var(--red); }
 
 .settings-usage-hint { margin-top: 0.5rem; }
 .settings-usage-hint code {
@@ -1677,7 +2211,7 @@ a:hover { text-decoration: underline; }
   gap: 4px;
   text-align: center;
   cursor: pointer;
-  background: #ffffff05;
+  background: rgba(var(--overlay-rgb),0.02);
   transition: border-color 0.15s, background 0.15s;
 }
 .profile-dropzone:hover { border-color: var(--accent); background: #6366f10c; }
@@ -2195,6 +2729,23 @@ a:hover { text-decoration: underline; }
 .jarvis-hit-resumo--flex { display: flex; align-items: flex-start; gap: 0.35rem; }
 .jarvis-hit-resumo--flex svg { flex-shrink: 0; margin-top: 0.15rem; }
 .jarvis-hit-resumo--icon { display: flex; align-items: center; gap: 0.35rem; color: var(--green); }
+
+/* Card de vagas achadas nos emails da LinkedIn (verificarEmailsDeVagasLinkedIn)
+   — lista com checkbox, nada é adicionado sem o usuário marcar e confirmar. */
+.jarvis-email-vagas { display: flex; flex-direction: column; gap: 0.6rem; }
+.jarvis-email-vagas-list { display: flex; flex-direction: column; gap: 0.3rem; }
+.jarvis-email-vaga-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.jarvis-email-vaga-item:hover { background: var(--bg-card2); }
+.jarvis-email-vaga-item input[type="checkbox"] { flex-shrink: 0; accent-color: var(--accent); width: 15px; height: 15px; }
+.jarvis-email-vaga-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.jarvis-email-vaga-info a { font-size: 0.82rem; }
 
 .jarvis-compare {
   display: grid;
@@ -3041,6 +3592,20 @@ html.jarvis-resizing .header-inner {
 }
 .ai-feedback-clear:hover { color: var(--red); }
 
+/* Fase 9.2 — Semantic search modal */
+.semantic-search-modal { max-width: 900px; width: 92vw; }
+.semantic-search-form {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.75rem 0 1rem;
+}
+.semantic-search-input { flex: 1; }
+.semantic-search-results {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 /* Duplicates modal */
 .duplicates-modal { max-width: 620px; }
 .duplicates-list { display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; max-height: 55vh; overflow-y: auto; }
@@ -3126,6 +3691,27 @@ html.jarvis-resizing .header-inner {
 .triage-done { text-align: center; padding: 2rem 1rem; }
 .triage-done-emoji { font-size: 2.5rem; margin-bottom: 0.5rem; }
 
+/* Fase 9.1 — pré-triagem assistida em lote */
+.triage-batch-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+.triage-veredito {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+}
+.triage-veredito--recomendada { background: #10b98122; color: var(--green); border: 1px solid var(--green); }
+.triage-veredito--talvez { background: #f59e0b22; color: var(--yellow); border: 1px solid var(--yellow); }
+.triage-veredito--descartar { background: #ef444422; color: var(--red); border: 1px solid var(--red); }
+
 /* Mobile */
 @media (max-width: 600px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -3137,4 +3723,13 @@ html.jarvis-resizing .header-inner {
   .view-tab { font-size: 0.78rem; padding: 6px 8px; }
   .app-title { font-size: 1.2rem; }
   .stat-value { font-size: 1.4rem; }
+  /* Fase 4.2 — cabeçalho com 7 botões (tema, agenda, métricas,
+     configurações, triagem, hunter, adicionar) cabia via flex-wrap, mas
+     ficava com padding generoso demais pro espaço — aperta sem cortar
+     nenhum texto/ícone. */
+  .header-actions { gap: 0.4rem; }
+  .header-actions .btn { padding: 6px 10px; font-size: 0.82rem; }
+  /* Card mais compacto — o padding de 1.25rem some rápido numa tela de
+     360-375px de largura, sobrando pouco pro conteúdo em si. */
+  .job-card { padding: 1rem; }
 }

@@ -8,6 +8,9 @@ interface Props {
   total: number;
   states: string[];
   sources: string[];
+  // Fase 4.5 — modo compacto do grid de vagas.
+  compact: boolean;
+  onToggleCompact: () => void;
 }
 
 const LS_KEY = 'jobradar:tech-pills';
@@ -39,7 +42,7 @@ function saveSavedFilters(list: SavedFilter[]) {
   localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(list));
 }
 
-export function FilterBar({ filters, onChange, onClear, total, states, sources }: Props) {
+export function FilterBar({ filters, onChange, onClear, total, states, sources, compact, onToggleCompact }: Props) {
   const set = (partial: Partial<Filters>) => onChange({ ...filters, ...partial });
 
   const [pills, setPills] = useState<string[]>(loadPills);
@@ -59,6 +62,19 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources }
   // posição do modal arrastável (offset relativo ao centro inicial)
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
   const dragOrigin = useRef<{ mouseX: number; mouseY: number; posX: number; posY: number } | null>(null);
+
+  // Fase 3.1 — ranking pessoal (sem IA, ver PersonalRankingService no
+  // backend). Só mostra a opção "🎯 Ranking pessoal" no seletor de
+  // ordenação quando já há sinal suficiente (interesse/aplicada/favoritada
+  // vs recusada-sem-aplicar) — antes disso a ordenação empataria tudo em
+  // 50 e a opção só confundiria sem fazer nada.
+  const [personalRanking, setPersonalRanking] = useState<{ disponivel: boolean; motivo: string } | null>(null);
+  useEffect(() => {
+    fetch('/api/jobs/personal-ranking-status')
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then(data => setPersonalRanking({ disponivel: data.disponivel, motivo: data.motivoIndisponivel ?? '' }))
+      .catch(() => setPersonalRanking(null));
+  }, []);
 
   // sincroniza se outro tab mudar o localStorage
   useEffect(() => {
@@ -162,6 +178,32 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources }
     filters.days !== '' ||
     filters.beginnerMode ||
     filters.techStack.length > 0;
+
+  // Fase 16.6 — antes, saber QUAIS filtros estavam ativos exigia olhar
+  // cada um dos 6 selects um por um (o botão "Limpar filtros" só dizia
+  // "tem algo ativo", não o quê). Um resumo em chips, cada um removível
+  // individualmente, deixa o estado do filtro visível de relance.
+  const DAYS_LABEL: Record<string, string> = {
+    '1': 'Últimas 24h', '3': 'Últimos 3 dias', '7': 'Últimos 7 dias',
+    '14': 'Últimos 14 dias', '30': 'Últimos 30 dias',
+  };
+  const SENIORITY_LABEL: Record<string, string> = {
+    ESTAGIO: seniorityMeta.ESTAGIO.label, JUNIOR: seniorityMeta.JUNIOR.label,
+    PLENO: seniorityMeta.PLENO.label, SENIOR: seniorityMeta.SENIOR.label,
+    NAO_INFORMADO: 'Nível não informado',
+  };
+  const WORKPLACE_LABEL: Record<string, string> = {
+    REMOTO: `${workplaceMeta.REMOTO.icon} 100% Remoto`, HIBRIDO: `${workplaceMeta.HIBRIDO.icon} Híbrido`,
+    PRESENCIAL: `${workplaceMeta.PRESENCIAL.icon} Presencial`,
+  };
+  const activeChips: { key: string; label: string; clear: () => void }[] = [];
+  if (filters.search) activeChips.push({ key: 'search', label: `🔍 "${filters.search}"`, clear: () => set({ search: '' }) });
+  if (filters.source) activeChips.push({ key: 'source', label: sourceMeta[filters.source]?.label ?? filters.source, clear: () => set({ source: '' }) });
+  if (filters.seniority) activeChips.push({ key: 'seniority', label: SENIORITY_LABEL[filters.seniority] ?? filters.seniority, clear: () => set({ seniority: '' }) });
+  if (filters.workplaceType) activeChips.push({ key: 'workplaceType', label: WORKPLACE_LABEL[filters.workplaceType] ?? filters.workplaceType, clear: () => set({ workplaceType: '' }) });
+  if (filters.state) activeChips.push({ key: 'state', label: `📍 ${filters.state}`, clear: () => set({ state: '' }) });
+  if (filters.days) activeChips.push({ key: 'days', label: DAYS_LABEL[filters.days] ?? filters.days, clear: () => set({ days: '' }) });
+  if (filters.beginnerMode) activeChips.push({ key: 'beginnerMode', label: '🎓 Modo Iniciante', clear: () => set({ beginnerMode: false }) });
 
   return (
     <div className="filter-bar">
@@ -270,6 +312,9 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources }
           <option value="posted_desc">📅 Publicação ↓ (recentes)</option>
           <option value="posted_asc">📅 Publicação ↑ (antigas)</option>
           <option value="fetched_desc">🔄 Adicionadas recentemente</option>
+          {personalRanking?.disponivel && (
+            <option value="personal">🎯 Ranking pessoal (aprendido do seu histórico)</option>
+          )}
         </select>
 
         {savedFilters.length > 0 && (
@@ -320,7 +365,34 @@ export function FilterBar({ filters, onChange, onClear, total, states, sources }
         )}
 
         <span className="result-count">{total} vagas</span>
+        <button
+          type="button"
+          className={`btn btn-ghost compact-toggle-btn ${compact ? 'compact-toggle-btn--active' : ''}`}
+          onClick={onToggleCompact}
+          title={compact ? 'Ver vagas em cards completos' : 'Ver vagas em lista compacta (uma linha cada)'}
+          aria-pressed={compact}
+        >
+          {compact ? '☰ Cards' : '≡ Compacto'}
+        </button>
       </div>
+
+      {activeChips.length > 0 && (
+        <div className="filter-row filter-row--chips">
+          {activeChips.map(chip => (
+            <span key={chip.key} className="active-filter-chip">
+              {chip.label}
+              <button
+                className="active-filter-chip-remove"
+                onClick={chip.clear}
+                title={`Remover filtro`}
+                aria-label={`Remover filtro ${chip.label}`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Modal de confirmação — arrastável */}
       {confirmDelete && (

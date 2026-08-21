@@ -15,7 +15,12 @@ import java.util.StringJoiner;
 
 @Service
 @Slf4j
-public class RemotiveService {
+public class RemotiveService implements JobSource {
+
+    @Override
+    public String nome() {
+        return "Remotive";
+    }
 
     private static final String API_URL =
             "https://remotive.com/api/remote-jobs?category=software-dev&limit=300";
@@ -23,6 +28,7 @@ public class RemotiveService {
     private final ObjectMapper mapper = new ObjectMapper();
     private final RestTemplate restTemplate = new RestTemplate();
 
+    @Override
     public List<Job> fetchJobs() {
         List<Job> jobs = new ArrayList<>();
         try {

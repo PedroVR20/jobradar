@@ -1,5 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { JobStatus, ManualJobPayload, WorkplaceType, statusMeta, workplaceMeta } from '../types/Job';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   onClose: () => void;
@@ -19,6 +21,8 @@ const emptyForm = {
 };
 
 export function AddJobModal({ onClose, onSubmit }: Props) {
+  useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,9 +56,17 @@ export function AddJobModal({ onClose, onSubmit }: Props) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-job-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
-          <h2>➕ Adicionar vaga manualmente</h2>
+          <h2 id="add-job-modal-title">➕ Adicionar vaga manualmente</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
         <p className="modal-subtitle">

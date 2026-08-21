@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Job } from '../types/Job';
 import { useAgenda } from '../hooks/useAgenda';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   job: Job;
@@ -12,6 +14,8 @@ interface Props {
 const NOTIFY_BEFORE_MINUTES = 120; // 2h antes — entrevista pede aviso mais próximo que o follow-up genérico
 
 export function InterviewModal({ job, onClose, onSuccess }: Props) {
+  useEscapeToClose(onClose);
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const { isConnected, savedEmail, login, createTask, linkInterviewTask } = useAgenda();
 
   const [step, setStep] = useState<'connect' | 'schedule'>(isConnected() ? 'schedule' : 'connect');
@@ -71,10 +75,18 @@ export function InterviewModal({ job, onClose, onSuccess }: Props) {
 
   return createPortal(
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal agenda-modal" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal agenda-modal"
+        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="interview-modal-title"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <span>🎤</span>
-          <h2>{step === 'connect' ? 'Conectar à Agenda' : 'Marcar entrevista'}</h2>
+          <h2 id="interview-modal-title">{step === 'connect' ? 'Conectar à Agenda' : 'Marcar entrevista'}</h2>
           <button className="modal-close" onClick={onClose} aria-label="Fechar">✕</button>
         </div>
 

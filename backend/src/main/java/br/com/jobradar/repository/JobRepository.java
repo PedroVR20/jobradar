@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -29,6 +30,11 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
 
     long countBySource(String source);
 
+    // Fase 7.2 — mesma regra de JobSpecifications.onlyExpired(): só conta
+    // como "vencida" no painel quem ainda está na esteira de decisão (nem
+    // aplicada, nem recusada).
+    long countByExpiresAtBeforeAndAppliedFalseAndRejectedFalse(LocalDate date);
+
     long countBySeenFalse();
 
     long countByAppliedTrue();
@@ -39,9 +45,35 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
 
     List<Job> findBySeniorityIsNull();
 
+    // Fase 10 — usado pra reclassificar vagas já marcadas NAO_INFORMADO
+    // depois que o SeniorityClassifier ganha um padrão novo (ex: "aprendiz",
+    // "especialista", "pl" abreviado) — diferente de findBySeniorityIsNull(),
+    // que só pega vaga nunca classificada (coluna NULL de verdade).
+    List<Job> findBySeniority(String seniority);
+
+    // Fase 7.1+7.6 — backfill único de relevância/empresa normalizada nas
+    // vagas que existiam antes dessas colunas entrarem (companyNormalized é
+    // preenchido junto com foraDeArea sempre no mesmo lugar, então checar só
+    // uma das duas colunas já identifica a linha inteira não classificada).
+    List<Job> findByCompanyNormalizedIsNull();
+
     List<Job> findByWorkplaceTypeIsNullAndSourceIn(List<String> sources);
 
     List<Job> findBySourceAndSalaryIsNullOrderByPostedAtDesc(String source, Pageable pageable);
+
+    // Fase 1.3 — duas fases do backfill de salário: primeiro as NUNCA
+    // checadas (prioridade — é isso que faz o backfill avançar pelo
+    // catálogo em vez de reprocessar sempre as mesmas), depois, só se
+    // sobrar cota, as já checadas há mais tempo (empresa pode ter
+    // adicionado salário depois da primeira checagem).
+    List<Job> findBySourceAndSalaryIsNullAndSalaryCheckedAtIsNull(String source, Pageable pageable);
+
+    List<Job> findBySourceAndSalaryIsNullAndSalaryCheckedAtIsNotNullOrderBySalaryCheckedAtAsc(String source, Pageable pageable);
+
+    // Vagas do Nerdin salvas ANTES do fix que separa "Cidade • UF" em
+    // cidade+estado de verdade (ver NerdinService e Fase 1.2) — o texto cru
+    // ficou mashed no campo city, precisa de um backfill pontual pra limpar.
+    List<Job> findBySourceAndCityContaining(String source, String needle);
 
     long countByAppliedTrueAndInProgressTrue();
 
@@ -71,9 +103,104 @@ public interface JobRepository extends JpaRepository<Job, Long>, JpaSpecificatio
             """)
     int deleteOldUnengagedJobs(LocalDateTime cutoff);
 
+    // Fase 7.3+8.4 — arquivamento REVERSÍVEL, um degrau antes do delete
+    // definitivo acima: mesma regra de "nunca engajada" (que já cobre
+    // "nunca vista" — toda vaga nunca vista é, por definição, também nunca
+    // engajada), intervalo bem mais curto (ver ARQUIVAMENTO_DIAS em
+    // JobAggregatorService), e dá pra desfazer com reativarVaga() abaixo.
+    // UPDATE em vez de DELETE — não perde a linha, só tira ela do funil ativo.
+    @Transactional
+    @Modifying
+    @Query("""
+            UPDATE Job j SET j.archived = true, j.archivedAt = CURRENT_TIMESTAMP, j.archivedReason = :motivo
+            WHERE j.archived = false AND j.postedAt < :cutoff
+            AND j.interested = false AND j.applied = false AND j.rejected = false
+            AND (j.favorited IS NULL OR j.favorited = false)
+            """)
+    int arquivarVagasAntigasNuncaEngajadas(LocalDateTime cutoff, String motivo);
+
+    long countByArchivedTrue();
+
+    // Fase 7.5 — mesmo padrão em duas fases do backfill de salário
+    // (enriquecerSalariosGupyAntigas): prioriza vaga NUNCA checada, só
+    // reprocessa as já checadas há mais tempo se sobrar cota no lote. Não
+    // checa vaga recusada nem arquivada — já saiu do funil ativo, não
+    // importa se o link ainda funciona.
+    List<Job> findByLinkCheckedAtIsNullAndRejectedFalseAndArchivedFalse(Pageable pageable);
+
+    List<Job> findByLinkCheckedAtIsNotNullAndRejectedFalseAndArchivedFalseOrderByLinkCheckedAtAsc(Pageable pageable);
+
+    long countByLinkMortoTrue();
+
+    long countByLinkCheckedAtIsNull();
+
+    // Fase 7.7 — painel de qualidade.
+    long countByForaDeAreaTrue();
+
+    long countByCompanyNormalizedIsNull();
+
+    @Transactional
+    @Modifying
+    @Query("UPDATE Job j SET j.archived = false, j.archivedAt = null, j.archivedReason = null WHERE j.id = :id")
+    int reativarVaga(Long id);
+
     @Query("SELECT DISTINCT j.state FROM Job j WHERE j.state IS NOT NULL AND j.state <> '' ORDER BY j.state")
     List<String> findDistinctStates();
 
     @Query("SELECT DISTINCT j.source FROM Job j ORDER BY j.source")
     List<String> findDistinctSources();
+
+    // Fase 6.1 — substituem o filtro em memória (findAll().stream().filter
+    // embedding == null)) que existia quando o vetor morava dentro de Job.
+    // Agora é um JOIN/NOT IN de verdade contra a tabela job_embeddings.
+    @Query("SELECT j FROM Job j WHERE j.id NOT IN (SELECT je.id FROM JobEmbedding je)")
+    List<Job> findAllNotEmbedded();
+
+    @Query("SELECT COUNT(j) FROM Job j WHERE j.id NOT IN (SELECT je.id FROM JobEmbedding je)")
+    long countNotEmbedded();
+
+    /**
+     * Fase 2.7 — painel de saúde das fontes. Agregado por fonte, calculado
+     * dinamicamente (GROUP BY j.source) em vez de uma lista hardcoded de
+     * fontes conhecidas — assim uma fonte nova (Greenhouse, Adzuna, SINE...)
+     * aparece automaticamente no painel sem precisar editar essa query,
+     * diferente do Map.of(...) fixo em getStats()/porFonte.
+     */
+    @Query("""
+            SELECT j.source AS source, COUNT(j) AS total,
+                   SUM(CASE WHEN j.salary IS NOT NULL THEN 1 ELSE 0 END) AS comSalario,
+                   SUM(CASE WHEN j.state IS NOT NULL THEN 1 ELSE 0 END) AS comEstado,
+                   MAX(j.postedAt) AS vagaMaisRecente,
+                   MAX(j.fetchedAt) AS ultimoFetch
+            FROM Job j
+            WHERE j.rejected = false
+            GROUP BY j.source
+            ORDER BY j.source
+            """)
+    List<FonteSaudeProjection> saudeDasFontes();
+
+    /**
+     * Fase 12.5 — substitui as 7 chamadas de {@code countBySource(fixo)} que
+     * {@code JobController.getStats/porFonte} fazia (uma por fonte
+     * hardcoded na lista). Uma query com GROUP BY responde a mesma pergunta
+     * pra TODAS as fontes de uma vez, incluindo fonte nova que o Map.of()
+     * fixo não sabia que existia.
+     */
+    @Query("SELECT j.source AS chave, COUNT(j) AS total FROM Job j GROUP BY j.source")
+    List<ChaveContagemProjection> contagemPorSource();
+
+    /** Fase 12.5 — mesma ideia de {@link #contagemPorSource()}, pra senioridade. */
+    @Query("SELECT j.seniority AS chave, COUNT(j) AS total FROM Job j GROUP BY j.seniority")
+    List<ChaveContagemProjection> contagemPorSenioridade();
+
+    // Fase 14.1 — ferramenta "desempenhoPorFonte" do Hunter fazia findAll()
+    // do catálogo inteiro e agrupava em Java; um GROUP BY com os 3
+    // agregados junto responde a mesma pergunta numa query só.
+    @Query("""
+            SELECT j.source AS fonte, COUNT(j) AS total,
+                   SUM(CASE WHEN j.applied = true THEN 1L ELSE 0L END) AS aplicadas,
+                   SUM(CASE WHEN j.applied = true AND j.inProgress = true THEN 1L ELSE 0L END) AS emAndamento
+            FROM Job j GROUP BY j.source
+            """)
+    List<FonteDesempenhoProjection> desempenhoPorFonte();
 }

@@ -4,9 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Job Radar 🎯</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Fase 4.3 — Inter/JetBrains Mono vêm empacotadas no bundle via
+         @fontsource (ver main.tsx), não mais do Google Fonts CDN. -->
+    <!-- Fase 4.1 — decide o tema ANTES do primeiro paint (bloqueante de
+         propósito, é minúsculo) — sem isso, a página sempre nasce escura
+         e só troca pra clara depois que o React monta (useTheme), dando um
+         flash visível toda vez que o tema salvo/do sistema é claro. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('jobradar:theme');
+          if (t !== 'dark' && t !== 'light') {
+            t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+          }
+          document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

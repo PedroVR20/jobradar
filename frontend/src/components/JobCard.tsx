@@ -1,5 +1,5 @@
-import { DragEvent, useEffect, useRef, useState } from 'react';
-import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, SortOption, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
+import { DragEvent, memo, useEffect, useRef, useState } from 'react';
+import { DIAS_PARA_EXCLUIR_RECUSADAS, Job, JobStatus, RejectedReason, rejectedReasonMeta, SortOption, statusMeta, seniorityMeta, sourceMeta, workplaceMeta } from '../types/Job';
 import { AgendaModal } from './AgendaModal';
 import { InterviewModal } from './InterviewModal';
 import { CoverLetterModal } from './CoverLetterModal';
@@ -15,9 +15,14 @@ interface Props {
   onSeen: (id: number) => void;
   onApplied: (id: number) => void;
   onInProgress: (id: number) => void;
-  onSetStatus: (id: number, status: JobStatus) => void;
+  // Fase 8.7 — motivo é opcional, só usado com status='RECUSADA'.
+  onSetStatus: (id: number, status: JobStatus, motivo?: RejectedReason) => void;
   onTogglePin: (id: number) => void;
   onUpdateNotes: (id: number, notes: string) => void;
+  // Fase 7.3+8.4 — só passado quando a aba é "Arquivadas" (App.tsx decide).
+  onReativar?: (id: number) => void;
+  // Fase 8.3 — foco por teclado no grid principal, controlado pelo App.tsx.
+  keyboardFocused?: boolean;
   onToast: (msg: string) => void;
   aiEnabled: boolean;
   sortMode: SortOption;
@@ -30,6 +35,30 @@ interface Props {
   // onde faz sentido triar; badge só aparece a partir de um mínimo de
   // sobreposição, senão viraria ruído em quase toda vaga.
   matchPercent?: number;
+  // Fase 4.5 — modo compacto (lista densa: título/empresa/match/salário
+  // numa linha só, mesmo padrão do modo compacto que o Hunter já tem).
+  // Cada card ainda pode ser clicado pra expandir individualmente sem sair
+  // do modo compacto — não precisa trocar de tela pra ver os detalhes.
+  compact?: boolean;
+  // Fase 9.3 — "por que essa vaga apareceu": mesmo perfil usado pro badge
+  // 🎯, mandado de novo aqui só pra explicar o que já foi calculado (não
+  // dispara recálculo de nada, o card não decide isso sozinho).
+  candidateProfile?: string;
+}
+
+interface WhyExplanation {
+  heuristico: { percent: number; tagsQueBateram: string[]; tagsQueFaltaram: string[]; senioridadeBateu: boolean } | null;
+  rankingPessoal: { disponivel: boolean; score?: number; motivo?: string; principaisFatores?: { descricao: string; peso: number }[] };
+}
+
+// Fase 9.4 + 9.6 — formato devolvido por GET /api/jobs/{id}/structure.
+interface StructureExtraction {
+  requisitosObrigatorios: string[];
+  requisitosDesejaveis: string[];
+  anosExperienciaMin: number | null;
+  escolaridadeRequerida: string | null;
+  beneficios: string[];
+  sinaisAlerta: string[];
 }
 
 const techTags = [
@@ -45,7 +74,10 @@ const ALL_STATUSES: JobStatus[] = ['NOVA', 'VISTA', 'INTERESSADO', 'APLICADA', '
 // vaga antiga não tem histórico retroativo.
 interface JobEventDto { status: JobStatus; occurredAt: string }
 
-function currentStatus(job: Job): JobStatus {
+// Fase 10.1 — exportadas (eram module-private) só pra cobertura de teste
+// direto (ver JobCard.logic.test.ts) sem precisar montar o componente
+// inteiro pra testar uma regra de precedência de status.
+export function currentStatus(job: Job): JobStatus {
   if (job.rejected) return 'RECUSADA';
   if (job.inProgress) return 'ANDAMENTO';
   if (job.applied) return 'APLICADA';
@@ -54,7 +86,7 @@ function currentStatus(job: Job): JobStatus {
   return 'NOVA';
 }
 
-function daysUntilDeletion(rejectedAt: string): number {
+export function daysUntilDeletion(rejectedAt: string): number {
   const rejectedDate = new Date(rejectedAt);
   const deleteDate = new Date(rejectedDate.getTime() + DIAS_PARA_EXCLUIR_RECUSADAS * 86400000);
   const today = new Date();
@@ -210,6 +242,7 @@ function NotesPreview({ notes, onToggle, onOpenEditor }: {
               type="button"
               className={`notes-checklist-item ${marcado ? 'notes-checklist-item--done' : ''}`}
               onClick={() => onToggle(i)}
+              aria-pressed={marcado}
             >
               <span className="notes-checklist-box">{marcado ? '✓' : ''}</span>
               <span className="notes-checklist-label">{m[3] || '(item vazio)'}</span>
@@ -233,7 +266,14 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, sortMode, highlighted, matchPercent }: Props) {
+// Fase 13.2 — grid principal costuma renderizar 20-50+ cards de uma vez;
+// sem memo, QUALQUER mudança de estado no App.tsx (foco por teclado, toast,
+// abrir um modal não relacionado) re-renderiza todo card na tela, não só o
+// que mudou. React.memo faz shallow-compare de props e pula o card que não
+// mudou — só funciona de verdade se os handlers vierem estáveis via
+// useCallback do lado de fora (senão toda prop de função "muda" a cada
+// render do pai e o memo não pega nada).
+function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onReativar, onToast, aiEnabled, sortMode, highlighted, matchPercent, compact, keyboardFocused, candidateProfile }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -255,12 +295,73 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const status = currentStatus(job);
   const daysLeft = job.rejected && job.rejectedAt ? daysUntilDeletion(job.rejectedAt) : null;
 
+  // Fase 4.5 — no modo compacto, cada card individual pode ser expandido
+  // sem precisar sair do modo (clicar de novo recolhe). Fora do modo
+  // compacto isso não é usado — o card sempre mostra tudo.
+  const [expanded, setExpanded] = useState(false);
+  const showFull = !compact || expanded;
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  // Fase 8.7 — motivo da recusa em um clique: chip aparece só quando o
+  // usuário pede ("por quê?"), pra não adicionar uma decisão extra na
+  // recusa rápida de sempre (o botão principal continua recusando direto,
+  // sem motivo, como sempre fez).
+  const [showRejectReasons, setShowRejectReasons] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<JobEventDto[] | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // Fase 9.3 — "por que essa vaga apareceu": busca só quando o usuário
+  // clica (mesmo padrão do histórico logo acima), cacheia na primeira vez.
+  const [whyOpen, setWhyOpen] = useState(false);
+  const [why, setWhy] = useState<WhyExplanation | null>(null);
+  const [whyLoading, setWhyLoading] = useState(false);
+  const toggleWhy = async () => {
+    const abrindo = !whyOpen;
+    setWhyOpen(abrindo);
+    if (abrindo && !why) {
+      setWhyLoading(true);
+      try {
+        const qs = candidateProfile ? `?profile=${encodeURIComponent(candidateProfile)}` : '';
+        const res = await fetch(`/api/jobs/${job.id}/why${qs}`);
+        if (res.ok) setWhy(await res.json());
+      } catch {
+        // silencioso — é só uma explicação extra, não vale poluir com toast
+      } finally {
+        setWhyLoading(false);
+      }
+    }
+  };
+  // Fase 9.4 — estrutura da descrição (requisitos obrigatórios/desejáveis,
+  // anos de experiência, escolaridade, benefícios), mesmo padrão de
+  // "busca só ao abrir, cacheia depois" do why acima — só que aqui o cache
+  // é no BACKEND também (Job.estruturaExtraidaEm), não só nesse componente.
+  const [structureOpen, setStructureOpen] = useState(false);
+  const [structure, setStructure] = useState<StructureExtraction | null>(null);
+  const [structureLoading, setStructureLoading] = useState(false);
+  const [structureError, setStructureError] = useState('');
+  const toggleStructure = async () => {
+    const abrindo = !structureOpen;
+    setStructureOpen(abrindo);
+    if (abrindo && !structure) {
+      setStructureLoading(true);
+      setStructureError('');
+      try {
+        const res = await fetch(`/api/jobs/${job.id}/structure`);
+        if (res.ok) {
+          setStructure(await res.json());
+        } else {
+          const data = await res.json().catch(() => null);
+          setStructureError(data?.error ?? 'Não consegui extrair a estrutura dessa vaga agora.');
+        }
+      } catch {
+        setStructureError('Erro de conexão com o backend.');
+      } finally {
+        setStructureLoading(false);
+      }
+    }
+  };
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
   const [coverLetterOpen, setCoverLetterOpen] = useState(false);
@@ -338,13 +439,56 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
     }
   };
 
+  // Fase 4.5 — modo compacto: uma linha por vaga (título, empresa, match,
+  // salário) em vez do card cheio — clicar expande SÓ esse card, sem sair
+  // do modo. Reaproveita as mesmas classes de estado (job-card--new etc)
+  // pra manter as cores de destaque consistentes com o card completo.
+  if (!showFull) {
+    return (
+      <div
+        className={`job-card job-card--compact ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''} ${keyboardFocused ? 'job-card--kbd-focused' : ''}`}
+        id={`job-card-${job.id}`}
+        role="button"
+        tabIndex={0}
+        draggable
+        onDragStart={handleDragStart}
+        onClick={() => setExpanded(true)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(true); } }}
+      >
+        <div className="company-avatar company-avatar--compact" style={{ borderColor: src.color + '44' }}>
+          {job.companyLogoUrl && !logoError ? (
+            <img
+              src={job.companyLogoUrl}
+              alt=""
+              className="company-logo"
+              loading="lazy"
+              decoding="async"
+              onError={() => setLogoError(true)}
+            />
+          ) : (
+            <span className="company-initials" style={{ color: src.color }}>{companyInitials(job.company)}</span>
+          )}
+        </div>
+        <div className="job-card-compact-main">
+          <span className="job-card-compact-title">{job.title}</span>
+          <span className="job-card-compact-company">{job.company}</span>
+        </div>
+        {matchPercent != null && matchPercent >= 50 && (
+          <span className="badge-match badge-match--compact">🎯 {matchPercent}%</span>
+        )}
+        {job.salary && <span className="badge-salary badge-salary--compact">💰 {job.salary}</span>}
+        <span className="job-card-compact-status">{statusMeta[status]}</span>
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''}`}
+      className={`job-card ${isNew ? 'job-card--new' : ''} ${isPlainApplied ? 'job-card--applied' : ''} ${job.inProgress && !job.rejected ? 'job-card--in-progress' : ''} ${job.rejected ? 'job-card--rejected' : ''} ${isSeenOnly ? 'job-card--seen' : ''} ${isInterestedOnly ? 'job-card--interested' : ''} ${job.pinned ? 'job-card--pinned' : ''} ${highlighted ? 'job-card--highlighted' : ''} ${keyboardFocused ? 'job-card--kbd-focused' : ''}`}
       id={`job-card-${job.id}`}
-      draggable={job.applied}
-      onDragStart={job.applied ? handleDragStart : undefined}
-      title={job.applied ? 'Arraste pra outra aba, ou use o menu ⋮' : undefined}
+      draggable
+      onDragStart={handleDragStart}
+      title="Arraste pra outra aba, ou use o menu ⋮"
     >
       {/* Header */}
       <div className="card-header">
@@ -356,6 +500,8 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
                 src={job.companyLogoUrl}
                 alt={job.company}
                 className="company-logo"
+                loading="lazy"
+                decoding="async"
                 onError={() => setLogoError(true)}
               />
             ) : (
@@ -374,6 +520,23 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
               >
                 🎯 {matchPercent}% match
               </span>
+            )}
+            {/* Fase 9.3 — "por que essa vaga apareceu": só aparece quando há
+                algum sinal pra explicar (badge de match visível OU
+                ordenação por ranking pessoal ativa) — clique busca sob
+                demanda, não pesa em render de lista grande. */}
+            {(matchPercent != null || sortMode === 'personal') && (
+              <button type="button" className="badge-why" onClick={toggleWhy} title="Por que essa vaga apareceu aqui?">
+                {whyOpen ? '❓ fechar' : '❓ por quê?'}
+              </button>
+            )}
+            {/* Fase 9.4 — só aparece com IA ativa (o backend precisa do
+                Gemini pra extrair — sem isso o botão levaria a um erro
+                garantido em toda vaga). */}
+            {aiEnabled && (
+              <button type="button" className="badge-why" onClick={toggleStructure} title="Extrair requisitos/benefícios estruturados da descrição">
+                {structureOpen ? '📋 fechar' : '📋 requisitos'}
+              </button>
             )}
             {job.rejected && <span className="badge-rejected">❌ RECUSADA</span>}
             {job.inProgress && !job.rejected && <span className="badge-in-progress">EM ANDAMENTO 🔄</span>}
@@ -422,8 +585,14 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
                 ♿ PcD
               </span>
             )}
+            {job.linkMorto && (
+              <span className="badge-link-morto" title="O link parou de responder na última checagem (404/410) — a vaga pode ter saído do ar">
+                ⚠️ link morto
+              </span>
+            )}
           </div>
         </div>
+
         <div className="card-header-right">
           {sortMode === 'fetched_desc' ? (
             <span
@@ -434,6 +603,19 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             </span>
           ) : (
             <span className="card-date" title={formatDateFull(job.postedAt)}>📅 {formatDate(job.postedAt)}</span>
+          )}
+
+          {/* Fase 7.3+8.4 — vaga arquivada some do funil normal; único jeito
+              de agir nela é reativar (tira ela do "porão"). */}
+          {job.archived && onReativar && (
+            <button
+              className="btn btn-ghost btn-reativar-arquivada"
+              onClick={() => onReativar(job.id)}
+              title={job.archivedReason ? `Arquivada: ${job.archivedReason}` : 'Reativar vaga'}
+              aria-label="Reativar vaga"
+            >
+              ♻️ Reativar
+            </button>
           )}
 
           {/* Botão fixar — oculto em vagas recusadas */}
@@ -457,6 +639,20 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             📜
           </button>
 
+          {/* Fase 4.5 — só aparece no modo compacto (recolhe de volta pra
+              linha densa); no modo normal esse botão não existe, o card
+              sempre fica cheio. */}
+          {compact && (
+            <button
+              className="card-menu-btn"
+              onClick={() => setExpanded(false)}
+              title="Recolher vaga"
+              aria-label="Recolher vaga"
+            >
+              ▲
+            </button>
+          )}
+
           <div className="card-menu" ref={menuRef}>
             <button
               className="card-menu-btn"
@@ -479,6 +675,92 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
           </div>
         </div>
       </div>
+
+      {/* Fase 9.3 — "por que essa vaga apareceu" — explicação sob demanda,
+          fora do fluxo flex do header (o botão que abre isso fica lá
+          dentro, mas o painel em si é sua própria linha, largura total). */}
+      {whyOpen && (
+        <div className="why-panel">
+          {whyLoading ? (
+            <p className="why-loading">carregando…</p>
+          ) : !why ? (
+            <p className="why-loading">Não consegui carregar agora.</p>
+          ) : (
+            <>
+              {why.heuristico && (
+                <p className="why-line">
+                  🎯 <strong>{why.heuristico.percent}% de match</strong>
+                  {why.heuristico.tagsQueBateram.length > 0 && <> — bateu: {why.heuristico.tagsQueBateram.join(', ')}</>}
+                  {why.heuristico.tagsQueFaltaram.length > 0 && <> · faltou: {why.heuristico.tagsQueFaltaram.join(', ')}</>}
+                  {why.heuristico.senioridadeBateu && <> · nível bateu</>}
+                </p>
+              )}
+              {sortMode === 'personal' && (
+                why.rankingPessoal.disponivel ? (
+                  <p className="why-line">
+                    🧭 <strong>Ranking pessoal: {why.rankingPessoal.score}</strong>
+                    {why.rankingPessoal.principaisFatores && why.rankingPessoal.principaisFatores.length > 0 && (
+                      <> — {why.rankingPessoal.principaisFatores.map(f => `${f.descricao} (${f.peso > 0 ? '+' : ''}${f.peso})`).join(', ')}</>
+                    )}
+                  </p>
+                ) : (
+                  <p className="why-line why-line--muted">🧭 Ranking pessoal ainda não disponível{why.rankingPessoal.motivo ? `: ${why.rankingPessoal.motivo}` : ''}</p>
+                )
+              )}
+              {!why.heuristico && sortMode !== 'personal' && (
+                <p className="why-line why-line--muted">Sem sinal de ordenação pra explicar nessa vaga.</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Fase 9.4 — requisitos/benefícios estruturados extraídos da
+          descrição crua. Mesmo motivo do why-panel de ficar fora do
+          card-header: painel de largura total, não encaixa no flex de duas
+          colunas do cabeçalho. */}
+      {structureOpen && (
+        <div className="why-panel">
+          {structureLoading ? (
+            <p className="why-loading">extraindo requisitos da descrição…</p>
+          ) : structureError ? (
+            <p className="why-line why-line--muted">{structureError}</p>
+          ) : !structure ? (
+            <p className="why-loading">Não consegui carregar agora.</p>
+          ) : (
+            <>
+              {structure.requisitosObrigatorios.length > 0 && (
+                <p className="why-line">✅ <strong>Obrigatórios:</strong> {structure.requisitosObrigatorios.join(', ')}</p>
+              )}
+              {structure.requisitosDesejaveis.length > 0 && (
+                <p className="why-line">➕ <strong>Desejáveis:</strong> {structure.requisitosDesejaveis.join(', ')}</p>
+              )}
+              {structure.anosExperienciaMin != null && (
+                <p className="why-line">⏳ <strong>{structure.anosExperienciaMin} ano{structure.anosExperienciaMin === 1 ? '' : 's'}</strong> de experiência mínima</p>
+              )}
+              {structure.escolaridadeRequerida && (
+                <p className="why-line">🎓 {structure.escolaridadeRequerida}</p>
+              )}
+              {structure.beneficios.length > 0 && (
+                <p className="why-line">🎁 <strong>Benefícios:</strong> {structure.beneficios.join(', ')}</p>
+              )}
+              {structure.sinaisAlerta.length > 0 && (
+                <div className="structure-alertas">
+                  <p className="why-line why-line--alerta">⚠️ <strong>Sinais de alerta no texto:</strong></p>
+                  <ul className="structure-alertas-list">
+                    {structure.sinaisAlerta.map(s => <li key={s}>{s}</li>)}
+                  </ul>
+                </div>
+              )}
+              {structure.requisitosObrigatorios.length === 0 && structure.requisitosDesejaveis.length === 0
+                && structure.anosExperienciaMin == null && !structure.escolaridadeRequerida && structure.beneficios.length === 0
+                && structure.sinaisAlerta.length === 0 && (
+                <p className="why-line why-line--muted">A descrição dessa vaga não trouxe nenhum requisito estruturado claro.</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Body */}
       <h3 className="card-title">
@@ -640,9 +922,12 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         >
           Ver vaga →
         </a>
+        {/* Fase 16.2 — btn--tertiary nas ações de APOIO (úteis, mas não são
+            a decisão de funil que o card existe pra registrar) — ver
+            comentário do modificador no App.css. */}
         {!job.rejected && (
           <button
-            className="btn btn-agenda"
+            className="btn btn-agenda btn--tertiary"
             onClick={() => setAgendaOpen(true)}
             title="Salvar esta vaga como tarefa na Agenda Pessoal"
           >
@@ -651,7 +936,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         )}
         {job.inProgress && !job.rejected && (
           <button
-            className="btn btn-agenda"
+            className="btn btn-agenda btn--tertiary"
             onClick={() => setInterviewOpen(true)}
             title="Agendar entrevista na Agenda Pessoal (prioridade crítica)"
           >
@@ -660,7 +945,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         )}
         {!job.rejected && (
           <button
-            className="btn btn-ghost"
+            className="btn btn-ghost btn--tertiary"
             onClick={() => setSalaryOpen(true)}
             title="Estimativa de faixa salarial baseada em vagas parecidas já cadastradas (dado real, não IA)"
           >
@@ -670,7 +955,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         {aiEnabled && !job.rejected && (
           <div className="card-menu ai-menu" ref={aiMenuRef}>
             <button
-              className="btn btn-ai"
+              className="btn btn-ai btn--tertiary"
               onClick={() => setAiMenuOpen(open => !open)}
               title="Recursos de IA pra essa vaga"
             >
@@ -713,7 +998,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
         )}
         {!job.seen && !job.applied && (
           <button
-            className="btn btn-ghost"
+            className="btn btn-ghost btn--tertiary"
             onClick={() => onSeen(job.id)}
           >
             👁 Marcar como vista
@@ -745,12 +1030,46 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
           </button>
         )}
         {job.applied && !job.rejected && (
-          <button
-            className="btn btn-danger"
-            onClick={() => onSetStatus(job.id, 'RECUSADA')}
-          >
-            ❌ Recusada/congelada
-          </button>
+          showRejectReasons ? (
+            <div className="reject-reason-picker">
+              {(Object.keys(rejectedReasonMeta) as RejectedReason[]).map(motivo => (
+                <button
+                  key={motivo}
+                  type="button"
+                  className="reject-reason-chip"
+                  onClick={() => { onSetStatus(job.id, 'RECUSADA', motivo); setShowRejectReasons(false); }}
+                >
+                  {rejectedReasonMeta[motivo]}
+                </button>
+              ))}
+              <button type="button" className="btn-link" onClick={() => setShowRejectReasons(false)}>
+                cancelar
+              </button>
+            </div>
+          ) : (
+            // Fase 16.4 — antes era um <span onClick> DENTRO do <button>
+            // (HTML inválido — conteúdo interativo aninhado — e
+            // inalcançável por teclado: Tab parava no botão de fora, Enter
+            // recusava sem motivo, o span "por quê?" só respondia a clique
+            // de mouse exatamente em cima dele). Dois botões irmãos agora,
+            // os dois alcançáveis por Tab normalmente.
+            <div className="reject-actions">
+              <button
+                className="btn btn-danger"
+                onClick={() => onSetStatus(job.id, 'RECUSADA')}
+              >
+                ❌ Recusada/congelada
+              </button>
+              <button
+                type="button"
+                className="reject-reason-toggle"
+                title="Dizer por quê (ajuda o ranking pessoal a aprender certo)"
+                onClick={() => setShowRejectReasons(true)}
+              >
+                por quê?
+              </button>
+            </div>
+          )
         )}
         {job.rejected && (
           <button
@@ -772,3 +1091,5 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
     </div>
   );
 }
+
+export const JobCard = memo(JobCardImpl);

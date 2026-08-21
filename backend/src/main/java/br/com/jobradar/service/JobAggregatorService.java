@@ -1,6 +1,7 @@
 package br.com.jobradar.service;
 
 import br.com.jobradar.model.Job;
+import br.com.jobradar.repository.JobEmbeddingRepository;
 import br.com.jobradar.repository.JobRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,15 +29,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class JobAggregatorService {
 
     private final JobRepository jobRepository;
-    private final RemotiveService remotiveService;
-    private final ArbeitnowService arbeitnowService;
-    private final WorkRemotelyService workRemotelyService;
+    // Fase 2.5 — antes eram 7 campos individuais (RemotiveService,
+    // ArbeitnowService, ...) com 7 chamadas allJobs.addAll(xService.fetchJobs())
+    // hardcoded em fetchAllJobs() — adicionar uma fonte nova (Greenhouse,
+    // Adzuna, SINE Aberto, ver Fase 2) significava editar esse método. Agora
+    // o Spring injeta automaticamente TODO bean que implementa JobSource
+    // nessa lista — adicionar fonte vira só criar a classe com @Service.
+    private final List<JobSource> fontes;
+    // gupyService continua injetado À PARTE (o MESMO bean singleton que já
+    // está dentro de `fontes`, Spring não duplica) porque tem um método
+    // extra fora do contrato JobSource: fetchSalaryHint, usado só pelo
+    // backfill de salário (ver enriquecerSalariosGupyAntigas).
     private final GupyService gupyService;
-    private final EurecaService eurecaService;
-    private final QuerovagastechService querovagastechService;
-    private final NerdinService nerdinService;
     private final SeniorityClassifier seniorityClassifier;
     private final JobEmbeddingService jobEmbeddingService;
+    private final JobEmbeddingRepository jobEmbeddingRepository;
+    private final CompanyNormalizer companyNormalizer;
+    private final RelevanceClassifier relevanceClassifier;
+    private final JobLinkCheckerService jobLinkCheckerService;
 
     /**
      * Roda automaticamente a cada 2 horas, sempre em hora cheia par
@@ -50,6 +60,21 @@ public class JobAggregatorService {
         fetchAllJobs();
         limparVagasRecusadasAntigas();
         limparVagasAntigasNuncaEngajadas();
+        arquivarVagasAntigasNuncaEngajadas();
+        jobLinkCheckerService.checarLinksAntigos();
+        limparEmbeddingsOrfaos();
+    }
+
+    // Fase 6.1 — job_embeddings não tem FK formal pra jobs (ver comentário em
+    // JobEmbedding sobre por que), então limpezas em lote de Job (bulk
+    // DELETE via JPQL, que não dispara cascade) podem deixar linha órfã pra
+    // trás. Varre e remove periodicamente, mesmo ciclo das outras limpezas.
+    @Transactional
+    public void limparEmbeddingsOrfaos() {
+        int apagados = jobEmbeddingRepository.deleteOrphans();
+        if (apagados > 0) {
+            log.info("=== {} embeddings órfãos (vaga já apagada) removidos ===", apagados);
+        }
     }
 
     // Quantos dias uma vaga fica na aba "Recusadas" antes de ser apagada de vez.
@@ -96,6 +121,33 @@ public class JobAggregatorService {
         }
     }
 
+    // Fase 7.3+8.4 — janela BEM mais curta que DIAS_PARA_EXCLUIR_VAGAS_ANTIGAS
+    // (730 dias): o problema real não é "vaga de 2 anos atrás" (isso o
+    // delete definitivo já resolve), é vaga de 1-2 meses atrás parada em
+    // Novas/Já vistas sem nunca ter sido decidida, poluindo a lista ativa
+    // no dia a dia. Arquivar é reversível (JobRepository.reativarVaga) —
+    // deletar não. Cobre "nunca vista" de graça: toda vaga nunca vista
+    // também nunca foi engajada, então já cai na mesma regra.
+    private static final int DIAS_PARA_ARQUIVAR_NUNCA_ENGAJADA = 30;
+
+    /**
+     * Arquiva (não apaga) vaga publicada há mais de
+     * {@link #DIAS_PARA_ARQUIVAR_NUNCA_ENGAJADA} dias que o usuário nunca
+     * interagiu de verdade — mesma regra de {@link #limparVagasAntigasNuncaEngajadas()},
+     * intervalo bem mais curto, reversível. Roda no fetch periódico e ao
+     * subir o backend.
+     */
+    @Transactional
+    public void arquivarVagasAntigasNuncaEngajadas() {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(DIAS_PARA_ARQUIVAR_NUNCA_ENGAJADA);
+        String motivo = "Sem interação há mais de " + DIAS_PARA_ARQUIVAR_NUNCA_ENGAJADA + " dias";
+        int arquivadas = jobRepository.arquivarVagasAntigasNuncaEngajadas(cutoff, motivo);
+        if (arquivadas > 0) {
+            log.info("=== {} vagas antigas (publicadas antes de {}) nunca engajadas foram arquivadas ===",
+                    arquivadas, cutoff.toLocalDate());
+        }
+    }
+
     /**
      * Roda também ao subir a aplicação para já ter dados no dashboard.
      *
@@ -117,40 +169,69 @@ public class JobAggregatorService {
     public void fetchNaInicializacao() {
         log.info("=== Fetch inicial ao subir a aplicação (em background — app já está respondendo) ===");
         classificarVagasAntigas();
+        classificarQualidadeVagasAntigas();
         marcarModalidadeRemotaAntigas();
+        limparLocalizacaoNerdinAntiga();
         fetchAllJobs();
         enriquecerSalariosGupyAntigas();
         limparVagasRecusadasAntigas();
         limparVagasAntigasNuncaEngajadas();
+        arquivarVagasAntigasNuncaEngajadas();
+        jobLinkCheckerService.checarLinksAntigos();
     }
 
-// Limita quantas vagas antigas sem salário são checadas por ciclo —
+    // Limita quantas vagas antigas sem salário são checadas por ciclo —
     // cada checagem é uma requisição HTTP extra à Gupy, então isso evita
-    // disparar centenas de requisições de uma vez.
-    private static final int MAX_BACKFILL_SALARIO = 150;
+    // disparar centenas de requisições de uma vez. Subido de 150 pra 300
+    // (Fase 1.3) junto da correção do bug abaixo — sem o bug, cada vaga só
+    // precisa ser checada uma vez de verdade, então dá pra ser mais
+    // generoso sem desperdiçar requisição repetida.
+    private static final int MAX_BACKFILL_SALARIO = 300;
 
     /**
      * Backfill: vagas Gupy já salvas sem salário (a busca por termo não traz
      * esse dado) são checadas uma a uma via endpoint de detalhe, em lotes
-     * pequenos por ciclo, até o catálogo inteiro ficar coberto.
+     * por ciclo, até o catálogo inteiro ficar coberto.
+     *
+     * <p>BUG REAL corrigido (Fase 1.3): antes pegava sempre as N vagas MAIS
+     * RECENTES sem salário (ORDER BY postedAt DESC). Medido em produção:
+     * 150 vagas checadas, 0 com salário achado — ou seja, as vagas mais
+     * recentes genuinamente não tinham salário divulgado, e o backfill
+     * martelava o MESMO lote todo ciclo pra sempre, nunca avançando pras
+     * ~1900 outras vagas Gupy sem salário que nunca tinham sido checadas.
+     * Cobertura real ficou travada em 6% (131/2202) por causa disso.</p>
+     *
+     * <p>Agora {@code salaryCheckedAt} marca quando uma vaga foi checada —
+     * a fase 1 do lote prioriza vaga NUNCA checada (é isso que faz o
+     * backfill avançar pelo catálogo de verdade); só se sobrar cota depois
+     * de esgotar as nunca-checadas é que reprocessa as já checadas há mais
+     * tempo (empresa pode ter adicionado salário depois).</p>
      */
     @Transactional
     public void enriquecerSalariosGupyAntigas() {
-        List<Job> semSalario = jobRepository.findBySourceAndSalaryIsNullOrderByPostedAtDesc(
-                "GUPY", PageRequest.of(0, MAX_BACKFILL_SALARIO));
-        if (semSalario.isEmpty()) return;
+        List<Job> candidatas = new ArrayList<>(jobRepository.findBySourceAndSalaryIsNullAndSalaryCheckedAtIsNull(
+                "GUPY", PageRequest.of(0, MAX_BACKFILL_SALARIO)));
+        int nuncaCheckadas = candidatas.size();
+
+        int faltam = MAX_BACKFILL_SALARIO - candidatas.size();
+        if (faltam > 0) {
+            candidatas.addAll(jobRepository.findBySourceAndSalaryIsNullAndSalaryCheckedAtIsNotNullOrderBySalaryCheckedAtAsc(
+                    "GUPY", PageRequest.of(0, faltam)));
+        }
+        if (candidatas.isEmpty()) return;
 
         int achados = 0;
-        for (Job job : semSalario) {
+        for (Job job : candidatas) {
             String salario = gupyService.fetchSalaryHint(job.getUrl());
+            job.setSalaryCheckedAt(LocalDateTime.now());
             if (salario != null) {
                 job.setSalary(salario);
-                jobRepository.save(job);
                 achados++;
             }
         }
-        log.info("=== Backfill de salário Gupy: {} vagas checadas, {} com salário encontrado ===",
-                semSalario.size(), achados);
+        jobRepository.saveAll(candidatas);
+        log.info("=== Backfill de salário Gupy: {} vagas checadas ({} nunca checadas antes), {} com salário encontrado ===",
+                candidatas.size(), nuncaCheckadas, achados);
     }
 
     /**
@@ -170,6 +251,32 @@ public class JobAggregatorService {
     }
 
     /**
+     * Backfill pontual (Fase 1.2): vagas do Nerdin salvas ANTES do fix que
+     * separa "Cidade • UF" em cidade+estado de verdade ficaram com o texto
+     * cru mashed no campo city (ex: "Rio de Janeiro • RJ" como se fosse o
+     * nome da cidade) — limpa essas retroativamente. Roda uma vez por
+     * vaga (o "•" some depois de limpa, então não reprocessa a mesma toda
+     * inicialização).
+     */
+    @Transactional
+    public void limparLocalizacaoNerdinAntiga() {
+        List<Job> comLocalCru = jobRepository.findBySourceAndCityContaining("NERDIN", "•");
+        if (comLocalCru.isEmpty()) return;
+
+        int corrigidas = 0;
+        for (Job job : comLocalCru) {
+            String[] partes = job.getCity().split("•");
+            if (partes.length != 2) continue;
+            String estado = EstadosBrasileiros.nomeCompleto(partes[1].trim());
+            job.setCity(partes[0].trim());
+            if (job.getState() == null && estado != null) job.setState(estado);
+            corrigidas++;
+        }
+        jobRepository.saveAll(comLocalCru);
+        log.info("=== {} vagas antigas do Nerdin com localização crua corrigidas (cidade+estado separados) ===", corrigidas);
+    }
+
+    /**
      * Backfill: vagas salvas antes da coluna seniority existir são
      * classificadas retroativamente pelo título/tags.
      */
@@ -183,6 +290,29 @@ public class JobAggregatorService {
         }
         jobRepository.saveAll(semSenioridade);
         log.info("=== {} vagas antigas classificadas por senioridade ===", semSenioridade.size());
+    }
+
+    /**
+     * Backfill (Fase 7.1 + 7.6): vagas salvas antes dessas duas colunas
+     * existirem (companyNormalized nunca é apagado depois de preenchido,
+     * então "sem ele" só acontece uma vez por vaga, igual ao backfill de
+     * senioridade acima). Roda os dois campos juntos porque os dois são
+     * cálculo local (regex/normalização de texto), sem custo de rede —
+     * não precisa de lote limitado como o backfill de salário da Gupy.
+     */
+    @Transactional
+    public void classificarQualidadeVagasAntigas() {
+        List<Job> semClassificacao = jobRepository.findByCompanyNormalizedIsNull();
+        if (semClassificacao.isEmpty()) return;
+
+        for (Job job : semClassificacao) {
+            job.setCompanyNormalized(companyNormalizer.normalizar(job.getCompany()));
+            job.setForaDeArea(!relevanceClassifier.isRelevante(job.getTitle(), job.getTags()));
+        }
+        jobRepository.saveAll(semClassificacao);
+        long foraDeArea = semClassificacao.stream().filter(j -> Boolean.TRUE.equals(j.getForaDeArea())).count();
+        log.info("=== {} vagas antigas classificadas (empresa normalizada + relevância) — {} marcadas fora de área ===",
+                semClassificacao.size(), foraDeArea);
     }
 
     // Trava simples pra evitar dois fetches rodando ao mesmo tempo — desde
@@ -212,13 +342,18 @@ public class JobAggregatorService {
         }
         try {
             List<Job> allJobs = new ArrayList<>();
-            allJobs.addAll(remotiveService.fetchJobs());
-            allJobs.addAll(arbeitnowService.fetchJobs());
-            allJobs.addAll(workRemotelyService.fetchJobs());
-            allJobs.addAll(gupyService.fetchJobs());
-            allJobs.addAll(eurecaService.fetchJobs());
-            allJobs.addAll(querovagastechService.fetchJobs());
-            allJobs.addAll(nerdinService.fetchJobs());
+            // Fase 2.5 — cada fonte já trata seus próprios erros e nunca
+            // deveria lançar (contrato de JobSource), mas o try/catch extra
+            // aqui garante que uma fonte NOVA com um bug real (exceção
+            // escapando) nunca derruba o fetch das outras fontes junto.
+            for (JobSource fonte : fontes) {
+                try {
+                    allJobs.addAll(fonte.fetchJobs());
+                } catch (Exception e) {
+                    log.error("=== Fonte '{}' falhou no fetch (exceção não tratada internamente): {} ===",
+                            fonte.nome(), e.getMessage());
+                }
+            }
 
             // Pool de vagas ativas agrupadas por empresa normalizada, pra
             // achar duplicata entre FONTES diferentes (mesma vaga na Gupy e
@@ -269,14 +404,20 @@ public class JobAggregatorService {
                 if ("GUPY".equals(job.getSource()) && job.getSalary() == null) {
                     job.setSalary(gupyService.fetchSalaryHint(job.getUrl()));
                 }
+                // Fase 7.1 + 7.6 — classificados na entrada, não depois: uma
+                // vaga nova já nasce com o veredito de relevância e o nome de
+                // empresa canônico, em vez de esperar o backfill periódico
+                // alcançar ela.
+                job.setForaDeArea(!relevanceClassifier.isRelevante(job.getTitle(), job.getTags()));
+                job.setCompanyNormalized(companyNormalizer.normalizar(job.getCompany()));
                 jobRepository.save(job);
                 novos++;
                 // Falha silenciosa de propósito (sem IA configurada, Gemini
                 // fora do ar) — busca semântica só fica indisponível pra essa
-                // vaga até o backfill rodar, não trava o fetch inteiro.
-                if (jobEmbeddingService.embedESalvar(job)) {
-                    jobRepository.save(job);
-                }
+                // vaga até o backfill rodar, não trava o fetch inteiro. Fase
+                // 6.1 — embedESalvar já persiste sozinho em job_embeddings,
+                // não precisa mais salvar o Job de novo depois.
+                jobEmbeddingService.embedESalvar(job);
                 ativosPorEmpresa.computeIfAbsent(normalizeCompany(job.getCompany()), k -> new ArrayList<>()).add(job);
             }
 
@@ -351,20 +492,12 @@ public class JobAggregatorService {
         return null;
     }
 
-    private static final Set<String> COMPANY_SUFFIXES = Set.of(
-            "sa", "s a", "ltda", "me", "eireli", "inc", "llc", "corp", "corporation", "co"
-    );
-
+    // Fase 7.6 — delega pro CompanyNormalizer compartilhado, mesma lógica
+    // usada em JobController.getDuplicates e agora também persistida em
+    // Job.companyNormalized (ver classificarQualidadeVagasAntigas abaixo e
+    // o preenchimento em fetchAllJobs).
     private String normalizeCompany(String company) {
-        if (company == null) return "";
-        String norm = normalize(company).replaceAll("[^a-z0-9 ]", " ").trim();
-        StringBuilder sb = new StringBuilder();
-        for (String w : norm.split("\\s+")) {
-            if (COMPANY_SUFFIXES.contains(w)) continue;
-            if (sb.length() > 0) sb.append(' ');
-            sb.append(w);
-        }
-        return sb.toString().trim();
+        return companyNormalizer.normalizar(company);
     }
 
     private static final Set<String> TITLE_STOPWORDS = Set.of(

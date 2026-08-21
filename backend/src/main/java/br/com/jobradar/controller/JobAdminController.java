@@ -1,0 +1,368 @@
+package br.com.jobradar.controller;
+
+import br.com.jobradar.llm.EmbeddingProvider;
+import br.com.jobradar.model.Job;
+import br.com.jobradar.repository.FonteSaudeProjection;
+import br.com.jobradar.repository.JobRepository;
+import br.com.jobradar.service.BackupService;
+import br.com.jobradar.service.JobEmbeddingService;
+import br.com.jobradar.service.SalaryEstimateService;
+import br.com.jobradar.service.SalaryModelTrainerService;
+import br.com.jobradar.service.SalaryPredictionService;
+import br.com.jobradar.service.SeniorityClassifier;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * Fase 5.1 — parte "admin/manutenção" que morava dentro de JobController
+ * (1420 linhas antes do split): backfill de embedding, painel de saúde das
+ * fontes, e o fluxo de retreino do modelo de salário protegido por código.
+ * Nada aqui é chamado pelo fluxo normal do app — são botões de
+ * Configurações ou scripts de manutenção.
+ */
+@RestController
+@RequestMapping("/api/jobs")
+@RequiredArgsConstructor
+@CrossOrigin(origins = "*")
+@Slf4j
+public class JobAdminController {
+
+    private final JobRepository jobRepository;
+    private final EmbeddingProvider embeddingProvider;
+    private final JobEmbeddingService jobEmbeddingService;
+    private final SalaryEstimateService salaryEstimateService;
+    private final SalaryPredictionService salaryPredictionService;
+    private final SalaryModelTrainerService salaryModelTrainerService;
+    private final BackupService backupService;
+    private final SeniorityClassifier seniorityClassifier;
+
+    // Gate simples (não é segurança de verdade — app pessoal local) pra não
+    // ter um botão de "retreinar" clicável sem querer. Vazio == recurso
+    // desativado (retorna 503 em vez de aceitar qualquer código).
+    @Value("${retrain.secret-code:}")
+    private String retrainSecretCode;
+    private final AtomicBoolean retreinoEmAndamento = new AtomicBoolean(false);
+    private final AtomicBoolean backfillEmbeddingsEmAndamento = new AtomicBoolean(false);
+
+    // Só pro backfill rodar em background e devolver o POST na hora — mesmo
+    // padrão do sseExecutor em AssistantController, mas dedicado (nenhuma
+    // relação entre os dois usos).
+    private final ExecutorService backfillExecutor = Executors.newCachedThreadPool();
+
+    /**
+     * Embedda (busca semântica, ver JobEmbeddingService) todas as vagas que
+     * ainda não têm vetor salvo — vagas novas já são embeddadas sozinhas no
+     * fetch periódico (ver JobAggregatorService); esse endpoint é só pro
+     * catálogo que já existia ANTES dessa feature. Roda em background (o POST
+     * devolve na hora), protegido de disparo duplo com a mesma flag simples
+     * que /admin/retrain-salary-model já usa.
+     * POST /api/jobs/admin/backfill-embeddings
+     */
+    @PostMapping("/admin/backfill-embeddings")
+    public ResponseEntity<Map<String, Object>> backfillEmbeddings() {
+        // Fase 8 — checava geminiService.isEnabled() antes, o que ficou
+        // errado assim que o provider padrão passou a ser o Hunter-Embed
+        // local (o Gemini pode estar sem key nenhuma e o backfill ainda
+        // funcionar perfeitamente). Checa o provider que está DE VERDADE
+        // ativo agora, seja ele qual for.
+        if (!embeddingProvider.isEnabled()) {
+            return ResponseEntity.status(503).body(Map.of("error",
+                    "Provider de embedding (" + embeddingProvider.getProviderName() + ") indisponível no momento."));
+        }
+        if (!backfillEmbeddingsEmAndamento.compareAndSet(false, true)) {
+            return ResponseEntity.status(409).body(Map.of("error", "Backfill de embeddings já em andamento."));
+        }
+        long faltam = jobEmbeddingService.contarSemEmbedding();
+        backfillExecutor.execute(() -> {
+            try {
+                List<Job> pendentes = jobEmbeddingService.semEmbedding();
+                int ok = 0;
+                for (Job job : pendentes) {
+                    // Fase 6.1 — embedESalvar já persiste em job_embeddings sozinho.
+                    if (jobEmbeddingService.embedESalvar(job)) {
+                        ok++;
+                    }
+                }
+                log.info("=== Backfill de embeddings concluído: {} de {} vagas embeddadas ===", ok, pendentes.size());
+            } finally {
+                backfillEmbeddingsEmAndamento.set(false);
+            }
+        });
+        return ResponseEntity.accepted().body(Map.of("iniciado", true, "vagasSemEmbedding", faltam));
+    }
+
+    /**
+     * Fase 9 — REINDEXA TODO O CATÁLOGO, não só quem está sem embedding
+     * (diferente de /backfill-embeddings acima). Necessário sempre que o
+     * provider de embedding TROCA (ex: Gemini 3072d → Hunter-Embed 512d) —
+     * as vagas já têm vetor salvo, só que na dimensão/espaço do provider
+     * antigo, e {@code buscar()} silenciosamente ignora par com dimensão
+     * diferente (proteção que já existia, ver JobEmbeddingService), então
+     * sem reindexar a busca semântica simplesmente para de achar qualquer
+     * vaga antiga.
+     *
+     * <p>Não usa DELETE/TRUNCATE — {@code embedESalvar} chama
+     * {@code jobEmbeddingRepository.save(...)} com o mesmo id da vaga, que
+     * o JPA trata como UPDATE (upsert por id), sobrescrevendo o vetor
+     * antigo em vez de precisar apagar a linha antes.</p>
+     * POST /api/jobs/admin/reindex-embeddings
+     */
+    @PostMapping("/admin/reindex-embeddings")
+    public ResponseEntity<Map<String, Object>> reindexEmbeddings() {
+        if (!embeddingProvider.isEnabled()) {
+            return ResponseEntity.status(503).body(Map.of("error",
+                    "Provider de embedding (" + embeddingProvider.getProviderName() + ") indisponível no momento."));
+        }
+        if (!backfillEmbeddingsEmAndamento.compareAndSet(false, true)) {
+            return ResponseEntity.status(409).body(Map.of("error", "Já há um backfill/reindex de embeddings em andamento."));
+        }
+        long total = jobRepository.count();
+        backfillExecutor.execute(() -> {
+            try {
+                List<Job> todas = jobRepository.findAll();
+                int ok = 0;
+                for (Job job : todas) {
+                    if (jobEmbeddingService.embedESalvar(job)) {
+                        ok++;
+                    }
+                }
+                log.info("=== Reindex COMPLETO de embeddings concluído ({}): {} de {} vagas ===",
+                        embeddingProvider.getProviderName(), ok, todas.size());
+            } finally {
+                backfillEmbeddingsEmAndamento.set(false);
+            }
+        });
+        return ResponseEntity.accepted().body(Map.of(
+                "iniciado", true, "totalVagas", total, "provider", embeddingProvider.getProviderName()));
+    }
+
+    /**
+     * Fase 10 — reclassifica toda vaga já marcada NAO_INFORMADO (não é o
+     * mesmo que {@link JobAggregatorService}'s backfill periódico, que só
+     * pega {@code seniority IS NULL} — NAO_INFORMADO já é um valor
+     * GRAVADO na coluna, então nunca reaparece nesse backfill sozinho).
+     * Necessário sempre que {@link SeniorityClassifier} ganha um padrão
+     * novo (ver histórico do commit — "aprendiz", "especialista", "pl"
+     * abreviado resolveram ~428 das ~3.520 vagas que estavam
+     * NAO_INFORMADO). Não usa IA nenhuma — é regex puro, síncrono e rápido
+     * o bastante (milhares de vagas em segundos) pra não precisar rodar em
+     * background feito o backfill de embedding.
+     * POST /api/jobs/admin/reclassify-seniority
+     */
+    @PostMapping("/admin/reclassify-seniority")
+    public ResponseEntity<Map<String, Object>> reclassifySeniority() {
+        List<Job> candidatas = jobRepository.findBySeniority(SeniorityClassifier.NAO_INFORMADO);
+        int mudaram = 0;
+        for (Job job : candidatas) {
+            String novo = seniorityClassifier.classify(job.getTitle(), job.getTags());
+            if (!novo.equals(SeniorityClassifier.NAO_INFORMADO)) {
+                job.setSeniority(novo);
+                mudaram++;
+            }
+        }
+        jobRepository.saveAll(candidatas);
+        log.info("=== Reclassificação de senioridade: {} de {} vagas NAO_INFORMADO resolvidas ===", mudaram, candidatas.size());
+        return ResponseEntity.ok(Map.of("totalVerificadas", candidatas.size(), "reclassificadas", mudaram));
+    }
+
+    /**
+     * Exporta as vagas com salário parseável e limpo (mesma lógica do
+     * salary-estimate) pra treinar um modelo real fora do backend — uso
+     * interno/manutenção, não é chamado pelo frontend. Ver
+     * scripts/train_salary_model.py e SalaryPredictionService.
+     * GET /api/jobs/admin/salary-training-data
+     */
+    @GetMapping("/admin/salary-training-data")
+    public List<SalaryEstimateService.TrainingRow> exportSalaryTrainingData() {
+        return salaryEstimateService.exportTrainingData();
+    }
+
+    /**
+     * Fase 2.7 — painel de saúde das fontes (Configurações). Um por fonte,
+     * calculado dinamicamente via GROUP BY (ver
+     * {@link JobRepository#saudeDasFontes()}) — fonte nova aparece sozinha,
+     * sem precisar editar esse endpoint.
+     *
+     * <p>Não existe rastreio de "último fetch bem-sucedido" por fonte no
+     * banco (isso exigiria uma tabela nova, fora do escopo desta fase) —
+     * {@code diasSemVagaNova} é a métrica honesta disponível hoje: quantos
+     * dias desde a vaga mais recente daquela fonte. Um número alto é um
+     * SINAL de que a fonte pode ter parado de trazer vaga nova (scraping
+     * quebrado, API fora do ar), não uma confirmação — pode ser só uma
+     * fonte que realmente posta pouco. O frontend decide o que fazer com
+     * esse sinal (ex: badge de alerta acima de N dias).</p>
+     * GET /api/jobs/admin/fontes-saude
+     */
+    @GetMapping("/admin/fontes-saude")
+    public List<Map<String, Object>> getSaudeDasFontes() {
+        LocalDateTime agora = LocalDateTime.now();
+        List<Map<String, Object>> resultado = new ArrayList<>();
+        for (FonteSaudeProjection p : jobRepository.saudeDasFontes()) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("fonte", p.getSource());
+            long total = p.getTotal() != null ? p.getTotal() : 0;
+            long comSalario = p.getComSalario() != null ? p.getComSalario() : 0;
+            long comEstado = p.getComEstado() != null ? p.getComEstado() : 0;
+            item.put("total", total);
+            item.put("pctComSalario", total == 0 ? 0.0 : Math.round(comSalario * 1000.0 / total) / 10.0);
+            item.put("pctComEstado", total == 0 ? 0.0 : Math.round(comEstado * 1000.0 / total) / 10.0);
+            item.put("vagaMaisRecente", p.getVagaMaisRecente());
+            item.put("ultimoFetch", p.getUltimoFetch());
+            item.put("diasSemVagaNova", p.getVagaMaisRecente() == null
+                    ? null
+                    : Duration.between(p.getVagaMaisRecente(), agora).toDays());
+            resultado.add(item);
+        }
+        return resultado;
+    }
+
+    /**
+     * Fase 7.7 — visão consolidada dos sinais de qualidade do catálogo
+     * introduzidos pelas Fases 7.1 a 7.6, hoje só visíveis vaga a vaga (ou
+     * nem isso): quantas vagas foram marcadas fora de área, quantas estão
+     * arquivadas, quantas vencidas ainda ativas, quantos links possivelmente
+     * mortos, e o tamanho do sinal ainda não classificado (nenhuma classe
+     * atribuída porque a vaga é anterior à feature). Só leitura — não
+     * remedia nada sozinho, cada número já tem sua própria ação em outro
+     * lugar do app (aba Vencidas, aba Arquivadas, painel Duplicatas, badge
+     * de link morto no card).
+     * GET /api/jobs/admin/painel-qualidade
+     */
+    @GetMapping("/admin/painel-qualidade")
+    public Map<String, Object> getPainelQualidade() {
+        Map<String, Object> painel = new HashMap<>();
+        long total = jobRepository.count();
+        painel.put("total", total);
+        painel.put("foraDeArea", jobRepository.countByForaDeAreaTrue());
+        painel.put("arquivadas", jobRepository.countByArchivedTrue());
+        painel.put("vencidasAtivas", jobRepository.countByExpiresAtBeforeAndAppliedFalseAndRejectedFalse(java.time.LocalDate.now()));
+        painel.put("linksMortos", jobRepository.countByLinkMortoTrue());
+        painel.put("linksNuncaChecados", jobRepository.countByLinkCheckedAtIsNull());
+        painel.put("semClassificacaoDeQualidade", jobRepository.countByCompanyNormalizedIsNull());
+        return painel;
+    }
+
+    public record RetrainCodeRequest(String code, Boolean force) {}
+
+    private boolean codigoRetreinoBate(String code) {
+        return retrainSecretCode != null && !retrainSecretCode.isBlank()
+                && code != null && code.equals(retrainSecretCode);
+    }
+
+    /**
+     * Passo 1 do fluxo de retreino do frontend: só confirma se o código
+     * digitado bate, sem disparar o treino de verdade — o botão "Retreinar"
+     * só aparece na tela depois de um {@code valid:true} aqui.
+     * POST /api/jobs/admin/verify-retrain-code  Body: { "code": "..." }
+     */
+    @PostMapping("/admin/verify-retrain-code")
+    public ResponseEntity<Map<String, Object>> verificarCodigoRetreino(@RequestBody(required = false) RetrainCodeRequest req) {
+        return ResponseEntity.ok(Map.of("valid", codigoRetreinoBate(req != null ? req.code() : null)));
+    }
+
+    /**
+     * Retreina o modelo de salário na hora (Ridge regression em Java puro,
+     * ver SalaryModelTrainerService) e já troca o modelo em uso — sem
+     * precisar rodar o script Python nem reconstruir o container. O código
+     * é validado de novo aqui (não confia só na checagem do passo 1).
+     * POST /api/jobs/admin/retrain-salary-model  Body: { "code": "..." }
+     */
+    @PostMapping("/admin/retrain-salary-model")
+    public ResponseEntity<Map<String, Object>> retreinarModeloSalario(@RequestBody(required = false) RetrainCodeRequest req) {
+        if (retrainSecretCode == null || retrainSecretCode.isBlank()) {
+            return ResponseEntity.status(503).body(Map.of("error", "RETRAIN_SECRET_CODE não configurado no .env — recurso desativado."));
+        }
+        if (!codigoRetreinoBate(req != null ? req.code() : null)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Código incorreto."));
+        }
+        if (!retreinoEmAndamento.compareAndSet(false, true)) {
+            return ResponseEntity.status(409).body(Map.of("error", "Já tem um retreino em andamento — espera terminar."));
+        }
+        try {
+            SalaryPredictionService.ModelInfo anterior = salaryPredictionService.getModelInfo();
+            SalaryModelTrainerService.TrainResult resultado = salaryModelTrainerService.treinar();
+
+            // Erro % (maePercent) é o número que a UI destaca em todo lugar
+            // como "margem de erro típica" — é o que o usuário realmente
+            // olha pra saber se piorou ou melhorou. Um retreino que piora
+            // esse número não substitui o modelo em produção sozinho: o
+            // treino em si sempre roda (não tem como saber se piorou sem
+            // treinar), mas só troca o modelo em uso se não piorou, ou se o
+            // usuário mandou forçar mesmo assim depois de ver a comparação.
+            boolean force = req != null && Boolean.TRUE.equals(req.force());
+            boolean piorou = anterior != null && resultado.maePercent() > anterior.maePercent();
+            boolean aplicado = force || !piorou;
+            if (aplicado) {
+                salaryPredictionService.reload(resultado.modelJson());
+            }
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("previous", anterior == null ? null : Map.of(
+                    "nSamples", anterior.nSamples(), "r2", anterior.r2(),
+                    "maeBrl", anterior.maeBrl(), "maePercent", anterior.maePercent()));
+            body.put("updated", Map.of(
+                    "nSamples", resultado.nSamples(), "r2", resultado.r2(),
+                    "maeBrl", resultado.maeBrl(), "maePercent", resultado.maePercent()));
+            body.put("applied", aplicado);
+            return ResponseEntity.ok(body);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(400).body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Falha ao retreinar modelo de salário", e);
+            return ResponseEntity.status(500).body(Map.of("error", "Erro interno ao retreinar: " + e.getMessage()));
+        } finally {
+            retreinoEmAndamento.set(false);
+        }
+    }
+
+    /**
+     * Fase 5.4 — dispara um backup na hora, fora da rotina agendada de 4h da
+     * manhã (ver {@link BackupService#backupAutomatico()}) — útil antes de
+     * uma migração/mudança arriscada, sem precisar esperar o cron nem entrar
+     * no container pra rodar pg_dump na mão.
+     * POST /api/jobs/admin/backup
+     */
+    @PostMapping("/admin/backup")
+    public ResponseEntity<Map<String, Object>> backupManual() {
+        BackupService.BackupResult resultado = backupService.executarBackup();
+        if (!resultado.ok()) {
+            return ResponseEntity.status(500).body(Map.of("error", resultado.erro()));
+        }
+        return ResponseEntity.ok(Map.of(
+                "arquivo", resultado.arquivo(),
+                "tamanhoBytes", resultado.tamanhoBytes()
+        ));
+    }
+
+    /**
+     * Lista os backups já feitos (automáticos + manuais, mesmo diretório),
+     * mais recente primeiro — pro painel de Configurações mostrar que o
+     * backup de verdade está rodando, não só confiar que o cron funciona.
+     * GET /api/jobs/admin/backups
+     */
+    @GetMapping("/admin/backups")
+    public List<Map<String, Object>> listarBackups() {
+        return backupService.listarBackups().stream()
+                .map(b -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("arquivo", b.arquivo());
+                    m.put("tamanhoBytes", b.tamanhoBytes());
+                    m.put("modificadoEm", b.modificadoEm());
+                    return m;
+                })
+                .toList();
+    }
+}

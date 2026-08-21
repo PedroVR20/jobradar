@@ -28,12 +28,23 @@ public class JobStatusService {
     public static final List<String> VALID_STATUSES =
             List.of("NOVA", "VISTA", "INTERESSADO", "APLICADA", "ANDAMENTO", "RECUSADA");
 
+    // Fase 8.7 — motivo estruturado, só faz sentido em conjunto com
+    // status=RECUSADA (ver Job.rejectedReason). PersonalRankingService usa
+    // isso pra aprender só da dimensão certa (ex: recusa por SALARIO não
+    // deveria penalizar a stack/senioridade/empresa da vaga).
+    public static final List<String> VALID_REJECTED_REASONS =
+            List.of("SALARIO", "LOCALIDADE", "SENIORIDADE", "STACK", "EMPRESA", "OUTRO");
+
     // "RECUSADA" NÃO força applied=true sozinho — antes forçava, assumindo que
     // toda recusa vem depois de uma candidatura de verdade, mas o usuário usa
     // "Recusada/congelada" também como "descartar/não tenho interesse" direto
     // de vagas nunca aplicadas (ex: limpar vagas antigas de anos atrás). Fica
     // com o applied que a vaga já tinha — true só se já era true antes.
     public void aplicarStatus(Job job, String status) {
+        aplicarStatus(job, status, null);
+    }
+
+    public void aplicarStatus(Job job, String status, String rejectedReason) {
         String statusAntes = statusAtual(job);
 
         boolean applied = status.equals("APLICADA") || status.equals("ANDAMENTO")
@@ -52,6 +63,11 @@ public class JobStatusService {
         }
         job.setRejected(status.equals("RECUSADA"));
         job.setRejectedAt(status.equals("RECUSADA") ? LocalDateTime.now() : null);
+        // Só grava motivo válido; sai da recusa (qualquer outro status) limpa
+        // o motivo antigo — não faz sentido carregar "recusei por SALARIO"
+        // numa vaga que voltou a ser NOVA/INTERESSADO depois.
+        job.setRejectedReason(status.equals("RECUSADA") && rejectedReason != null && VALID_REJECTED_REASONS.contains(rejectedReason)
+                ? rejectedReason : null);
 
         // Timeline de eventos (ver JobEvent) — só registra transição de
         // verdade (status mudou), e só pra vaga já persistida (id != null):

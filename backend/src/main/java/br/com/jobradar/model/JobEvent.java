@@ -13,6 +13,11 @@ import java.time.LocalDateTime;
  * "a vaga X passou a ser Y em tal hora" — só isso, sem redundância com os
  * campos que já existem no Job.
  */
+// Fase 12.3 — job_id (a FK acima) não tinha índice, só a PK em id; toda
+// consulta de timeline (GET /api/jobs/{id}/events) era seq scan na tabela
+// inteira. Índice criado em db/migration/V2__indices_fase_12.sql — ver o
+// comentário em Job.java sobre @Index não ser mais fonte de verdade desde
+// o Flyway (Fase 5.3, ddl-auto: validate).
 @Entity
 @Table(name = "job_events")
 @Data

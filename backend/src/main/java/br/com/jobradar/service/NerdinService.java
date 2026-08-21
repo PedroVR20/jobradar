@@ -33,38 +33,92 @@ import java.util.StringJoiner;
  */
 @Service
 @Slf4j
-public class NerdinService {
+public class NerdinService implements JobSource {
+
+    @Override
+    public String nome() {
+        return "Nerdin";
+    }
 
     private static final String BASE_URL = "https://www.nerdin.com.br";
     private static final String LIST_URL = BASE_URL + "/vagas.php?pagina=";
     private static final int MAX_PAGES = 45; // catálogo tinha ~700 vagas (35 páginas) — folga pro site crescer
     private static final ZoneId BRASILIA = ZoneId.of("America/Sao_Paulo");
 
+    // Fase 2.8 — quantas vezes tenta de novo uma página que falhou por erro
+    // transitório (timeout de rede, 503 momentâneo) antes de desistir dela e
+    // seguir pras próximas. Scraping de site de terceiro tem mais chance de
+    // hiccup de rede do que uma API — sem retry, uma falha pontual numa
+    // página no meio da paginação cortava o resto do catálogo fora à toa.
+    private static final int MAX_TENTATIVAS_POR_PAGINA = 3;
+
+    @Override
     public List<Job> fetchJobs() {
         List<Job> jobs = new ArrayList<>();
-        try {
-            for (int page = 1; page <= MAX_PAGES; page++) {
-                Document doc = Jsoup.connect(LIST_URL + page)
+        for (int page = 1; page <= MAX_PAGES; page++) {
+            Document doc = buscarPaginaComRetry(page);
+            if (doc == null) {
+                // Página falhou em todas as tentativas — não é fim de
+                // paginação (isso é cards.isEmpty(), não erro de rede), então
+                // não faz sentido parar o catálogo inteiro por causa de uma
+                // página específica. Segue tentando as próximas.
+                continue;
+            }
+
+            Elements cards = doc.select(".vaga-card");
+            if (cards.isEmpty()) {
+                // BUG REAL corrigido (Fase 2.8): 0 cards na página 1 quase
+                // certamente significa que o Nerdin mudou o HTML e o
+                // seletor ".vaga-card" não bate mais — bem diferente de 0
+                // cards na página 30+ (fim normal da paginação). Antes os
+                // dois casos eram idênticos (break silencioso), então uma
+                // quebra de seletor virava "Nerdin: 0 vagas buscadas" sem
+                // nenhum sinal de que era um erro e não um dia sem vaga
+                // nova. Loga como ERROR só no caso suspeito, pra aparecer
+                // destacado nos logs em vez de se perder como INFO normal.
+                if (page == 1) {
+                    log.error("=== Nerdin: 0 vagas na página 1 — possível quebra do seletor CSS " +
+                            "'.vaga-card' (o site pode ter mudado o layout da listagem) ===");
+                }
+                break; // fim da paginação (ou quebra de seletor — já logado acima)
+            }
+
+            for (Element card : cards) {
+                try {
+                    Job job = parseCard(card);
+                    if (job != null) jobs.add(job);
+                } catch (Exception e) {
+                    log.warn("Erro ao parsear vaga do Nerdin: {}", e.getMessage());
+                }
+            }
+        }
+        log.info("Nerdin: {} vagas buscadas", jobs.size());
+        return jobs;
+    }
+
+    /** Busca uma página da listagem, tentando de novo em caso de erro transitório. Devolve null se todas as tentativas falharem. */
+    private Document buscarPaginaComRetry(int page) {
+        for (int tentativa = 1; tentativa <= MAX_TENTATIVAS_POR_PAGINA; tentativa++) {
+            try {
+                return Jsoup.connect(LIST_URL + page)
                         .userAgent("Mozilla/5.0 (compatible; JobRadarBot/1.0; uso pessoal)")
                         .timeout(15000)
                         .get();
-                Elements cards = doc.select(".vaga-card");
-                if (cards.isEmpty()) break; // acabaram as páginas
-
-                for (Element card : cards) {
+            } catch (Exception e) {
+                boolean ultimaTentativa = tentativa == MAX_TENTATIVAS_POR_PAGINA;
+                if (ultimaTentativa) {
+                    log.warn("Nerdin: página {} falhou após {} tentativas: {}", page, MAX_TENTATIVAS_POR_PAGINA, e.getMessage());
+                } else {
                     try {
-                        Job job = parseCard(card);
-                        if (job != null) jobs.add(job);
-                    } catch (Exception e) {
-                        log.warn("Erro ao parsear vaga do Nerdin: {}", e.getMessage());
+                        Thread.sleep(1000L * tentativa); // backoff simples: 1s, depois 2s
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return null;
                     }
                 }
             }
-            log.info("Nerdin: {} vagas buscadas", jobs.size());
-        } catch (Exception e) {
-            log.error("Erro ao buscar do Nerdin: {}", e.getMessage());
         }
-        return jobs;
+        return null;
     }
 
     private Job parseCard(Element card) {
@@ -91,6 +145,28 @@ public class NerdinService {
         String salary = textOrNull(card, ".vaga-salario-destaque");
         String workplaceType = translateWorkplace(location);
 
+        // BUG REAL corrigido (Fase 1.2): antes o texto de local só era salvo
+        // (como cidade crua, sem separar estado) quando workplaceType vinha
+        // null — ou seja, TODA vaga marcada REMOTO/HIBRIDO/PRESENCIAL
+        // perdia a localização, mesmo tendo ela disponível (~380 das 841
+        // vagas do Nerdin no banco). O local vem no formato "Cidade • UF"
+        // (ex: "Rio de Janeiro • RJ") — agora sempre tenta separar os dois,
+        // independente da modalidade detectada.
+        String cidade = null;
+        String estado = null;
+        if (location != null) {
+            String[] partes = location.split("•");
+            if (partes.length == 2) {
+                cidade = partes[0].trim();
+                String nomeEstado = EstadosBrasileiros.nomeCompleto(partes[1].trim());
+                estado = nomeEstado != null ? nomeEstado : null;
+            } else {
+                // Não bate o formato "Cidade • UF" (ex: só "Home Office") —
+                // guarda o texto cru como cidade em vez de perder de vez.
+                cidade = location;
+            }
+        }
+
         StringJoiner tagsJoiner = new StringJoiner(",");
         tagsJoiner.add("nerdin");
         for (Element tag : card.select(".vaga-hashtags a")) {
@@ -104,9 +180,8 @@ public class NerdinService {
                 .url(url)
                 .source("NERDIN")
                 .workplaceType(workplaceType)
-                // sem modalidade estruturada (presencial/híbrido), guarda o texto
-                // cru do local como cidade — melhor que nada pro usuário ver
-                .city(workplaceType == null ? location : null)
+                .city(cidade)
+                .state(estado)
                 .tags(tagsJoiner.toString())
                 .salary(salary)
                 .postedAt(postedAt != null ? postedAt : LocalDateTime.now())

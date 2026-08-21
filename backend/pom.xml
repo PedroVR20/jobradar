@@ -18,6 +18,11 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- Fase 15.1 — 1.19.8 (o padrão gerenciado pelo Spring Boot 3.3.0)
+             não fala corretamente com versões recentes do Docker Desktop
+             (resposta 400 vazia da named pipe) — bump manual pra versão
+             com esse compat corrigido. -->
+        <testcontainers.version>1.20.4</testcontainers.version>
     </properties>
 
     <dependencies>
@@ -29,10 +34,30 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
+        <!-- Fase 15.4 — observabilidade: /actuator/health (liveness/readiness
+             já usados pelo healthcheck do Docker, ver docker-compose.yml) e
+             /actuator/metrics (contadores/latência, sem precisar instalar
+             Prometheus/Grafana pra ter visibilidade básica de produção). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
+        </dependency>
+        <!-- Fase 5.3 — Flyway: versões gerenciadas pelo BOM do Spring Boot
+             (evita fixar uma versão que fique dessincronizada). O módulo
+             flyway-database-postgresql é separado desde o Flyway 10 —
+             sem ele o suporte a recursos específicos do Postgres degrada. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
         <!-- RSS parser para We Work Remotely -->
         <dependency>
@@ -54,6 +79,29 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Fase 15.1 — os 54 testes existentes usam repositório mockado
+             (Mockito), nenhum exercita uma query real, um índice ou uma
+             migração Flyway contra um Postgres de verdade. spring-boot-
+             testcontainers dá o @ServiceConnection que substitui o
+             datasource pelo container automaticamente, sem precisar
+             configurar application-test.yml na mão. Versão gerenciada pelo
+             BOM do spring-boot-dependencies (propriedade
+             testcontainers.version), mesmo padrão do Flyway acima. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
