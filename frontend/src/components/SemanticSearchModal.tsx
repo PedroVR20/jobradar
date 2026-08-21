@@ -14,6 +14,7 @@ interface Props {
   onUpdateNotes: (id: number, notes: string) => void;
   onToast: (msg: string) => void;
   aiEnabled: boolean;
+  candidateProfile?: string;
 }
 
 interface SemanticSearchResult {
@@ -27,7 +28,7 @@ interface SemanticSearchResult {
 // (GET /api/jobs/semantic-search), sem gastar cota de IA generativa: o
 // embedding roda no Hunter-Embed local (ver EmbeddingProvider no backend).
 export function SemanticSearchModal({
-  onClose, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled,
+  onClose, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onToast, aiEnabled, candidateProfile,
 }: Props) {
   useEscapeToClose(onClose);
   const [consulta, setConsulta] = useState('');
@@ -122,6 +123,7 @@ export function SemanticSearchModal({
                 aiEnabled={aiEnabled}
                 sortMode="posted_desc"
                 matchPercent={r.similaridadePercent}
+                candidateProfile={candidateProfile}
                 compact
               />
             ))}

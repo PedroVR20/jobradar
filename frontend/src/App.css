@@ -490,6 +490,33 @@ a:hover { text-decoration: underline; }
   letter-spacing: 0.3px;
 }
 
+/* Fase 9.3 — "por que essa vaga apareceu" */
+.badge-why {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  letter-spacing: 0.3px;
+}
+.badge-why:hover { color: var(--text); border-color: var(--text-muted); }
+.why-panel {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  margin: 0.4rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.why-line { font-size: 0.78rem; color: var(--text); margin: 0; line-height: 1.4; }
+.why-line--muted { color: var(--text-muted); }
+.why-loading { font-size: 0.78rem; color: var(--text-muted); margin: 0; }
+
 .badge-applied {
   font-size: 0.65rem;
   font-weight: 700;

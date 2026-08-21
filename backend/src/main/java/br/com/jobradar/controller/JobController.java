@@ -767,6 +767,67 @@ public class JobController {
         return out;
     }
 
+    /**
+     * Fase 9.3 — explica de onde veio a ordenação/badge que o usuário já
+     * vê, mas sem o motivo até agora: (1) o badge 🎯 heurístico (quais tags
+     * do perfil bateram, quais faltaram, se a senioridade bateu) e (2) o
+     * ranking pessoal aprendido (quando ativo — quais features da vaga mais
+     * pesaram a favor, ver PersonalRankingService.explicar). Os dois campos
+     * vêm sempre, o frontend decide o que mostrar conforme o que está
+     * visível na tela (badge presente / sort=personal ativo).
+     * GET /api/jobs/{id}/why?profile=...
+     */
+    @GetMapping("/{id}/why")
+    public ResponseEntity<Map<String, Object>> explicarOrdenacao(
+            @PathVariable Long id, @RequestParam(required = false) String profile) {
+        return jobRepository.findById(id).<ResponseEntity<Map<String, Object>>>map(job -> {
+            Map<String, Object> out = new HashMap<>();
+
+            jarvisAssistantService.explicarMatch(job, profile).ifPresentOrElse(
+                    m -> out.put("heuristico", Map.of(
+                            "percent", m.percent(),
+                            "tagsQueBateram", m.tagsQueBateram(),
+                            "tagsQueFaltaram", m.tagsQueFaltaram(),
+                            "senioridadeBateu", m.senioridadeBateu())),
+                    () -> out.put("heuristico", null));
+
+            PersonalRankingService.Modelo modelo = personalRankingService.treinar();
+            Map<String, Object> ranking = new HashMap<>();
+            ranking.put("disponivel", modelo.disponivel());
+            if (modelo.disponivel()) {
+                ranking.put("score", personalRankingService.pontuar(job, modelo));
+                ranking.put("principaisFatores", personalRankingService.explicar(job, modelo, 4).stream()
+                        .map(c -> Map.of("descricao", humanizarFeature(c.feature()), "peso", Math.round(c.peso() * 100.0) / 100.0))
+                        .toList());
+            } else {
+                ranking.put("motivo", modelo.motivoIndisponivel());
+            }
+            out.put("rankingPessoal", ranking);
+
+            return ResponseEntity.ok(out);
+        }).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // Traduz a chave crua da feature (ver PersonalRankingService.featuresDe,
+    // formato "campo:valor") pra um texto legível no card — "tag:java" vira
+    // "tecnologia: java", não o texto interno do modelo.
+    private String humanizarFeature(String feature) {
+        int i = feature.indexOf(':');
+        if (i < 0) return feature;
+        String campo = feature.substring(0, i);
+        String valor = feature.substring(i + 1);
+        String rotulo = switch (campo) {
+            case "tag" -> "tecnologia";
+            case "seniority" -> "nível";
+            case "workplaceType" -> "modalidade";
+            case "source" -> "fonte";
+            case "state" -> "estado";
+            case "temSalario" -> "salário informado";
+            default -> campo;
+        };
+        return "temSalario".equals(campo) ? rotulo + " (" + valor + ")" : rotulo + ": " + valor;
+    }
+
     public record SemanticSearchResult(Job job, int similaridadePercent) {}
 
     /**

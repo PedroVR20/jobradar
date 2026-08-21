@@ -423,6 +423,7 @@ export default function App() {
           onUpdateNotes={updateNotes}
           onToast={showToast}
           aiEnabled={aiStatus.enabled}
+          candidateProfile={candidateProfile}
         />
       )}
 
@@ -511,6 +512,7 @@ export default function App() {
                   sortMode={filters.sort}
                   highlighted={job.id === highlightedJobId}
                   matchPercent={filters.viewMode === 'novas' ? matchScores[String(job.id)] : undefined}
+                  candidateProfile={candidateProfile}
                   compact={compactCards}
                   keyboardFocused={idx === focusedIndex}
                 />

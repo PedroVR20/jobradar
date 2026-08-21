@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -120,6 +121,24 @@ public class PersonalRankingService {
         // sigmoide pra comprimir a soma de log-odds (sem limite teórico) num 0-100 estável
         double sigmoide = 1.0 / (1.0 + Math.exp(-soma));
         return (int) Math.round(sigmoide * 100);
+    }
+
+    public record Contribuicao(String feature, double peso) {}
+
+    // Fase 9.3 — "de onde veio a ordenação": antes o usuário só via o
+    // RESULTADO do sort=personal, nunca o motivo. Devolve as features da
+    // vaga que mais PESARAM na pontuação (positivo empurra pra cima,
+    // negativo empurra pra baixo) — mesmo cálculo de pontuar(), só que
+    // guardando a contribuição individual de cada feature em vez de só a
+    // soma final.
+    public List<Contribuicao> explicar(Job job, Modelo modelo, int topN) {
+        if (!modelo.disponivel()) return List.of();
+        return featuresDe(job).stream()
+                .filter(f -> modelo.pesos().containsKey(f))
+                .map(f -> new Contribuicao(f, modelo.pesos().get(f)))
+                .sorted(Comparator.comparingDouble(Contribuicao::peso).reversed())
+                .limit(topN)
+                .toList();
     }
 
     private Map<String, Integer> contarFeatures(List<Job> jobs, boolean isNegativa) {

@@ -125,6 +125,30 @@ public class JarvisAssistantService {
         return out;
     }
 
+    public record MatchExplanation(int percent, List<String> tagsQueBateram, List<String> tagsQueFaltaram, boolean senioridadeBateu) {}
+
+    // Fase 9.3 — "de onde veio a ordenação"/"por que essa vaga apareceu":
+    // o badge 🎯 já existia (heuristicMatchPercents acima), mas só mostrava
+    // o percentual — nunca QUAIS tags do perfil bateram ou faltaram. Mesmo
+    // cálculo de heuristicMatchPercents, pra UMA vaga só, guardando o
+    // detalhe em vez de só o número final.
+    public Optional<MatchExplanation> explicarMatch(Job job, String candidateProfile) {
+        if (candidateProfile == null || candidateProfile.isBlank()) return Optional.empty();
+        Set<String> perfilTags = salaryPredictionService.extractTagsFromText(candidateProfile);
+        if (perfilTags.isEmpty()) return Optional.empty();
+        String perfilSenioridade = seniorityClassifier.classify(candidateProfile, String.join(",", perfilTags));
+
+        Set<String> jobTags = tagSet(job.getTags());
+        List<String> bateram = perfilTags.stream().filter(jobTags::contains).sorted().toList();
+        List<String> faltaram = perfilTags.stream().filter(t -> !jobTags.contains(t)).sorted().toList();
+        boolean senioridadeBateu = perfilSenioridade != null && perfilSenioridade.equals(job.getSeniority());
+
+        int percent = perfilTags.isEmpty() ? 0 : (int) Math.round(100.0 * bateram.size() / perfilTags.size());
+        if (senioridadeBateu) percent = Math.min(100, percent + 10);
+
+        return Optional.of(new MatchExplanation(percent, bateram, faltaram, senioridadeBateu));
+    }
+
     private double scoreHeuristico(Job job, Set<String> perfilTags, String perfilSenioridade) {
         Set<String> jobTags = tagSet(job.getTags());
         long overlap = jobTags.stream().filter(perfilTags::contains).count();

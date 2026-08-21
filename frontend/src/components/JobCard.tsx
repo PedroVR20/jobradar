@@ -40,6 +40,15 @@ interface Props {
   // Cada card ainda pode ser clicado pra expandir individualmente sem sair
   // do modo compacto — não precisa trocar de tela pra ver os detalhes.
   compact?: boolean;
+  // Fase 9.3 — "por que essa vaga apareceu": mesmo perfil usado pro badge
+  // 🎯, mandado de novo aqui só pra explicar o que já foi calculado (não
+  // dispara recálculo de nada, o card não decide isso sozinho).
+  candidateProfile?: string;
+}
+
+interface WhyExplanation {
+  heuristico: { percent: number; tagsQueBateram: string[]; tagsQueFaltaram: string[]; senioridadeBateu: boolean } | null;
+  rankingPessoal: { disponivel: boolean; score?: number; motivo?: string; principaisFatores?: { descricao: string; peso: number }[] };
 }
 
 const techTags = [
@@ -244,7 +253,7 @@ function companyInitials(name: string): string {
     .join('');
 }
 
-export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onReativar, onToast, aiEnabled, sortMode, highlighted, matchPercent, compact, keyboardFocused }: Props) {
+export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogglePin, onUpdateNotes, onReativar, onToast, aiEnabled, sortMode, highlighted, matchPercent, compact, keyboardFocused, candidateProfile }: Props) {
   const isOfficialSource = Object.prototype.hasOwnProperty.call(sourceMeta, job.source);
   const { getColor, setColor } = useSourceColors();
   const customColor = !isOfficialSource ? getColor(job.source) : null;
@@ -283,6 +292,27 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<JobEventDto[] | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // Fase 9.3 — "por que essa vaga apareceu": busca só quando o usuário
+  // clica (mesmo padrão do histórico logo acima), cacheia na primeira vez.
+  const [whyOpen, setWhyOpen] = useState(false);
+  const [why, setWhy] = useState<WhyExplanation | null>(null);
+  const [whyLoading, setWhyLoading] = useState(false);
+  const toggleWhy = async () => {
+    const abrindo = !whyOpen;
+    setWhyOpen(abrindo);
+    if (abrindo && !why) {
+      setWhyLoading(true);
+      try {
+        const qs = candidateProfile ? `?profile=${encodeURIComponent(candidateProfile)}` : '';
+        const res = await fetch(`/api/jobs/${job.id}/why${qs}`);
+        if (res.ok) setWhy(await res.json());
+      } catch {
+        // silencioso — é só uma explicação extra, não vale poluir com toast
+      } finally {
+        setWhyLoading(false);
+      }
+    }
+  };
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
   const [coverLetterOpen, setCoverLetterOpen] = useState(false);
@@ -438,6 +468,15 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
                 🎯 {matchPercent}% match
               </span>
             )}
+            {/* Fase 9.3 — "por que essa vaga apareceu": só aparece quando há
+                algum sinal pra explicar (badge de match visível OU
+                ordenação por ranking pessoal ativa) — clique busca sob
+                demanda, não pesa em render de lista grande. */}
+            {(matchPercent != null || sortMode === 'personal') && (
+              <button type="button" className="badge-why" onClick={toggleWhy} title="Por que essa vaga apareceu aqui?">
+                {whyOpen ? '❓ fechar' : '❓ por quê?'}
+              </button>
+            )}
             {job.rejected && <span className="badge-rejected">❌ RECUSADA</span>}
             {job.inProgress && !job.rejected && <span className="badge-in-progress">EM ANDAMENTO 🔄</span>}
             {isPlainApplied && <span className="badge-applied">APLICADA ✅</span>}
@@ -492,6 +531,7 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
             )}
           </div>
         </div>
+
         <div className="card-header-right">
           {sortMode === 'fetched_desc' ? (
             <span
@@ -574,6 +614,45 @@ export function JobCard({ job, onSeen, onApplied, onInProgress, onSetStatus, onT
           </div>
         </div>
       </div>
+
+      {/* Fase 9.3 — "por que essa vaga apareceu" — explicação sob demanda,
+          fora do fluxo flex do header (o botão que abre isso fica lá
+          dentro, mas o painel em si é sua própria linha, largura total). */}
+      {whyOpen && (
+        <div className="why-panel">
+          {whyLoading ? (
+            <p className="why-loading">carregando…</p>
+          ) : !why ? (
+            <p className="why-loading">Não consegui carregar agora.</p>
+          ) : (
+            <>
+              {why.heuristico && (
+                <p className="why-line">
+                  🎯 <strong>{why.heuristico.percent}% de match</strong>
+                  {why.heuristico.tagsQueBateram.length > 0 && <> — bateu: {why.heuristico.tagsQueBateram.join(', ')}</>}
+                  {why.heuristico.tagsQueFaltaram.length > 0 && <> · faltou: {why.heuristico.tagsQueFaltaram.join(', ')}</>}
+                  {why.heuristico.senioridadeBateu && <> · nível bateu</>}
+                </p>
+              )}
+              {sortMode === 'personal' && (
+                why.rankingPessoal.disponivel ? (
+                  <p className="why-line">
+                    🧭 <strong>Ranking pessoal: {why.rankingPessoal.score}</strong>
+                    {why.rankingPessoal.principaisFatores && why.rankingPessoal.principaisFatores.length > 0 && (
+                      <> — {why.rankingPessoal.principaisFatores.map(f => `${f.descricao} (${f.peso > 0 ? '+' : ''}${f.peso})`).join(', ')}</>
+                    )}
+                  </p>
+                ) : (
+                  <p className="why-line why-line--muted">🧭 Ranking pessoal ainda não disponível{why.rankingPessoal.motivo ? `: ${why.rankingPessoal.motivo}` : ''}</p>
+                )
+              )}
+              {!why.heuristico && sortMode !== 'personal' && (
+                <p className="why-line why-line--muted">Sem sinal de ordenação pra explicar nessa vaga.</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Body */}
       <h3 className="card-title">
