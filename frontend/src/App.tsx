@@ -571,6 +571,23 @@ export default function App() {
           />
         ) : (
           <>
+            {/* Fase 13.1/13.3 — sem acesso a browser/DevTools Profiler nessa
+                sessão, a decisão sobre virtualizar essa lista foi por
+                julgamento de código, não medição real: paginação já limita
+                cada carregamento a PAGE_SIZE=30 (useJobs.ts) — "carregar
+                mais" acumula, mas o caso comum fica na casa de dezenas, não
+                milhares — e React.memo (Fase 13.2) já corta o re-render de
+                card não afetado, que era o custo dominante mais óbvio.
+                Virtualização (react-window) traria uma dependência nova +
+                refatoração de layout (grid CSS vira lista de altura
+                variável) pra um ganho que, sem medição real, não dá pra
+                afirmar que compensa aqui. O que DEU pra confirmar sem
+                DevTools — imagem de logo carregando eager mesmo fora da
+                viewport em toda vaga — foi corrigido (loading="lazy" em
+                JobCard, nativo do browser, zero dependência nova). Se o
+                catálogo/paginação crescer a ponto de "carregar mais" virar
+                hábito de centenas de cards na tela, revisitar com medição
+                real primeiro. */}
             <div className={`jobs-grid ${compactCards ? 'jobs-grid--compact' : ''}`}>
               {jobs.map((job, idx) => (
                 <JobCard

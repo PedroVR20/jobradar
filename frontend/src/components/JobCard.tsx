@@ -461,6 +461,8 @@ function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogg
               src={job.companyLogoUrl}
               alt=""
               className="company-logo"
+              loading="lazy"
+              decoding="async"
               onError={() => setLogoError(true)}
             />
           ) : (
@@ -498,6 +500,8 @@ function JobCardImpl({ job, onSeen, onApplied, onInProgress, onSetStatus, onTogg
                 src={job.companyLogoUrl}
                 alt={job.company}
                 className="company-logo"
+                loading="lazy"
+                decoding="async"
                 onError={() => setLogoError(true)}
               />
             ) : (
