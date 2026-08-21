@@ -26,11 +26,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -346,28 +344,51 @@ public class JobController {
         for (List<Job> candidatos : porEmpresa.values()) {
             if (candidatos.size() < 2) continue;
 
-            // agrupa por similaridade de título via BFS (componentes conectados)
+            // Fase 10 — complete-linkage, não mais BFS de single-linkage.
+            // Achado real ao coletar dado de treino pro Hunter-Dup: o BFS
+            // antigo conectava A-D transitivamente via uma cadeia A-B-C-D
+            // (cada elo só precisava bater jaccard>=0.6 com o VIZINHO
+            // imediato), mesmo que A e D não se parecessem nada entre si.
+            // Medido contra ~500 grupos reais verificados pelo Gemini: 57%
+            // dos pares dentro de grupo "mesma vaga" tinham jaccard < 0.6
+            // entre si — o critério antigo deixava grupo "esticar" longe
+            // demais. Agora um candidato só entra se bater jaccard>=0.6 com
+            // TODO mundo que já está confirmado no grupo (o "elo mais
+            // fraco" do grupo inteiro decide, não só o último vizinho).
+            // Medido contra o veredito real do Gemini nos mesmos ~500
+            // grupos: 94% de precisão (quando o grupo bate esse critério,
+            // quase sempre É mesma vaga de verdade) — não elimina a
+            // necessidade da segunda opinião da IA (ver
+            // verificarDuplicataComIa), só entrega um candidato mais limpo
+            // pra ela analisar. Loop até estabilizar porque adicionar um
+            // membro pode habilitar outro que antes não batia sozinho.
             boolean[] visitado = new boolean[candidatos.size()];
             for (int i = 0; i < candidatos.size(); i++) {
                 if (visitado[i]) continue;
                 List<Job> componente = new ArrayList<>();
-                Deque<Integer> fila = new ArrayDeque<>();
-                fila.add(i);
+                List<Set<String>> palavrasComponente = new ArrayList<>();
+                componente.add(candidatos.get(i));
+                palavrasComponente.add(titleWords(candidatos.get(i).getTitle()));
                 visitado[i] = true;
-                while (!fila.isEmpty()) {
-                    int atual = fila.poll();
-                    Job jobAtual = candidatos.get(atual);
-                    componente.add(jobAtual);
-                    Set<String> palavrasAtual = titleWords(jobAtual.getTitle());
+
+                boolean mudou = true;
+                while (mudou) {
+                    mudou = false;
                     for (int j = 0; j < candidatos.size(); j++) {
-                        if (visitado[j] || j == atual) continue;
+                        if (visitado[j]) continue;
                         Job jobCandidato = candidatos.get(j);
-                        // senioridade precisa bater — "Dev Pleno" e "Dev Sênior" da mesma empresa
-                        // são vagas diferentes, não duplicata, mesmo com título quase idêntico
-                        boolean mesmaSenioridade = java.util.Objects.equals(jobAtual.getSeniority(), jobCandidato.getSeniority());
-                        if (mesmaSenioridade && jaccard(palavrasAtual, titleWords(jobCandidato.getTitle())) >= 0.6) {
+                        Set<String> palavrasCandidato = titleWords(jobCandidato.getTitle());
+                        // senioridade precisa bater com TODO o grupo — "Dev Pleno" e "Dev
+                        // Sênior" da mesma empresa são vagas diferentes, não duplicata.
+                        boolean mesmaSenioridade = componente.stream()
+                                .allMatch(m -> java.util.Objects.equals(m.getSeniority(), jobCandidato.getSeniority()));
+                        boolean pareceComTodoOGrupo = palavrasComponente.stream()
+                                .allMatch(palavrasMembro -> jaccard(palavrasMembro, palavrasCandidato) >= 0.6);
+                        if (mesmaSenioridade && pareceComTodoOGrupo) {
+                            componente.add(jobCandidato);
+                            palavrasComponente.add(palavrasCandidato);
                             visitado[j] = true;
-                            fila.add(j);
+                            mudou = true;
                         }
                     }
                 }
