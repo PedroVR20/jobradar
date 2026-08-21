@@ -17,6 +17,7 @@ import { JarvisPanel } from './components/JarvisPanel';
 import { TriageModal } from './components/TriageModal';
 import { DuplicatesModal } from './components/DuplicatesModal';
 import { SemanticSearchModal } from './components/SemanticSearchModal';
+import { ShortcutsModal } from './components/ShortcutsModal';
 import { HunterIcon } from './components/HunterIcon';
 import { useCandidateProfile } from './hooks/useCandidateProfile';
 import { useQuickMatchScores } from './hooks/useQuickMatchScores';
@@ -89,6 +90,9 @@ export default function App() {
   const [showDuplicates, setShowDuplicates] = useState(false);
   // Fase 9.2 — busca por significado fora do chat do Hunter.
   const [showSemanticSearch, setShowSemanticSearch] = useState(false);
+  // Fase 16.8 — folha de atalhos ("?"), pra descobrir o que já existia
+  // (Fase 8.3 navegação, Ctrl+K Hunter, drag-and-drop) sem tropeçar por acaso.
+  const [showShortcuts, setShowShortcuts] = useState(false);
   // Fase 8.3 — navegação por teclado no grid principal (a Triagem rápida,
   // Lote 9, já tinha atalho de teclado pro fluxo "uma vaga por vez"; isso
   // aqui é o mesmo princípio pro grid normal, onde o padrão até agora era
@@ -302,13 +306,22 @@ export default function App() {
   // cards; x seleciona (alimenta a barra de ações em lote, Fase 8.2); y/n/v
   // agem direto na vaga focada; Enter abre a vaga. Desativado com QUALQUER
   // modal aberto (o próprio modal tem seus atalhos) ou digitando num campo.
-  const anyModalOpen = showAddModal || showMetrics || showSettings || showJarvis || showTriage || showDuplicates || showSemanticSearch;
+  const anyModalOpen = showAddModal || showMetrics || showSettings || showJarvis || showTriage || showDuplicates || showSemanticSearch || showShortcuts;
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (anyModalOpen) return;
       const alvo = e.target as HTMLElement | null;
       if (alvo && ['INPUT', 'TEXTAREA', 'SELECT'].includes(alvo.tagName)) return;
       if (alvo?.isContentEditable) return;
+      // Fase 16.8 — "?" precisa abrir a folha de atalhos mesmo sem NENHUM
+      // modal aberto (senão vira um atalho pra descobrir atalho que só
+      // funciona quando você já sabe que não tem nada aberto). Fecha com
+      // Esc/clique fora como qualquer outro modal (useEscapeToClose nele).
+      if (e.key === '?' && !anyModalOpen) {
+        e.preventDefault();
+        setShowShortcuts(true);
+        return;
+      }
+      if (anyModalOpen) return;
       if (jobs.length === 0) return;
 
       if (e.key === 'j' || e.key === 'ArrowDown') {
@@ -449,6 +462,10 @@ export default function App() {
           aiEnabled={aiStatus.enabled}
           candidateProfile={candidateProfile}
         />
+      )}
+
+      {showShortcuts && (
+        <ShortcutsModal onClose={() => setShowShortcuts(false)} />
       )}
 
       {showAddModal && (

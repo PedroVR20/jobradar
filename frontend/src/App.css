@@ -517,6 +517,58 @@ a:hover { text-decoration: underline; }
 .why-line--muted { color: var(--text-muted); }
 .why-loading { font-size: 0.78rem; color: var(--text-muted); margin: 0; }
 
+/* Fase 16.8 — folha de atalhos de teclado */
+.shortcuts-modal {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.shortcuts-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.shortcuts-group-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin: 0 0 0.15rem;
+}
+.shortcuts-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+}
+.shortcuts-keys {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.shortcuts-kbd {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.15rem 0.45rem;
+  min-width: 1.4em;
+  text-align: center;
+}
+.shortcuts-label {
+  font-size: 0.82rem;
+  color: var(--text);
+  text-align: right;
+}
+
 .badge-applied {
   font-size: 0.65rem;
   font-weight: 700;
